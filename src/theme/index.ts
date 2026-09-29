@@ -22,13 +22,17 @@ export const gradients = {
   welcome: [colors.success, colors.background] as const, // Mint fading into cream
 };
 
-// Mood levels 1 (very low) to 5 (great), from the palette above; index = level - 1
+// Mood levels 1 (very low) to 5 (great); index = level - 1.
+// Mood is ordinal, so it's one hue (our primary green) from light to dark.
+// Each step is at least 8.3 OKLab units from the next, so levels stay distinct
+// with colour-vision deficiencies. The two lightest are below 3:1 on white, so
+// anything using them must also show text labels or a table (never colour alone).
 export const moodColors = [
-  colors.danger,
-  colors.dangerTint,
-  colors.border,
-  colors.selected,
-  colors.primary,
+  "#A3DDC4",
+  "#6ABE9D",
+  "#389A77",
+  "#1D8060",
+  "#065A42",
 ] as const;
 
 // Role badges in the admin panel; each role gets a distinct pairing from the palette

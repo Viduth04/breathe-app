@@ -1,17 +1,21 @@
 // Admin panel - Viduth (Member 1). Supports FR01, FR03, FR06, NFR01.
 //
-// Admins only touch users, counsellors and resources. They must never read
-// checkins, bookings, careLinks, chats or messages (NFR01) - do not add those here.
+// Admins only touch users, counsellors, resources and demo stats. They must
+// never read checkins, bookings, careLinks, chats or messages (NFR01) - do not
+// add those here.
 
 import { db } from "@/firebase/config";
 import { Role, UserProfile } from "@/services/authService";
 import type { CounsellorInput, CounsellorProfile } from "@/types/counsellor";
 import type { Resource, ResourceInput } from "@/types/resource";
+import type { WeekStats } from "@/types/stats";
+import { recentWeeks } from "@/utils/week";
 import {
   addDoc,
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   serverTimestamp,
   setDoc,
@@ -186,6 +190,62 @@ export async function loadStarterResources() {
     });
   }
   await batch.commit();
+}
+
+// ---------- DEMO STATS (lecturer charts) ----------
+
+// Sample mood counts [mood1..mood5] for the 8 weeks before this one, oldest
+// first. Includes an exam-season dip and one quiet week under the privacy
+// threshold so every lecturer state can be demoed.
+const DEMO_WEEKS: [number, number, number, number, number][] = [
+  [1, 3, 8, 9, 4],
+  [1, 4, 9, 8, 3],
+  [2, 5, 10, 7, 3],
+  [0, 1, 1, 1, 0], // Only 3 check-ins: shows "Not enough responses"
+  [3, 7, 11, 6, 2],
+  [4, 8, 10, 5, 1],
+  [2, 6, 9, 8, 3],
+  [1, 3, 8, 10, 5],
+];
+
+// Writes demo stats for the 8 weeks BEFORE the current one, skipping any week
+// that already has a doc (real data is never overwritten). The current week is
+// left alone so real student check-ins keep working. Returns weeks written.
+export async function loadDemoStats() {
+  const weeks = recentWeeks(DEMO_WEEKS.length + 1).slice(0, -1);
+  const existing = await Promise.all(weeks.map((w) => getDoc(doc(db, "stats", w.id))));
+  const batch = writeBatch(db);
+  let written = 0;
+  weeks.forEach((week, i) => {
+    if (existing[i].exists()) return;
+    const [m1, m2, m3, m4, m5] = DEMO_WEEKS[i];
+    const data: Required<WeekStats> = {
+      weekStart: week.weekStart,
+      total: m1 + m2 + m3 + m4 + m5,
+      mood1: m1,
+      mood2: m2,
+      mood3: m3,
+      mood4: m4,
+      mood5: m5,
+      demo: true,
+    };
+    batch.set(doc(db, "stats", week.id), data);
+    written += 1;
+  });
+  if (written) await batch.commit();
+  return written;
+}
+
+// Deletes demo weeks only (the rules refuse to delete real stats). Returns weeks removed.
+export async function removeDemoStats() {
+  const weeks = recentWeeks(DEMO_WEEKS.length + 1);
+  const snaps = await Promise.all(weeks.map((w) => getDoc(doc(db, "stats", w.id))));
+  const demo = snaps.filter((s) => s.exists() && s.data().demo === true);
+  if (!demo.length) return 0;
+  const batch = writeBatch(db);
+  demo.forEach((s) => batch.delete(s.ref));
+  await batch.commit();
+  return demo.length;
 }
 
 // ---------- OVERVIEW ----------

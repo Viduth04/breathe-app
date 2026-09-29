@@ -23,16 +23,20 @@ export default function Index() {
       return <Redirect href="/(counsellor)/dashboard" />;
     case "admin":
       return <Redirect href="/(admin)/dashboard" />;
+    case "lecturer":
+      return <Redirect href="/(lecturer)/overview" />;
     default:
-      // Lecturers have no area in the app yet
+      // A role value the app doesn't know (e.g. mistyped in the console).
+      // Shown here instead of redirecting, which would loop with (auth).
       return (
         <Screen style={styles.content}>
           <Text style={typography.title} accessibilityRole="header">
-            Coming soon
+            Account not set up
           </Text>
           <Card>
             <Text style={typography.body}>
-              The Breathe app doesn't support {profile.role} accounts yet.
+              Your account doesn't have a role this app recognises. Please
+              contact an admin.
             </Text>
           </Card>
           <LogoutButton />

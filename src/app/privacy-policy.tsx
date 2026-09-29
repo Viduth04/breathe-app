@@ -23,6 +23,7 @@ const SECTIONS: Section[] = [
       "Your mood check-ins, so you can see how you've been feeling over time.",
       "Your counselling bookings, so you and your counsellor can manage appointments.",
       "Your chats with a counsellor. Only you and that counsellor can read them.",
+      "Anonymous weekly totals: each check-in adds 1 to that week's count for the mood you picked. The totals don't include your name, email, anonymous ID or when you checked in, so they can't be linked back to you.",
     ],
   },
   {
@@ -37,8 +38,9 @@ const SECTIONS: Section[] = [
     icon: "bar-chart-outline",
     title: "What lecturers see",
     points: [
-      "Lecturers and faculty only see anonymised totals, such as how many students checked in this week.",
-      "They never see who you are or any of your individual check-ins or bookings.",
+      "Lecturers only see anonymous weekly totals: how many check-ins there were that week and how many were at each mood level, plus the weekly average.",
+      "If a week has fewer than 5 check-ins, they don't see the mood breakdown or average for it at all, so no one can work out how one student felt.",
+      "They never see who you are or any of your individual check-ins, bookings or chats.",
     ],
   },
   {
@@ -55,6 +57,7 @@ const SECTIONS: Section[] = [
       "Go to Privacy & Data and tap Delete My Data.",
       "This permanently deletes your check-ins, bookings, chats and messages (including your counsellor's replies), profile and account. It can't be undone.",
       "If you registered with an email, you'll be asked for your password first so no one else can delete your account.",
+      "Your past check-ins stay counted in the anonymous weekly totals. Those totals don't record who contributed, so there is no way to find and remove your part.",
     ],
   },
 ];

@@ -38,6 +38,12 @@
 //                               (doc id MUST be "<counsellorUid>_<studentUid>")
 //   chats/{chatId}              participants    ([studentUid, counsellorUid])
 //   chats/{chatId}/messages/{id} senderId
+//   stats/{weekId}              doc id = ISO week, e.g. "2026-W40"
+//                               weekStart ("YYYY-MM-DD", that week's Monday),
+//                               total, mood1..mood5, demo (admin sample data)
+//                               NO uid, anonId or per-person timestamps.
+//                               (type: src/types/stats.ts; students write it
+//                               only via recordAnonymousMoodStat())
 //
 // NOT IN FIRESTORE
 //   Reminders (FR05) are local notifications (expo-notifications); the
@@ -85,6 +91,10 @@ service cloud.firestore {
 
     function isStudent() {
       return isSignedIn() && role() == "student";
+    }
+
+    function isLecturer() {
+      return isSignedIn() && role() == "lecturer";
     }
 
     // Fields an update touches
@@ -304,6 +314,108 @@ service cloud.firestore {
         allow delete: if isStudent()
           && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
       }
+    }
+
+    // ---------- stats ----------
+    // Anonymous weekly mood totals for lecturers (US05). A doc only ever holds
+    // counts - never who checked in. Lecturers and admins read; students can
+    // only add exactly one check-in to the CURRENT week; admins can only add
+    // or remove clearly marked demo weeks, never touch real ones.
+    match /stats/{weekId} {
+      // "YYYY-MM-DD" -> timestamp at 00:00 UTC
+      function dateOf(ws) {
+        return timestamp.date(int(ws.split("-")[0]), int(ws.split("-")[1]), int(ws.split("-")[2]));
+      }
+
+      // weekStart is a Monday and the doc id is its ISO week ("2026-W40").
+      // For a Monday, ISO week = (dayOfYear + 9) / 7. Week "53" can also be
+      // week 1 of the next year, so both are accepted there.
+      function idMatches(ws) {
+        let start = dateOf(ws);
+        let week = (start.dayOfYear() + 9) / 7;
+        let idYear = int(weekId.split("-W")[0]);
+        let idWeek = int(weekId.split("-W")[1]);
+        return weekId.matches("^[0-9]{4}-W[0-9]{2}$")
+          && start.dayOfWeek() == 1
+          && ((idYear == start.year() && idWeek == week)
+              || (week == 53 && idYear == start.year() + 1 && idWeek == 1));
+      }
+
+      // The week is happening now (one day of slack each side covers time
+      // zones, since weekStart is the Monday in the phone's local time)
+      function isCurrentWeek(ws) {
+        return request.time >= dateOf(ws) - duration.value(1, "d")
+          && request.time < dateOf(ws) + duration.value(8, "d");
+      }
+
+      function validWeekStart(ws) {
+        return ws is string
+          && ws.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+          && idMatches(ws);
+      }
+
+      // Exactly one mood field went up by exactly 1 (update)
+      function oneMoodUp(before, after, changed) {
+        return (changed.hasAll(["mood1"]) && after.mood1 == before.get("mood1", 0) + 1)
+          || (changed.hasAll(["mood2"]) && after.mood2 == before.get("mood2", 0) + 1)
+          || (changed.hasAll(["mood3"]) && after.mood3 == before.get("mood3", 0) + 1)
+          || (changed.hasAll(["mood4"]) && after.mood4 == before.get("mood4", 0) + 1)
+          || (changed.hasAll(["mood5"]) && after.mood5 == before.get("mood5", 0) + 1);
+      }
+
+      // Exactly one mood field, set to 1 (first check-in of the week)
+      function oneMoodIsOne(d) {
+        return (d.keys().hasAll(["mood1"]) && d.mood1 == 1)
+          || (d.keys().hasAll(["mood2"]) && d.mood2 == 1)
+          || (d.keys().hasAll(["mood3"]) && d.mood3 == 1)
+          || (d.keys().hasAll(["mood4"]) && d.mood4 == 1)
+          || (d.keys().hasAll(["mood5"]) && d.mood5 == 1);
+      }
+
+      function isCount(v) {
+        return v is int && v >= 0;
+      }
+
+      // Lecturers and admins only
+      allow read: if isLecturer() || isAdmin();
+
+      // Student, first check-in of the week: {weekStart, total: 1, moodN: 1}
+      allow create: if isStudent()
+        && validWeekStart(request.resource.data.weekStart)
+        && isCurrentWeek(request.resource.data.weekStart)
+        && request.resource.data.keys().size() == 3
+        && request.resource.data.keys().hasAll(["weekStart", "total"])
+        && request.resource.data.total == 1
+        && oneMoodIsOne(request.resource.data);
+
+      // Student, later check-ins: total +1 and exactly one mood +1, nothing
+      // else; only on the current, real (non-demo) week
+      allow update: if isStudent()
+        && resource.data.get("demo", false) == false
+        && isCurrentWeek(resource.data.weekStart)
+        && changedKeys().size() == 2
+        && changedKeys().hasAll(["total"])
+        && request.resource.data.total == resource.data.total + 1
+        && oneMoodUp(resource.data, request.resource.data, changedKeys());
+
+      // Admin demo data: new docs only, marked demo, all counts present and
+      // adding up. Real weeks can't be overwritten because this is create-only.
+      allow create: if isAdmin()
+        && request.resource.data.demo == true
+        && validWeekStart(request.resource.data.weekStart)
+        && request.resource.data.keys().hasOnly(
+             ["weekStart", "total", "mood1", "mood2", "mood3", "mood4", "mood5", "demo"])
+        && isCount(request.resource.data.mood1)
+        && isCount(request.resource.data.mood2)
+        && isCount(request.resource.data.mood3)
+        && isCount(request.resource.data.mood4)
+        && isCount(request.resource.data.mood5)
+        && request.resource.data.total == request.resource.data.mood1
+             + request.resource.data.mood2 + request.resource.data.mood3
+             + request.resource.data.mood4 + request.resource.data.mood5;
+
+      // Admins can remove demo weeks only; real stats are never deleted
+      allow delete: if isAdmin() && resource.data.get("demo", false) == true;
     }
   }
 }

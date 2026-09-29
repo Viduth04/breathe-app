@@ -5,12 +5,22 @@
 import AdminHeader from "@/components/admin/AdminHeader";
 import RoleBadge from "@/components/admin/RoleBadge";
 import { displayName } from "@/components/admin/RoleSheet";
-import { ErrorState, LoadingState } from "@/components/admin/StateViews";
+import {
+  ErrorState,
+  InlineError,
+  LoadingState,
+  SuccessNotice,
+} from "@/components/admin/StateViews";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
 import Screen from "@/components/common/Screen";
 import { useAuth } from "@/context/AuthContext";
-import { AdminStats, getAdminStats } from "@/services/adminService";
+import {
+  AdminStats,
+  getAdminStats,
+  loadDemoStats,
+  removeDemoStats,
+} from "@/services/adminService";
 import { getAuthErrorMessage } from "@/services/authService";
 import { colors, spacing, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
@@ -62,6 +72,32 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string>();
+  const [demoBusy, setDemoBusy] = useState<"load" | "remove" | null>(null);
+  const [demoError, setDemoError] = useState<string>();
+  const [notice, setNotice] = useState<string | null>(null);
+  const hideNotice = useCallback(() => setNotice(null), []);
+
+  // Sample weekly stats so the lecturer charts can be demoed (admins only)
+  const runDemo = async (action: "load" | "remove") => {
+    setDemoError(undefined);
+    setDemoBusy(action);
+    try {
+      const count = action === "load" ? await loadDemoStats() : await removeDemoStats();
+      setNotice(
+        action === "load"
+          ? count
+            ? `Demo stats added for ${count} past ${count === 1 ? "week" : "weeks"}.`
+            : "Those weeks already have data, so nothing was added."
+          : count
+            ? `Removed demo stats from ${count} ${count === 1 ? "week" : "weeks"}.`
+            : "There were no demo stats to remove.",
+      );
+    } catch (e) {
+      setDemoError(getAuthErrorMessage(e));
+    } finally {
+      setDemoBusy(null);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoadError(undefined);
@@ -98,6 +134,7 @@ export default function Dashboard() {
         }
       >
         <AdminHeader title={`Hi, ${firstName}`} subtitle={today()} />
+        <SuccessNotice message={notice} onHide={hideNotice} />
 
         {loading ? (
           <LoadingState label="Loading overview" />
@@ -150,6 +187,35 @@ export default function Dashboard() {
             </View>
 
             <Text style={[typography.heading, styles.section]} accessibilityRole="header">
+              Lecturer demo data
+            </Text>
+            <Card>
+              <Text style={typography.caption}>
+                Adds sample weekly mood totals for the 8 weeks before this one, so
+                the lecturer charts can be demoed. Weeks that already have real
+                data are skipped, this week is never touched, and demo weeks are
+                labelled for lecturers. Remove them before real use.
+              </Text>
+              <InlineError message={demoError} />
+              <View style={styles.demoButtons}>
+                <Button
+                  title="Load demo stats"
+                  icon="stats-chart-outline"
+                  onPress={() => runDemo("load")}
+                  loading={demoBusy === "load"}
+                  disabled={demoBusy !== null}
+                />
+                <Button
+                  title="Remove demo stats"
+                  variant="secondary"
+                  onPress={() => runDemo("remove")}
+                  loading={demoBusy === "remove"}
+                  disabled={demoBusy !== null}
+                />
+              </View>
+            </Card>
+
+            <Text style={[typography.heading, styles.section]} accessibilityRole="header">
               Recent sign-ups
             </Text>
             {stats.recentSignUps.length === 0 ? (
@@ -194,6 +260,7 @@ const styles = StyleSheet.create({
   statValue: { ...typography.title, marginTop: spacing.xs },
   section: { marginTop: spacing.lg, marginBottom: spacing.sm },
   actions: { gap: spacing.sm },
+  demoButtons: { gap: spacing.sm, marginTop: spacing.md },
   userRow: {
     flexDirection: "row",
     alignItems: "center",
