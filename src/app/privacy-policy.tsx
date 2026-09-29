@@ -22,6 +22,7 @@ const SECTIONS: Section[] = [
       "Your profile: your name, email, a random anonymous ID (like Student #4021) and your privacy settings. Guest accounts have no name or email.",
       "Your mood check-ins, so you can see how you've been feeling over time.",
       "Your counselling bookings, so you and your counsellor can manage appointments.",
+      "Your chats with a counsellor. Only you and that counsellor can read them.",
     ],
   },
   {
@@ -29,7 +30,7 @@ const SECTIONS: Section[] = [
     title: "What counsellors see",
     points: [
       "Counsellors only see your anonymous ID, never your name or email.",
-      "They only see your mood check-ins if you turn on \"Share mood data with counsellor\" in Privacy & Data.",
+      "Your mood check-ins are only visible to a counsellor you have a confirmed session with, and only while \"Share mood data with counsellor\" is turned on in Privacy & Data. Turn it off and they lose access straight away.",
     ],
   },
   {
@@ -52,7 +53,7 @@ const SECTIONS: Section[] = [
     title: "Deleting your data",
     points: [
       "Go to Privacy & Data and tap Delete My Data.",
-      "This permanently deletes your check-ins, bookings, profile and account. It can't be undone.",
+      "This permanently deletes your check-ins, bookings, chats and messages (including your counsellor's replies), profile and account. It can't be undone.",
       "If you registered with an email, you'll be asked for your password first so no one else can delete your account.",
     ],
   },

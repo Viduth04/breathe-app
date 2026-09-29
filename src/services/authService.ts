@@ -12,6 +12,7 @@ import {
 import {
     collection,
     doc,
+    DocumentReference,
     getDoc,
     getDocs,
     query,
@@ -22,7 +23,8 @@ import {
     writeBatch,
 } from "firebase/firestore";
 
-export type Role = "student" | "counsellor" | "lecturer";
+// "admin" is only ever set in the Firebase console, never at sign-up
+export type Role = "student" | "counsellor" | "lecturer" | "admin";
 
 export type UserProfile = {
   uid: string;
@@ -133,7 +135,11 @@ export async function updatePrivacySettings(
 
 // ---------- DELETE ----------
 
-// Privacy & Data screen: removes the student's check-ins, bookings, profile and account.
+// Firestore allows at most 500 writes per batch
+const BATCH_LIMIT = 500;
+
+// Privacy & Data screen: removes the student's check-ins, bookings, care links,
+// chats (with every message in them), profile and account.
 // Email accounts must confirm their password first. Re-authenticating up front means
 // deleteUser can't fail with auth/requires-recent-login after the data is already gone.
 // Guest (anonymous) accounts have no password, so they skip that step.
@@ -149,17 +155,39 @@ export async function deleteMyData(password?: string) {
     );
   }
 
-  const batch = writeBatch(db);
-  const checkins = await getDocs(
-    query(collection(db, "checkins"), where("userId", "==", user.uid)),
-  );
-  checkins.forEach((d) => batch.delete(d.ref));
-  const bookings = await getDocs(
-    query(collection(db, "bookings"), where("studentId", "==", user.uid)),
-  );
-  bookings.forEach((d) => batch.delete(d.ref));
-  batch.delete(doc(db, "users", user.uid));
-  await batch.commit();
+  // Deleted in this order. The security rules look up the chat and the profile,
+  // so each chat's messages go before the chat, and the profile goes last.
+  const refs: DocumentReference[] = [];
+  const mine = (name: string, field: string) =>
+    getDocs(query(collection(db, name), where(field, "==", user.uid)));
+
+  const [checkins, bookings, careLinks, chats] = await Promise.all([
+    mine("checkins", "userId"),
+    mine("bookings", "studentId"),
+    mine("careLinks", "studentId"),
+    getDocs(
+      query(
+        collection(db, "chats"),
+        where("participants", "array-contains", user.uid),
+      ),
+    ),
+  ]);
+  checkins.forEach((d) => refs.push(d.ref));
+  bookings.forEach((d) => refs.push(d.ref));
+  careLinks.forEach((d) => refs.push(d.ref));
+  for (const chat of chats.docs) {
+    const messages = await getDocs(collection(chat.ref, "messages"));
+    messages.forEach((d) => refs.push(d.ref));
+    refs.push(chat.ref);
+  }
+  refs.push(doc(db, "users", user.uid));
+
+  // Commit in order, in chunks that fit Firestore's batch limit
+  for (let i = 0; i < refs.length; i += BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    refs.slice(i, i + BATCH_LIMIT).forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
 
   await deleteUser(user);
 }
@@ -184,6 +212,10 @@ export function getAuthErrorMessage(error: any): string {
     case "auth/too-many-requests":
       return "Too many attempts. Wait a few minutes and try again.";
     case "auth/network-request-failed":
+      return "No internet connection. Check your network and try again.";
+    case "permission-denied": // Firestore security rules blocked the request
+      return "You don't have permission to do that.";
+    case "unavailable": // Firestore can't reach the server
       return "No internet connection. Check your network and try again.";
     case "auth/requires-recent-login":
       return "For your security, log out and log in again before deleting your data.";

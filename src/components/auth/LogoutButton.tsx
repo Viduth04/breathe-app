@@ -2,13 +2,15 @@ import Button from "@/components/common/Button";
 import { getAuthErrorMessage, logout } from "@/services/authService";
 import { colors, spacing } from "@/theme";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View, ViewStyle } from "react-native";
 
 // After logout the group layouts see no user and redirect to Welcome
 export default function LogoutButton({
   variant = "primary",
+  style,
 }: {
   variant?: "primary" | "secondary";
+  style?: ViewStyle;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
@@ -37,6 +39,7 @@ export default function LogoutButton({
         variant={variant}
         onPress={handleLogout}
         loading={loading}
+        style={style}
       />
     </View>
   );

@@ -30,6 +30,14 @@ export const moodColors = [
   colors.primary,
 ] as const;
 
+// Role badges in the admin panel; each role gets a distinct pairing from the palette
+export const roleColors = {
+  student: { background: colors.selected, text: colors.primary },
+  counsellor: { background: colors.primary, text: colors.white },
+  lecturer: { background: colors.border, text: colors.text },
+  admin: { background: colors.text, text: colors.white },
+} as const;
+
 export const spacing = {
   xs: 4,
   sm: 8,

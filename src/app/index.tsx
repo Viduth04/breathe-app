@@ -21,6 +21,8 @@ export default function Index() {
       return <Redirect href="/(student)/home" />;
     case "counsellor":
       return <Redirect href="/(counsellor)/dashboard" />;
+    case "admin":
+      return <Redirect href="/(admin)/users" />;
     default:
       // Lecturers have no area in the app yet
       return (

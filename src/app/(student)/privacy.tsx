@@ -28,7 +28,7 @@ type Settings = { anonymousMode: boolean; shareMoodWithCounsellor: boolean };
 
 const DELETE_TITLE = "Delete all your data?";
 const DELETE_MESSAGE =
-  "This permanently deletes your check-ins, bookings and account. This can't be undone.";
+  "This permanently deletes your check-ins, bookings, chats and messages, and account. This can't be undone.";
 
 // Alert.alert has no buttons on web, so fall back to the browser's confirm dialog
 function confirmDelete(onConfirm: () => void) {
@@ -168,7 +168,7 @@ export default function Privacy() {
       />
       <ToggleCard
         title="Share mood data with counsellor"
-        description="Allow your assigned counsellor to review your check-in summaries before sessions"
+        description="Let a counsellor you have a confirmed session with see your check-ins"
         value={current.shareMoodWithCounsellor}
         onValueChange={(shareMoodWithCounsellor) =>
           change({ shareMoodWithCounsellor })
@@ -222,7 +222,7 @@ export default function Privacy() {
         disabled={busy}
         accessibilityRole="button"
         accessibilityLabel="Delete my data"
-        accessibilityHint="Permanently deletes your check-ins, bookings and account"
+        accessibilityHint="Permanently deletes your check-ins, bookings, chats and account"
         accessibilityState={{ disabled: busy, busy: deleting }}
         style={({ pressed }) => [pressed && styles.pressed]}
       >
