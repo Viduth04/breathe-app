@@ -1,7 +1,6 @@
 // Admin panel - Viduth (Member 1). Supports FR01, NFR01.
 
-import { BrandLogo } from "@/components/auth/AuthHeader";
-import LogoutButton from "@/components/auth/LogoutButton";
+import AdminHeader from "@/components/admin/AdminHeader";
 import RoleBadge from "@/components/admin/RoleBadge";
 import RoleSheet, { displayName } from "@/components/admin/RoleSheet";
 import Button from "@/components/common/Button";
@@ -9,7 +8,11 @@ import Card from "@/components/common/Card";
 import Input from "@/components/common/Input";
 import Screen from "@/components/common/Screen";
 import { useAuth } from "@/context/AuthContext";
-import { AssignableRole, listUsers } from "@/services/adminService";
+import {
+  AssignableRole,
+  listCounsellors,
+  listUsers,
+} from "@/services/adminService";
 import { getAuthErrorMessage, UserProfile } from "@/services/authService";
 import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
@@ -47,11 +50,15 @@ export default function Users() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [selected, setSelected] = useState<UserProfile | null>(null);
+  // uids with a counsellors/{uid} profile (for the role-change warning)
+  const [profileIds, setProfileIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoadError(undefined);
     try {
-      setUsers((await listUsers()).sort(byName));
+      const [list, profiles] = await Promise.all([listUsers(), listCounsellors()]);
+      setUsers(list.sort(byName));
+      setProfileIds(new Set(profiles.map((p) => p.uid)));
     } catch (e) {
       setLoadError(getAuthErrorMessage(e));
     }
@@ -95,13 +102,7 @@ export default function Users() {
   // Passed as an element (not a component) so the search box keeps focus while typing
   const header = (
     <View>
-      <View style={styles.topRow}>
-        <BrandLogo />
-        <LogoutButton variant="secondary" style={styles.logout} />
-      </View>
-      <Text style={[typography.title, styles.title]} accessibilityRole="header">
-        User Management
-      </Text>
+      <AdminHeader title="User Management" />
 
       <View style={styles.summary}>
         {(
@@ -263,6 +264,7 @@ export default function Users() {
       />
       <RoleSheet
         user={selected}
+        hasCounsellorProfile={!!selected && profileIds.has(selected.uid)}
         onClose={() => setSelected(null)}
         onRoleChanged={handleRoleChanged}
       />
@@ -272,13 +274,6 @@ export default function Users() {
 
 const styles = StyleSheet.create({
   list: { padding: spacing.lg, flexGrow: 1 },
-  topRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  logout: { paddingHorizontal: spacing.md },
-  title: { marginTop: spacing.lg, marginBottom: spacing.md },
   summary: { flexDirection: "row", gap: spacing.sm },
   stat: { flex: 1, alignItems: "center", paddingVertical: spacing.sm },
   statCount: { ...typography.heading, textAlign: "center" },

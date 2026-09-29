@@ -32,16 +32,23 @@ type Step = "choose" | "confirm" | "done";
 
 type Props = {
   user: UserProfile | null; // Sheet is open while a user is set
+  hasCounsellorProfile: boolean; // counsellors/{uid} exists for this user
   onClose: () => void;
   onRoleChanged: (uid: string, role: AssignableRole) => void;
 };
 
 // Bottom sheet: pick a role -> confirm -> saved
-export default function RoleSheet({ user, onClose, onRoleChanged }: Props) {
+export default function RoleSheet({
+  user,
+  hasCounsellorProfile,
+  onClose,
+  onRoleChanged,
+}: Props) {
   const [step, setStep] = useState<Step>("choose");
   const [role, setRole] = useState<AssignableRole | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  const [profileHidden, setProfileHidden] = useState(false);
 
   // Start fresh each time a different user is opened
   useEffect(() => {
@@ -49,17 +56,22 @@ export default function RoleSheet({ user, onClose, onRoleChanged }: Props) {
     setRole(null);
     setSaving(false);
     setError(undefined);
+    setProfileHidden(false);
   }, [user?.uid]);
 
   if (!user) return null;
   const name = displayName(user);
+  // A counsellor moving to another role: their public profile gets switched off
+  const hidesProfile =
+    user.role === "counsellor" && hasCounsellorProfile && role !== "counsellor";
 
   const handleConfirm = async () => {
     if (!role) return;
     setError(undefined);
     setSaving(true);
     try {
-      await updateUserRole(user.uid, role);
+      await updateUserRole(user.uid, role, { hideCounsellorProfile: hidesProfile });
+      setProfileHidden(hidesProfile);
       onRoleChanged(user.uid, role);
       setStep("done");
     } catch (e) {
@@ -161,6 +173,25 @@ export default function RoleSheet({ user, onClose, onRoleChanged }: Props) {
               <Text style={typography.body}>
                 Make {name} {WITH_ARTICLE[role]}? {ROLE_EFFECT[role]}
               </Text>
+              {hidesProfile ? (
+                <Card style={styles.warning}>
+                  <View style={styles.noteRow}>
+                    <Ionicons
+                      name="alert-circle"
+                      size={20}
+                      color={colors.danger}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no"
+                    />
+                    <Text style={[typography.body, styles.flex]}>
+                      {name} has a counsellor profile. It will be marked as not
+                      available, so students can't book new sessions with them.
+                      Existing bookings aren't cancelled, so check those with
+                      them. You can delete the profile in the Counsellors tab.
+                    </Text>
+                  </View>
+                </Card>
+              ) : null}
               {error ? (
                 <Text style={styles.error} accessibilityRole="alert">
                   {error}
@@ -196,6 +227,9 @@ export default function RoleSheet({ user, onClose, onRoleChanged }: Props) {
                 <Text style={[typography.body, styles.flex]}>
                   {name} is now {WITH_ARTICLE[role]}. Their app switches to
                   the new role automatically.
+                  {profileHidden
+                    ? " Their counsellor profile is now hidden from booking."
+                    : ""}
                 </Text>
               </View>
               <Button title="Done" onPress={onClose} />
@@ -235,6 +269,7 @@ const styles = StyleSheet.create({
   },
   current: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   note: { marginBottom: 0 },
+  warning: { marginBottom: 0, backgroundColor: colors.dangerTint },
   noteRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
   flex: { flex: 1 },
   options: { gap: spacing.sm },

@@ -21,8 +21,18 @@
 //       status                  "pending" | "confirmed" | "declined"
 //                               | "cancelled" | "completed"
 //   counsellors/{counsellorId}  doc id = the counsellor's uid
+//                               uid (same as doc id), fullName, title,
+//                               specialties[], languages[], experienceYears,
+//                               bio, isAvailable, updatedAt
+//                               (type: src/types/counsellor.ts)
 //   slots/{id}                  counsellorId
-//   resources/{id}              (no required fields)
+//   resources/{id}              title, type ("article" | "exercise"),
+//                               categories[], durationMinutes, summary,
+//                               content, isPublished, createdAt, updatedAt
+//                               (type: src/types/resource.ts)
+//                               Drafts are admin-only: every non-admin query
+//                               MUST include where("isPublished", "==", true)
+//                               or Firestore rejects the whole query.
 //   careLinks/{counsellorId}_{studentId}
 //                               counsellorId, studentId, bookingId
 //                               (doc id MUST be "<counsellorUid>_<studentUid>")
@@ -202,8 +212,23 @@ service cloud.firestore {
     // Doc id is the counsellor's uid.
     match /counsellors/{counsellorId} {
       allow read: if isSignedIn();
-      // A counsellor edits only their own profile; admins can edit any
-      allow write: if (isOwner(counsellorId) && isCounsellor()) || isAdmin();
+
+      // A counsellor edits only their own profile; admins can create or edit any.
+      // Bookings and chats treat "a counsellors doc exists" as "this is a
+      // counsellor", so the profile must belong to a user whose role really is
+      // counsellor, and its uid field must match the doc id.
+      allow create, update: if ((isOwner(counsellorId) && isCounsellor()) || isAdmin())
+        && request.resource.data.uid == counsellorId
+        && userDoc(counsellorId).role == "counsellor";
+
+      // Admins can always switch a profile OFF (nothing else), even after the
+      // person stops being a counsellor. The Users tab does this in the same
+      // batch as a role change so students can't book them any more.
+      allow update: if isAdmin()
+        && changedKeys().hasOnly(["isAvailable", "updatedAt"])
+        && request.resource.data.isAvailable == false;
+
+      allow delete: if (isOwner(counsellorId) && isCounsellor()) || isAdmin();
     }
 
     // ---------- slots ----------
@@ -227,9 +252,12 @@ service cloud.firestore {
     }
 
     // ---------- resources ----------
-    // Self-help articles and exercises. Everyone reads, only admins write.
+    // Self-help articles and exercises. Only admins write.
     match /resources/{resourceId} {
-      allow read: if isSignedIn();
+      // Admins see everything; everyone else only sees published resources
+      // (queries must filter where("isPublished", "==", true))
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.isPublished == true);
       allow write: if isAdmin();
     }
 

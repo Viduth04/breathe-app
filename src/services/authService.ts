@@ -18,6 +18,7 @@ import {
     query,
     serverTimestamp,
     setDoc,
+    Timestamp,
     updateDoc,
     where,
     writeBatch,
@@ -35,6 +36,7 @@ export type UserProfile = {
   anonymousMode: boolean;
   shareMoodWithCounsellor: boolean;
   isGuest: boolean;
+  createdAt?: Timestamp | null; // Set by the server at sign-up
 };
 
 // Random public ID so counsellors never need the student's real name

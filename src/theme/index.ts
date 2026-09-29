@@ -14,6 +14,7 @@ export const colors = {
   border: "#E6E1D3", // Input and card borders
   white: "#FFFFFF",
   overlay: "rgba(28, 28, 30, 0.5)", // Dimmed backdrop behind modals (text color at 50%)
+  frosted: "rgba(255, 255, 255, 0.7)", // Translucent white card over the gradient (Welcome)
 };
 
 // Top-to-bottom gradients (expo-linear-gradient); built from the palette above

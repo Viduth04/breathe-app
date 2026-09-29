@@ -1,24 +1,8 @@
+import Logo from "@/components/common/Logo";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-
-// Leaf mark + "Breathe" wordmark shown at the top of every auth screen
-export function BrandLogo() {
-  return (
-    <View
-      style={styles.logo}
-      accessible
-      accessibilityRole="header"
-      accessibilityLabel="Breathe"
-    >
-      <View style={styles.logoMark}>
-        <Ionicons name="leaf" size={18} color={colors.primary} />
-      </View>
-      <Text style={styles.logoText}>Breathe</Text>
-    </View>
-  );
-}
+import { Pressable, StyleSheet, View } from "react-native";
 
 // Round back button; falls back to Welcome when there is no history (e.g. web refresh)
 export function BackButton() {
@@ -37,12 +21,12 @@ export function BackButton() {
   );
 }
 
-// Back button and logo on one row (Register, Forgot Password)
+// Back button and logo on one row (Register, Forgot Password, privacy screens)
 export default function AuthHeader() {
   return (
     <View style={styles.row}>
       <BackButton />
-      <BrandLogo />
+      <Logo size={20} showWordmark badge />
       <View style={styles.spacer} />
     </View>
   );
@@ -56,21 +40,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   spacer: { width: TOUCH_TARGET },
-  logo: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "center",
-    gap: spacing.sm,
-  },
-  logoMark: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.full,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoText: { fontSize: 18, fontWeight: "700", color: colors.primary },
   back: {
     width: TOUCH_TARGET,
     height: TOUCH_TARGET,
