@@ -1,18 +1,42 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { colors } from "@/theme";
+import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+function RootNavigator() {
+  const { loading } = useAuth();
 
-SplashScreen.preventAutoHideAsync();
+  // Wait until Firebase tells us whether someone is logged in
+  if (loading) {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator
+          size="large"
+          color={colors.primary}
+          accessibilityLabel="Loading"
+        />
+      </View>
+    );
+  }
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  return <Stack screenOptions={{ headerShown: false }} />;
+}
+
+export default function RootLayout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </ThemeProvider>
+    <AuthProvider>
+      <StatusBar style="dark" />
+      <RootNavigator />
+    </AuthProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  loading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.background,
+  },
+});
