@@ -193,6 +193,31 @@ export default function Privacy() {
       </Card>
 
       <Pressable
+        onPress={() => router.push("/crisis")}
+        accessibilityRole="link"
+        accessibilityLabel="Need urgent help? Open crisis support"
+        style={({ pressed }) => [pressed && styles.pressed]}
+      >
+        <Card style={styles.row}>
+          <Ionicons
+            name="help-buoy-outline"
+            size={20}
+            color={colors.primary}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          />
+          <Text style={styles.rowText}>Need urgent help?</Text>
+          <Ionicons
+            name="chevron-forward"
+            size={18}
+            color={colors.textSecondary}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          />
+        </Card>
+      </Pressable>
+
+      <Pressable
         onPress={() => router.push("/privacy-policy")}
         accessibilityRole="link"
         accessibilityLabel="View privacy policy"

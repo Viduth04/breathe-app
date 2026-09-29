@@ -2,6 +2,7 @@ import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
 import Logo, { LeafMark } from "@/components/common/Logo";
 import Screen from "@/components/common/Screen";
+import UrgentHelpLink from "@/components/crisis/UrgentHelpLink";
 import {
   colors,
   gradients,
@@ -245,6 +246,7 @@ export default function Welcome() {
               Support that respects your privacy
             </Text>
           </View>
+          <UrgentHelpLink />
         </View>
       </View>
     </Screen>
