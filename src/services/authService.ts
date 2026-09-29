@@ -2,6 +2,8 @@ import { auth, db } from "@/firebase/config";
 import {
     createUserWithEmailAndPassword,
     deleteUser,
+    EmailAuthProvider,
+    reauthenticateWithCredential,
     sendPasswordResetEmail,
     signInAnonymously,
     signInWithEmailAndPassword,
@@ -89,9 +91,24 @@ export async function continueAnonymously() {
 
 // ---------- READ ----------
 
+// SLIIT student IDs are two letters + 8 digits, e.g. IT23845800
+const STUDENT_ID_PATTERN = /^[a-z]{2}\d{8}$/i;
+
+// Login screen accepts an email or a student ID; IDs map to the student's SLIIT email
+function toLoginEmail(emailOrStudentId: string) {
+  const value = emailOrStudentId.trim();
+  return STUDENT_ID_PATTERN.test(value)
+    ? `${value.toLowerCase()}@my.sliit.lk`
+    : value;
+}
+
 // Login screen: signs in, then the profile is read to find the user's role
-export async function login(email: string, password: string) {
-  await signInWithEmailAndPassword(auth, email.trim(), password);
+export async function login(emailOrStudentId: string, password: string) {
+  await signInWithEmailAndPassword(
+    auth,
+    toLoginEmail(emailOrStudentId),
+    password,
+  );
 }
 
 export async function getUserProfile(uid: string) {
@@ -116,10 +133,21 @@ export async function updatePrivacySettings(
 
 // ---------- DELETE ----------
 
-// Privacy & Data screen: removes the student's check-ins, bookings, profile and account
-export async function deleteMyData() {
+// Privacy & Data screen: removes the student's check-ins, bookings, profile and account.
+// Email accounts must confirm their password first. Re-authenticating up front means
+// deleteUser can't fail with auth/requires-recent-login after the data is already gone.
+// Guest (anonymous) accounts have no password, so they skip that step.
+export async function deleteMyData(password?: string) {
   const user = auth.currentUser;
   if (!user) throw new Error("No user is signed in.");
+
+  if (!user.isAnonymous) {
+    if (!user.email || !password) throw new Error("Password is required.");
+    await reauthenticateWithCredential(
+      user,
+      EmailAuthProvider.credential(user.email, password),
+    );
+  }
 
   const batch = writeBatch(db);
   const checkins = await getDocs(
