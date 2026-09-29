@@ -13,7 +13,30 @@ export const colors = {
   dangerTint: "#FFECE4", // Background for destructive buttons
   border: "#E6E1D3", // Input and card borders
   white: "#FFFFFF",
+  overlay: "rgba(28, 28, 30, 0.5)", // Dimmed backdrop behind modals (text color at 50%)
 };
+
+// Top-to-bottom gradients (expo-linear-gradient); built from the palette above
+export const gradients = {
+  welcome: [colors.success, colors.background] as const, // Mint fading into cream
+};
+
+// Mood levels 1 (very low) to 5 (great), from the palette above; index = level - 1
+export const moodColors = [
+  colors.danger,
+  colors.dangerTint,
+  colors.border,
+  colors.selected,
+  colors.primary,
+] as const;
+
+// Role badges in the admin panel; each role gets a distinct pairing from the palette
+export const roleColors = {
+  student: { background: colors.selected, text: colors.primary },
+  counsellor: { background: colors.primary, text: colors.white },
+  lecturer: { background: colors.border, text: colors.text },
+  admin: { background: colors.text, text: colors.white },
+} as const;
 
 export const spacing = {
   xs: 4,
