@@ -1,6 +1,7 @@
 import LoadingScreen from "@/components/navigation/LoadingScreen";
 import { tabIcon, tabScreenOptions } from "@/components/navigation/tabs";
 import { useAuth } from "@/context/AuthContext";
+import { colors } from "@/theme";
 import { Redirect } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
 
@@ -40,6 +41,13 @@ export default function CounsellorLayout() {
         options={{
           title: "Alerts",
           tabBarIcon: tabIcon("notifications", "notifications-outline"),
+          tabBarBadge: 3,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.primary,
+            color: colors.white,
+            fontSize: 10,
+            fontWeight: "700",
+          },
         }}
       />
     </Tabs>
