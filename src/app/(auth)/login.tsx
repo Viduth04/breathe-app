@@ -1,7 +1,9 @@
-import { BackButton, BrandLogo } from "@/components/auth/AuthHeader";
+import { BackButton } from "@/components/auth/AuthHeader";
+import Logo from "@/components/common/Logo";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
 import Screen from "@/components/common/Screen";
+import UrgentHelpLink from "@/components/crisis/UrgentHelpLink";
 import {
   continueAnonymously,
   getAuthErrorMessage,
@@ -58,7 +60,7 @@ export default function Login() {
       <BackButton />
 
       <View style={styles.header}>
-        <BrandLogo />
+        <Logo size={20} showWordmark badge />
         <Text style={[typography.title, styles.center]} accessibilityRole="header">
           Welcome Back
         </Text>
@@ -127,6 +129,7 @@ export default function Login() {
 
       <View style={styles.spacer} />
 
+      <UrgentHelpLink />
       <View style={styles.footer}>
         <Text style={typography.caption}>Don't have an account?</Text>
         <Pressable
