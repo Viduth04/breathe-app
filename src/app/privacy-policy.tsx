@@ -51,6 +51,16 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    icon: "sparkles-outline",
+    title: "AI Companion",
+    points: [
+      "When you use Breathe Companion, your chat messages are processed by Google's Gemini AI to generate a reply.",
+      "We do not send your name, email, student ID, uid or anonymous ID to Gemini.",
+      "Breathe Companion chats are kept only in memory on your device while that screen is open. They are not saved to our database, and Clear chat removes them immediately.",
+      "Breathe Companion is an AI, not a counsellor, therapist or doctor. It does not diagnose or provide medical, medication or emergency advice. Use Crisis Support or call 1926 or 1990 in an emergency.",
+    ],
+  },
+  {
     icon: "trash-outline",
     title: "Deleting your data",
     points: [
