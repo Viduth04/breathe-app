@@ -152,14 +152,9 @@ export default function CounsellorScheduleScreen() {
         {/* Counselor Profile Avatar */}
         <Pressable
           style={styles.avatarButton}
-          onPress={() =>
-            setModalData({
-              title: "Clinical Counselor Profile",
-              description: "Dr. Anjali Perera · Lead Clinical Counselor",
-            })
-          }
+          onPress={() => router.navigate("/(counsellor-detail)/settings")}
           accessibilityRole="button"
-          accessibilityLabel="Counselor Profile"
+          accessibilityLabel="Counselor Profile Settings"
         >
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarText}>DR</Text>
@@ -189,9 +184,30 @@ export default function CounsellorScheduleScreen() {
             />
           </Pressable>
 
-          <View style={styles.autoSyncPill} accessibilityLabel="Auto-Sync is On">
-            <View style={styles.autoSyncDot} />
-            <Text style={styles.autoSyncText}>Auto-Sync On</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Pressable
+              onPress={() => router.navigate("/(counsellor-detail)/my-calendar")}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 5,
+                backgroundColor: "#ECFDF5",
+                borderWidth: 1,
+                borderColor: "#A7F3D0",
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: 12,
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Open My Calendar"
+            >
+              <Ionicons name="calendar-outline" size={13} color="#065F46" />
+              <Text style={{ fontSize: 11, fontWeight: "700", color: "#065F46" }}>My Calendar</Text>
+            </Pressable>
+            <View style={styles.autoSyncPill} accessibilityLabel="Auto-Sync is On">
+              <View style={styles.autoSyncDot} />
+              <Text style={styles.autoSyncText}>Auto-Sync On</Text>
+            </View>
           </View>
         </View>
 

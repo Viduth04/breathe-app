@@ -89,13 +89,7 @@ export default function CounsellorAlertsScreen() {
         </Text>
         <Pressable
           style={styles.headerBtn}
-          onPress={() =>
-            setModalData({
-              title: "Notification Settings",
-              description:
-                "Configure urgent alert push notifications, intake review alerts, and quiet hours schedule.",
-            })
-          }
+          onPress={() => router.navigate("/(counsellor-detail)/settings")}
           accessibilityRole="button"
           accessibilityLabel="Notification Settings"
         >

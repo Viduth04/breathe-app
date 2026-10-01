@@ -26,8 +26,10 @@ export default function RequestDetailScreen() {
   const [declineReason, setDeclineReason] = useState("");
 
   const handleAccept = () => {
-    setData((prev) => ({ ...prev, status: "accepted" }));
-    setFeedback("Request accepted. Session scheduled and synced with calendar.");
+    router.navigate({
+      pathname: "/(counsellor-detail)/confirm-acceptance",
+      params: { requestId: data.id, studentAnonId: data.studentAnonId },
+    });
   };
 
   const handleReschedule = () => {

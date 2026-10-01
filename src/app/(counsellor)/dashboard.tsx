@@ -20,6 +20,7 @@ import {
   SessionItem,
 } from "@/types/counsellorDashboard";
 import { useCounsellorBadges } from "@/context/CounsellorBadgeContext";
+import { useCounsellorStore } from "@/services/counsellorStore";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
@@ -38,16 +39,15 @@ export default function CounsellorDashboard() {
   const { alertsUnread } = useCounsellorBadges();
   const params = useLocalSearchParams<{ reviewStudentId?: string }>();
 
-  // Local state for interactive prototype (mock data first, no Firestore)
-  const [profile, setProfile] = useState<CounsellorProfileInfo>(
-    MOCK_COUNSELLOR_PROFILE
-  );
-  const [isAvailable, setIsAvailable] = useState<boolean>(profile.isAvailable);
+  const {
+    requests,
+    sessions,
+    isAvailable,
+    profile,
+    toggleAvailability,
+  } = useCounsellorStore();
+
   const [activeFilter, setActiveFilter] = useState<TimeFilter>("Day");
-  const [sessions, setSessions] = useState<SessionItem[]>(MOCK_SESSIONS_TODAY);
-  const [requests, setRequests] = useState<BookingRequestItem[]>(
-    MOCK_PENDING_REQUESTS
-  );
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [feedbackActionStudent, setFeedbackActionStudent] = useState<string | null>(null);
   const [activeModalData, setActiveModalData] = useState<{
@@ -72,7 +72,7 @@ export default function CounsellorDashboard() {
 
   // Toggle availability state with inline feedback
   const handleToggleAvailability = (value: boolean) => {
-    setIsAvailable(value);
+    toggleAvailability(value);
     setFeedbackActionStudent(null);
     setFeedbackMessage(
       value
@@ -81,38 +81,12 @@ export default function CounsellorDashboard() {
     );
   };
 
-  // Accept a booking request
+  // Accept a booking request -> routes to Confirm Acceptance modal
   const handleAcceptRequest = (request: BookingRequestItem) => {
-    // Remove request from pending list
-    setRequests((prev) => prev.filter((r) => r.id !== request.id));
-
-    // Add as a confirmed session to the day's roster
-    const newSession: SessionItem = {
-      id: `session-accepted-${request.id}`,
-      studentId: request.studentId,
-      studentAnonId: request.studentAnonId,
-      displayName: request.displayName,
-      idMode: request.idMode,
-      timeRange: request.requestedTime,
-      timeRelative: "Added to Schedule",
-      isNext: false,
-      sessionType: request.sessionType,
-      sessionTypeLabel:
-        request.sessionType === "video"
-          ? "Encrypted Video Consultation"
-          : request.sessionType === "chat"
-          ? "Secured Chat Session"
-          : "In-Person Consultation",
-      noteType: "Focus",
-      noteText: request.topic,
-      status: "confirmed",
-    };
-
-    setSessions((prev) => [...prev, newSession]);
-    setFeedbackActionStudent(request.studentAnonId);
-    setFeedbackMessage(
-      `Accepted session with ${request.displayName}. Added to schedule.`
-    );
+    router.navigate({
+      pathname: "/(counsellor-detail)/confirm-acceptance",
+      params: { requestId: request.id, studentAnonId: request.studentAnonId },
+    });
   };
 
   // View request details in full detail screen or accessible modal

@@ -22,8 +22,10 @@ export default function NotificationDetailScreen() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const handleReviewAndAccept = () => {
-    // Navigate directly into Request Detail for Student #5104
-    router.navigate("/(counsellor-detail)/request-detail");
+    router.navigate({
+      pathname: "/(counsellor-detail)/confirm-acceptance",
+      params: { requestId: "req-1", studentAnonId: data.studentAnonId },
+    });
   };
 
   const handleSuggestAlternative = () => {
