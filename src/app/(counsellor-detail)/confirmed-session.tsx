@@ -24,10 +24,15 @@ export default function ConfirmedSessionScreen() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const handleJoinVideo = () => {
-    Alert.alert(
-      "Join Video Session",
-      `Launching secure encrypted room for ${data.studentAnonId} (Ref: ${data.sessionRef}). Headset & camera check passed.`
-    );
+    router.navigate({
+      pathname: "/(counsellor-detail)/ready-to-join",
+      params: {
+        studentAnonId: data.studentAnonId,
+        sessionTitle: data.sessionTypeLabel || "Encrypted Video Consultation",
+        timeRange: "02:00 PM – 02:45 PM",
+        duration: "45 min session",
+      },
+    });
   };
 
   const handleMessageStudent = () => {

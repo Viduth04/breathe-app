@@ -26,6 +26,22 @@ export default function CounsellorDetailLayout() {
       <Stack.Screen name="request-accepted" />
       <Stack.Screen name="my-calendar" />
       <Stack.Screen name="settings" />
+      <Stack.Screen
+        name="decline-request"
+        options={{
+          presentation: "modal",
+          animation: "slide_from_bottom",
+        }}
+      />
+      <Stack.Screen name="request-declined" />
+      <Stack.Screen name="ready-to-join" />
+      <Stack.Screen
+        name="active-video-call"
+        options={{
+          gestureEnabled: false,
+          animation: "fade",
+        }}
+      />
     </Stack>
   );
 }

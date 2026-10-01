@@ -108,6 +108,21 @@ export type AcceptedSessionPayload = {
   roomId?: string;
 };
 
+export type DeclinedSessionPayload = {
+  requestId: string;
+  studentAnonId: string;
+  date: string;
+  timeRange: string;
+  modality: string;
+  reason: string;
+  note?: string;
+};
+
+export type CallMediaState = {
+  micOn: boolean;
+  camOn: boolean;
+};
+
 // ─── Module Singleton State ───
 type State = {
   requests: BookingRequestItem[];
@@ -120,6 +135,8 @@ type State = {
   profile: CounsellorProfileInfo;
   settings: CounsellorSettings;
   lastAcceptedSession: AcceptedSessionPayload | null;
+  lastDeclinedSession: DeclinedSessionPayload | null;
+  callMediaState: CallMediaState;
 };
 
 let state: State = {
@@ -146,6 +163,11 @@ let state: State = {
     licenseNumber: "License #SL-PSY-4820",
   },
   lastAcceptedSession: null,
+  lastDeclinedSession: null,
+  callMediaState: {
+    micOn: true,
+    camOn: true,
+  },
 };
 
 const listeners = new Set<() => void>();
@@ -329,6 +351,107 @@ export const counsellorStore = {
     notifyListeners();
   },
 
+  // Decline booking request (e.g. Student #5104)
+  declineRequest(
+    requestId: string,
+    reason: string = "Schedule conflict",
+    note?: string
+  ): DeclinedSessionPayload {
+    const targetReq = state.requests.find((r) => r.id === requestId) || state.requests[0];
+    const studentAnonId = targetReq?.studentAnonId || "Student #5104";
+
+    // 1. Remove from pending requests
+    const updatedRequests = state.requests.filter((r) => r.id !== targetReq.id);
+
+    // 2. Add declined audit alert
+    const newAlert: AlertItem = {
+      id: `alert-declined-${Date.now()}`,
+      title: "Request Declined",
+      description: `Booking request for ${studentAnonId} declined (${reason}). Note dispatched securely.`,
+      timestamp: "Just now",
+      isUnread: true,
+      category: "session",
+      priority: "normal",
+      iconName: "close-circle-outline",
+      badgeLabel: "Declined",
+    };
+
+    const declinedPayload: DeclinedSessionPayload = {
+      requestId: targetReq.id,
+      studentAnonId,
+      date: "Tomorrow, Tue 19 Aug",
+      timeRange: targetReq.requestedTime || "10:00–10:45 AM",
+      modality:
+        targetReq.sessionType === "video"
+          ? "Video Consultation (45 min)"
+          : targetReq.sessionType === "chat"
+          ? "Secured Chat Session"
+          : "In-Person Consultation",
+      reason,
+      note,
+    };
+
+    state = {
+      ...state,
+      requests: updatedRequests,
+      alerts: [newAlert, ...state.alerts],
+      alertsUnread: state.alertsUnread + 1,
+      lastDeclinedSession: declinedPayload,
+    };
+
+    notifyListeners();
+    return declinedPayload;
+  },
+
+  // Toggle mic
+  toggleMic() {
+    state = {
+      ...state,
+      callMediaState: {
+        ...state.callMediaState,
+        micOn: !state.callMediaState.micOn,
+      },
+    };
+    notifyListeners();
+  },
+
+  // Toggle cam
+  toggleCam() {
+    state = {
+      ...state,
+      callMediaState: {
+        ...state.callMediaState,
+        camOn: !state.callMediaState.camOn,
+      },
+    };
+    notifyListeners();
+  },
+
+  // Set media state
+  setCallMediaState(partial: Partial<CallMediaState>) {
+    state = {
+      ...state,
+      callMediaState: {
+        ...state.callMediaState,
+        ...partial,
+      },
+    };
+    notifyListeners();
+  },
+
+  // Complete an active video session
+  completeSession(sessionId: string) {
+    state = {
+      ...state,
+      sessions: state.sessions.map((s) =>
+        s.id === sessionId || s.studentAnonId === "Student #4021"
+          ? { ...s, status: "completed" as const, isNext: false }
+          : s
+      ),
+    };
+    notifyListeners();
+  },
+
   // Decrement unread messages
   decrementMessages() {
     state = {
@@ -356,6 +479,11 @@ export function useCounsellorStore() {
   return {
     ...storeState,
     confirmAcceptance: counsellorStore.confirmAcceptance,
+    declineRequest: counsellorStore.declineRequest,
+    toggleMic: counsellorStore.toggleMic,
+    toggleCam: counsellorStore.toggleCam,
+    setCallMediaState: counsellorStore.setCallMediaState,
+    completeSession: counsellorStore.completeSession,
     toggleAvailability: counsellorStore.toggleAvailability,
     toggleTwoFactor: counsellorStore.toggleTwoFactor,
     toggleQuietHours: counsellorStore.toggleQuietHours,

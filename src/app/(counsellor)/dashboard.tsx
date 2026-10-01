@@ -37,7 +37,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function CounsellorDashboard() {
   const { alertsUnread } = useCounsellorBadges();
-  const params = useLocalSearchParams<{ reviewStudentId?: string }>();
+  const params = useLocalSearchParams<{
+    reviewStudentId?: string;
+    sessionCompleted?: string;
+  }>();
 
   const {
     requests,
@@ -69,6 +72,14 @@ export default function CounsellorDashboard() {
       }
     }
   }, [params?.reviewStudentId]);
+
+  // If navigated here after completing a live session
+  useEffect(() => {
+    if (params?.sessionCompleted) {
+      setFeedbackMessage("Consultation with Student #4021 concluded. Case audit logged.");
+      setFeedbackActionStudent(null);
+    }
+  }, [params?.sessionCompleted]);
 
   // Toggle availability state with inline feedback
   const handleToggleAvailability = (value: boolean) => {
@@ -106,14 +117,25 @@ export default function CounsellorDashboard() {
 
   // Action button pressed on a session card: navigate to Confirmed Session for Student #4021
   const handleSessionAction = (session: SessionItem) => {
+    if (session.status === "completed") {
+      setActiveModalData({
+        title: `Completed Session: ${session.displayName}`,
+        description: `${session.timeRange} (${session.sessionTypeLabel})`,
+        details: `Clinical consultation concluded. Case notes safely archived under student's anonymous profile.`,
+      });
+      return;
+    }
+
     if (session.studentAnonId === "Student #4021" || session.id === "session-1") {
       router.navigate("/(counsellor-detail)/confirmed-session");
     } else if (session.isNext) {
-      setActiveModalData({
-        title: "Starting Encrypted Consultation",
-        description: `Connecting to secure session with ${session.displayName}...`,
-        details:
-          "End-to-end encryption verified. Only you and this anonymous student have access to this room.",
+      router.navigate({
+        pathname: "/(counsellor-detail)/ready-to-join",
+        params: {
+          studentAnonId: session.studentAnonId,
+          sessionTitle: session.sessionTypeLabel,
+          timeRange: session.timeRange,
+        },
       });
     } else {
       setActiveModalData({

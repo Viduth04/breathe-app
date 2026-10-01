@@ -43,7 +43,16 @@ export default function RequestDetailScreen() {
   };
 
   const handleDecline = () => {
-    setDeclineModalVisible(true);
+    router.push({
+      pathname: "/(counsellor-detail)/decline-request",
+      params: {
+        requestId: data.id,
+        studentAnonId: data.studentAnonId,
+        proposedDate: data.proposedDate,
+        proposedTime: data.proposedTime,
+        sessionTypeLabel: data.sessionTypeLabel,
+      },
+    });
   };
 
   const confirmDecline = () => {
