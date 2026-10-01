@@ -34,13 +34,6 @@ export default function CounsellorLayout() {
         options={{
           title: "Messages",
           tabBarIcon: tabIcon("chatbubbles", "chatbubbles-outline"),
-        }}
-      />
-      <Tabs.Screen
-        name="alerts"
-        options={{
-          title: "Alerts",
-          tabBarIcon: tabIcon("notifications", "notifications-outline"),
           tabBarBadge: 3,
           tabBarBadgeStyle: {
             backgroundColor: colors.primary,
@@ -50,6 +43,21 @@ export default function CounsellorLayout() {
           },
         }}
       />
+      <Tabs.Screen
+        name="alerts"
+        options={{
+          title: "Alerts",
+          tabBarIcon: tabIcon("notifications", "notifications-outline"),
+          tabBarBadge: 3,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.danger,
+            color: colors.white,
+            fontSize: 10,
+            fontWeight: "700",
+          },
+        }}
+      />
     </Tabs>
   );
 }
+
