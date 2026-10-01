@@ -1,11 +1,9 @@
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
-import { Ionicons } from "@expo/vector-icons";
 import {
     ActivityIndicator,
     Pressable,
     StyleSheet,
     Text,
-    View,
     ViewStyle,
 } from "react-native";
 
@@ -15,7 +13,6 @@ type Props = {
   title: string;
   onPress: () => void;
   variant?: Variant;
-  icon?: keyof typeof Ionicons.glyphMap; // Shown after the label
   loading?: boolean;
   disabled?: boolean;
   style?: ViewStyle;
@@ -25,7 +22,6 @@ export default function Button({
   title,
   onPress,
   variant = "primary",
-  icon,
   loading = false,
   disabled = false,
   style,
@@ -52,18 +48,7 @@ export default function Button({
           color={variant === "primary" ? colors.white : colors.primary}
         />
       ) : (
-        <View style={styles.content}>
-          <Text style={[styles.label, labelStyles[variant]]}>{title}</Text>
-          {icon && (
-            <Ionicons
-              name={icon}
-              size={18}
-              color={labelStyles[variant].color}
-              accessibilityElementsHidden
-              importantForAccessibility="no"
-            />
-          )}
-        </View>
+        <Text style={[styles.label, labelStyles[variant]]}>{title}</Text>
       )}
     </Pressable>
   );
@@ -86,7 +71,6 @@ const styles = StyleSheet.create({
   danger: { backgroundColor: colors.dangerTint },
   pressed: { opacity: 0.85 },
   disabled: { opacity: 0.5 },
-  content: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   label: { fontSize: 16, fontWeight: "600" },
 });
 
