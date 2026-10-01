@@ -392,7 +392,7 @@ export default function BookSessionScreen() {
                   onPress={() => {
                     setModalVisible(false);
                     setModalStep("confirm");
-                    router.push("/(student)/(tabs)/home");
+                    router.push("/(student)/home");
                   }}
                 >
                   <Text style={styles.modalSecondaryBtnText}>Done / Return to Home</Text>
@@ -776,7 +776,7 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: "#FFF",
-    borderRadius: radius.xl,
+    borderRadius: 24,
     padding: spacing.xl,
     alignItems: "center",
   },

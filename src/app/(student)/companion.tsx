@@ -88,7 +88,7 @@ function MessageBubble({ message }: { message: CompanionMessage }) {
       </View>
       {isModel ? (
         <View style={styles.actions}>
-          <ActionChip title="Book a counsellor" onPress={() => router.push("/(student)/sessions")} />
+          <ActionChip title="Book a counsellor" onPress={() => router.push("/(student)/session/dashboard")} />
           <ActionChip title="Crisis support" onPress={() => router.push("/crisis")} />
         </View>
       ) : null}
@@ -271,7 +271,7 @@ export default function Companion() {
             <Text style={styles.errorText}>Breathe Companion is resting right now. Try again in a minute, or talk to a counsellor.</Text>
             <View style={styles.errorActions}>
               {retryText ? <Button title="Try Again" onPress={() => submit(retryText, true)} loading={busy} /> : null}
-              <Button title="Book a counsellor" variant="secondary" onPress={() => router.push("/(student)/sessions")} />
+              <Button title="Book a counsellor" variant="secondary" onPress={() => router.push("/(student)/session/dashboard")} />
               <Button title="Crisis support" variant="secondary" onPress={() => router.push("/crisis")} />
             </View>
           </Card>

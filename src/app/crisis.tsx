@@ -23,7 +23,7 @@ export default function Crisis() {
   // Students book a counsellor in Sessions; everyone else signs in first
   const talkToCounsellor = () =>
     profile?.role === "student"
-      ? router.navigate("/(student)/sessions")
+      ? router.navigate("/(student)/session/dashboard")
       : router.navigate("/(auth)/login");
 
   return (
