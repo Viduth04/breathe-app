@@ -1,0 +1,207 @@
+// Mock data for Counsellor Detail Screens - Muaath (Member 4). Supports FR01, FR05.
+// Local mock data for Request Detail, Confirmed Session, Past Sessions, and Notification Detail.
+
+import {
+  RequestDetailData,
+  ConfirmedSessionData,
+  PastSessionItem,
+  PastSessionsStats,
+  NotificationDetailData,
+} from "@/types/counsellorDetailScreens";
+
+// ─── Request Detail: Student #5104 ───
+export const MOCK_REQUEST_DETAIL: RequestDetailData = {
+  id: "req-1",
+  studentId: "std-5104",
+  studentAnonId: "Student #5104",
+  displayName: "Student #5104",
+  idMode: "anonymous",
+  faculty: "School of Applied Sciences",
+  level: "Undergraduate",
+  department: "School of Applied Sciences",
+  sessionType: "video",
+  sessionTypeLabel: "Encrypted Video Call (45m)",
+  isEncrypted: true,
+  concern: "Academic Pressure & Burnout",
+  consultationNumber: "1st consultation with you",
+  duration: "45m",
+  proposedDate: "Tomorrow, Tuesday, 19 Aug",
+  proposedTime: "10:00 AM – 10:45 AM (Local Time)",
+  status: "pending",
+  moodTrend: [
+    { day: "Thu", score: 3.5 },
+    { day: "Fri", score: 3.4 },
+    { day: "Sat", score: 2.8 },
+    { day: "Sun", score: 2.2 },
+    { day: "Mon", score: 1.9 },
+  ],
+  moodBriefLabel: "Mild Stress Dip",
+  aiBrief:
+    "Student reported elevated stress and sleep disturbances leading into mid-terms over the weekend.",
+  personalNote:
+    "I've been feeling completely overwhelmed with upcoming finals and having trouble concentrating during lectures. Hoping to learn practical grounding techniques to manage panic spikes before exams.",
+  urgencyLevel: "Standard (Nor...",
+  format: "Camera On • A...",
+  awaitingReplyHours: 2,
+};
+
+// ─── Confirmed Session: Student #4021 ───
+export const MOCK_CONFIRMED_SESSION: ConfirmedSessionData = {
+  id: "session-1",
+  studentId: "std-4021",
+  studentAnonId: "Student #4021",
+  displayName: "Student #4021",
+  idMode: "anonymous",
+  faculty: "Faculty of Science",
+  yearLevel: "Year 2",
+  sessionType: "video",
+  sessionTypeLabel: "Encrypted Video Consultation",
+  isEncrypted: true,
+  sessionRef: "#ME-8402",
+  date: "Today, Monday, 18 Aug",
+  time: "02:00 PM – 02:45 PM",
+  roomStatus: "ready",
+  startsIn: "25 mins",
+  checkInMood: 2.5,
+  maxMood: 5.0,
+  moodLabel: "Mild strain",
+  intakeNote:
+    "I've been feeling elevated anxiety ahead of presentations and struggling with sleep disruption over the past week. Looking to review the breathing exercises we discussed and discuss coping mechanisms.",
+  tags: ["Academic Stress", "Presentation Anxiety", "Sleep Hygiene"],
+  protocolTitle: "Counselor Room Protocol",
+  protocolDescription:
+    "Ensure private headset is connected. Case notes will auto-encrypt to Student #4021 record immediately post-session.",
+};
+
+// ─── Past Sessions History ───
+export const MOCK_PAST_SESSIONS_STATS: PastSessionsStats = {
+  completedSessions: 48,
+  completionRate: 92.3,
+  clinicalHours: 36.5,
+  verifiedHours: true,
+};
+
+export const MOCK_PAST_SESSIONS: PastSessionItem[] = [
+  // August 2026
+  {
+    id: "past-1",
+    studentId: "std-4021",
+    studentAnonId: "Student #4021",
+    displayName: "Student #4021",
+    idMode: "anonymous",
+    sessionType: "video",
+    sessionTypeLabel: "Video Consultation",
+    duration: "45 min",
+    date: "Fri, 15 Aug",
+    time: "02:00 PM",
+    concern: "Academic Stress & Exams",
+    status: "completed",
+    monthGroup: "August 2026",
+  },
+  {
+    id: "past-2",
+    studentId: "std-maya",
+    studentAnonId: "Student #3189",
+    displayName: "Maya Senanayake",
+    idMode: "standard",
+    sessionType: "chat",
+    sessionTypeLabel: "Secured Chat",
+    duration: "45 min",
+    date: "Wed, 13 Aug",
+    time: "11:30 AM",
+    concern: "Sleep Routine & Anxiety",
+    status: "completed",
+    monthGroup: "August 2026",
+  },
+  {
+    id: "past-3",
+    studentId: "std-8812",
+    studentAnonId: "Student #8812",
+    displayName: "Student #8812",
+    idMode: "anonymous",
+    sessionType: "in-person",
+    sessionTypeLabel: "In-Person • Room 302",
+    duration: "45 min",
+    room: "Room 302",
+    date: "Mon, 11 Aug",
+    time: "10:00 AM",
+    concern: "Social Connection",
+    status: "rescheduled",
+    monthGroup: "August 2026",
+  },
+  // July 2026
+  {
+    id: "past-4",
+    studentId: "std-kevin",
+    studentAnonId: "Student #7220",
+    displayName: "Kevin Thilakarathne",
+    idMode: "standard",
+    sessionType: "video",
+    sessionTypeLabel: "Video Consultation",
+    duration: "45 min",
+    date: "Thu, 30 Jul",
+    time: "03:15 PM",
+    concern: "Presentation Anxiety",
+    status: "completed",
+    monthGroup: "July 2026",
+  },
+  {
+    id: "past-5",
+    studentId: "std-3319",
+    studentAnonId: "Student #3319",
+    displayName: "Student #3319",
+    idMode: "anonymous",
+    sessionType: "video",
+    sessionTypeLabel: "Video Consultation",
+    duration: "45 min",
+    date: "Tue, 21 Jul",
+    time: "09:30 AM",
+    concern: "Burnout Recovery",
+    status: "pending-wrapup",
+    privateNotes:
+      "Student demonstrated improved breathing regulation; follow-up on exam pacing strategy and sleep stability schedule recommended.",
+    monthGroup: "July 2026",
+  },
+  {
+    id: "past-6",
+    studentId: "std-nisali",
+    studentAnonId: "Student #2201",
+    displayName: "Nisali Perera",
+    idMode: "standard",
+    sessionType: "chat",
+    sessionTypeLabel: "Secured Chat",
+    duration: "45 min",
+    date: "Fri, 10 Jul",
+    time: "04:00 PM",
+    concern: "Mid-Term Overwhelm",
+    status: "completed",
+    monthGroup: "July 2026",
+  },
+];
+
+// ─── Notification Detail: Student #5104 triage alert ───
+export const MOCK_NOTIFICATION_DETAIL: NotificationDetailData = {
+  id: "notif-1",
+  alertType: "clinical-triage",
+  title: "New Session Request: Student #5104",
+  studentId: "std-5104",
+  studentAnonId: "Student #5104",
+  receivedAt: "Today at 09:15 AM",
+  triagePriority: "high",
+  studentMode: "Anonymous Mode",
+  studentLevel: "2nd Year Undergraduate",
+  isVerified: true,
+  requestType: "45-Minute Intake Consultation",
+  modality: "Video Consultation (End-to-End Encrypted)",
+  proposedDate: "Tomorrow, Wednesday",
+  proposedTime: "02:00 PM – 02:45 PM",
+  primaryConcern:
+    "Acute exam stress, difficulty sleeping, submitted PHQ-9.",
+  phqScore: 14,
+  phqRange: "MODERATE RANGE",
+  actions: {
+    primary: "Review & Accept",
+    secondary: "Suggest Alternative",
+    tertiary: "Decline",
+  },
+};

@@ -37,22 +37,33 @@ export default function CounsellorProfileCard({
     >
       <View style={styles.topRow}>
         {/* Avatar with Online/Offline indicator */}
-        <View style={styles.avatarContainer}>
-          <Image
-            source={{ uri: profile.avatarUrl }}
-            style={styles.avatar}
-            accessibilityLabel={`${profile.fullName} profile photo`}
-          />
-          <View
-            style={[
-              styles.onlineBadge,
-              { backgroundColor: isAvailable ? "#059669" : colors.textSecondary },
-            ]}
-          />
-        </View>
+        <Pressable
+          onPress={() => router.navigate("/(counsellor-detail)/settings")}
+          accessibilityRole="button"
+          accessibilityLabel="Open Counselor Settings"
+        >
+          <View style={styles.avatarContainer}>
+            <Image
+              source={{ uri: profile.avatarUrl }}
+              style={styles.avatar}
+              accessibilityLabel={`${profile.fullName} profile photo`}
+            />
+            <View
+              style={[
+                styles.onlineBadge,
+                { backgroundColor: isAvailable ? "#059669" : colors.textSecondary },
+              ]}
+            />
+          </View>
+        </Pressable>
 
         {/* Identity & Credentials */}
-        <View style={styles.infoCol}>
+        <Pressable
+          style={styles.infoCol}
+          onPress={() => router.navigate("/(counsellor-detail)/settings")}
+          accessibilityRole="button"
+          accessibilityLabel="View Counselor Settings"
+        >
           <View style={styles.nameRow}>
             <Text style={styles.name} numberOfLines={1}>
               {profile.fullName}
@@ -69,7 +80,7 @@ export default function CounsellorProfileCard({
           <Text style={styles.subtitle} numberOfLines={1}>
             {profile.title} • {profile.organization}
           </Text>
-        </View>
+        </Pressable>
 
         {/* Notification Bell with Unread Badge */}
         <Pressable

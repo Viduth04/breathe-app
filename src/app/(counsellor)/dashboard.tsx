@@ -20,6 +20,7 @@ import {
   SessionItem,
 } from "@/types/counsellorDashboard";
 import { useCounsellorBadges } from "@/context/CounsellorBadgeContext";
+import { useCounsellorStore } from "@/services/counsellorStore";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
@@ -36,18 +37,20 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function CounsellorDashboard() {
   const { alertsUnread } = useCounsellorBadges();
-  const params = useLocalSearchParams<{ reviewStudentId?: string }>();
+  const params = useLocalSearchParams<{
+    reviewStudentId?: string;
+    sessionCompleted?: string;
+  }>();
 
-  // Local state for interactive prototype (mock data first, no Firestore)
-  const [profile, setProfile] = useState<CounsellorProfileInfo>(
-    MOCK_COUNSELLOR_PROFILE
-  );
-  const [isAvailable, setIsAvailable] = useState<boolean>(profile.isAvailable);
+  const {
+    requests,
+    sessions,
+    isAvailable,
+    profile,
+    toggleAvailability,
+  } = useCounsellorStore();
+
   const [activeFilter, setActiveFilter] = useState<TimeFilter>("Day");
-  const [sessions, setSessions] = useState<SessionItem[]>(MOCK_SESSIONS_TODAY);
-  const [requests, setRequests] = useState<BookingRequestItem[]>(
-    MOCK_PENDING_REQUESTS
-  );
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [feedbackActionStudent, setFeedbackActionStudent] = useState<string | null>(null);
   const [activeModalData, setActiveModalData] = useState<{
@@ -70,9 +73,17 @@ export default function CounsellorDashboard() {
     }
   }, [params?.reviewStudentId]);
 
+  // If navigated here after completing a live session
+  useEffect(() => {
+    if (params?.sessionCompleted) {
+      setFeedbackMessage("Consultation with Student #4021 concluded. Case audit logged.");
+      setFeedbackActionStudent(null);
+    }
+  }, [params?.sessionCompleted]);
+
   // Toggle availability state with inline feedback
   const handleToggleAvailability = (value: boolean) => {
-    setIsAvailable(value);
+    toggleAvailability(value);
     setFeedbackActionStudent(null);
     setFeedbackMessage(
       value
@@ -81,59 +92,50 @@ export default function CounsellorDashboard() {
     );
   };
 
-  // Accept a booking request
+  // Accept a booking request -> routes to Confirm Acceptance modal
   const handleAcceptRequest = (request: BookingRequestItem) => {
-    // Remove request from pending list
-    setRequests((prev) => prev.filter((r) => r.id !== request.id));
-
-    // Add as a confirmed session to the day's roster
-    const newSession: SessionItem = {
-      id: `session-accepted-${request.id}`,
-      studentId: request.studentId,
-      studentAnonId: request.studentAnonId,
-      displayName: request.displayName,
-      idMode: request.idMode,
-      timeRange: request.requestedTime,
-      timeRelative: "Added to Schedule",
-      isNext: false,
-      sessionType: request.sessionType,
-      sessionTypeLabel:
-        request.sessionType === "video"
-          ? "Encrypted Video Consultation"
-          : request.sessionType === "chat"
-          ? "Secured Chat Session"
-          : "In-Person Consultation",
-      noteType: "Focus",
-      noteText: request.topic,
-      status: "confirmed",
-    };
-
-    setSessions((prev) => [...prev, newSession]);
-    setFeedbackActionStudent(request.studentAnonId);
-    setFeedbackMessage(
-      `Accepted session with ${request.displayName}. Added to schedule.`
-    );
-  };
-
-  // View request details in an accessible modal
-  const handleViewRequest = (request: BookingRequestItem) => {
-    setActiveModalData({
-      title: `Booking Request: ${request.displayName}`,
-      description: `Mode: ${request.sessionType.toUpperCase()} • Duration: ${request.duration} • Scheduled: ${request.requestedTime}`,
-      details: request.aiMoodBrief
-        ? `Focus Area: ${request.topic}\n\nAI Mood Brief (Supportive Summary):\n${request.aiMoodBrief}`
-        : `Focus Area: ${request.topic}`,
+    router.navigate({
+      pathname: "/(counsellor-detail)/confirm-acceptance",
+      params: { requestId: request.id, studentAnonId: request.studentAnonId },
     });
   };
 
-  // Action button pressed on a session card
-  const handleSessionAction = (session: SessionItem) => {
-    if (session.isNext) {
+  // View request details in full detail screen or accessible modal
+  const handleViewRequest = (request: BookingRequestItem) => {
+    if (request.studentAnonId === "Student #5104" || request.id === "req-1") {
+      router.navigate("/(counsellor-detail)/request-detail");
+    } else {
       setActiveModalData({
-        title: "Starting Encrypted Consultation",
-        description: `Connecting to secure session with ${session.displayName}...`,
-        details:
-          "End-to-end encryption verified. Only you and this anonymous student have access to this room.",
+        title: `Booking Request: ${request.displayName}`,
+        description: `Mode: ${request.sessionType.toUpperCase()} • Duration: ${request.duration} • Scheduled: ${request.requestedTime}`,
+        details: request.aiMoodBrief
+          ? `Focus Area: ${request.topic}\n\nAI Mood Brief (Supportive Summary):\n${request.aiMoodBrief}`
+          : `Focus Area: ${request.topic}`,
+      });
+    }
+  };
+
+  // Action button pressed on a session card: navigate to Confirmed Session for Student #4021
+  const handleSessionAction = (session: SessionItem) => {
+    if (session.status === "completed") {
+      setActiveModalData({
+        title: `Completed Session: ${session.displayName}`,
+        description: `${session.timeRange} (${session.sessionTypeLabel})`,
+        details: `Clinical consultation concluded. Case notes safely archived under student's anonymous profile.`,
+      });
+      return;
+    }
+
+    if (session.studentAnonId === "Student #4021" || session.id === "session-1") {
+      router.navigate("/(counsellor-detail)/confirmed-session");
+    } else if (session.isNext) {
+      router.navigate({
+        pathname: "/(counsellor-detail)/ready-to-join",
+        params: {
+          studentAnonId: session.studentAnonId,
+          sessionTitle: session.sessionTypeLabel,
+          timeRange: session.timeRange,
+        },
       });
     } else {
       setActiveModalData({
@@ -262,16 +264,23 @@ export default function CounsellorDashboard() {
 
         {/* Stat Metrics Cards Grid (3 Columns) */}
         <View style={styles.statsRow}>
-          <StatCard
-            title="Sessions"
-            value={sessions.length}
-            subtitle="Scheduled today"
-            iconName="calendar-outline"
-            iconColor="#0369A1"
-            iconBg="#E0F2FE"
-            iconBorder="#BAE6FD"
-            subtitleColor="#0369A1"
-          />
+          <Pressable
+            style={{ flex: 1 }}
+            onPress={() => router.navigate("/(counsellor-detail)/past-sessions")}
+            accessibilityRole="button"
+            accessibilityLabel="View Past Sessions History"
+          >
+            <StatCard
+              title="Sessions"
+              value={sessions.length}
+              subtitle="Scheduled today"
+              iconName="calendar-outline"
+              iconColor="#0369A1"
+              iconBg="#E0F2FE"
+              iconBorder="#BAE6FD"
+              subtitleColor="#0369A1"
+            />
+          </Pressable>
           <StatCard
             title="Requests"
             value={requests.length}

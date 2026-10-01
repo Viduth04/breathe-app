@@ -1,7 +1,8 @@
 // Counsellor Badge Context - Muaath (Member 4). Supports FR05, FR08.
-// Synchronizes unread counts between tab bar badges, header bells, and screen actions in real time.
+// Synchronizes unread counts between tab bar badges, header bells, and screen actions in real time via shared store.
 
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, ReactNode } from "react";
+import { useCounsellorStore } from "@/services/counsellorStore";
 
 type BadgeContextType = {
   alertsUnread: number;
@@ -20,21 +21,16 @@ const CounsellorBadgeContext = createContext<BadgeContextType>({
 });
 
 export function CounsellorBadgeProvider({ children }: { children: ReactNode }) {
-  const [alertsUnread, setAlertsUnread] = useState(3);
-  const [messagesUnread, setMessagesUnread] = useState(3);
-
-  const markAlertsAsRead = () => setAlertsUnread(0);
-  const decrementAlerts = () => setAlertsUnread((c) => Math.max(0, c - 1));
-  const decrementMessages = () => setMessagesUnread((c) => Math.max(0, c - 1));
+  const store = useCounsellorStore();
 
   return (
     <CounsellorBadgeContext.Provider
       value={{
-        alertsUnread,
-        messagesUnread,
-        markAlertsAsRead,
-        decrementAlerts,
-        decrementMessages,
+        alertsUnread: store.alertsUnread,
+        messagesUnread: store.messagesUnread,
+        markAlertsAsRead: store.markAlertsAsRead,
+        decrementAlerts: store.markAlertsAsRead,
+        decrementMessages: store.decrementMessages,
       }}
     >
       {children}
