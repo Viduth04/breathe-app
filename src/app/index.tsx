@@ -1,35 +1,50 @@
-import Button from "@/components/common/Button";
+import LogoutButton from "@/components/auth/LogoutButton";
 import Card from "@/components/common/Card";
-import Input from "@/components/common/Input";
 import Screen from "@/components/common/Screen";
-import { typography } from "@/theme";
-import { Text } from "react-native";
+import LoadingScreen from "@/components/navigation/LoadingScreen";
+import { useAuth } from "@/context/AuthContext";
+import { spacing, typography } from "@/theme";
+import { Redirect } from "expo-router";
+import { StyleSheet, Text } from "react-native";
 
+// Entry point: sends each user to the area for their role
 export default function Index() {
-  return (
-    <Screen>
-      <Text style={typography.title}>Welcome Back</Text>
-      <Card variant="success">
-        <Text style={typography.body}>Anonymous Mode is on</Text>
-      </Card>
-      <Input
-        label="Email or Student ID"
-        icon="mail-outline"
-        placeholder="student@university.edu"
-      />
-      <Input
-        label="Password"
-        icon="lock-closed-outline"
-        isPassword
-        placeholder="Enter your password"
-      />
-      <Button title="Log In" onPress={() => {}} />
-      <Button
-        title="Continue Anonymously"
-        variant="secondary"
-        onPress={() => {}}
-        style={{ marginTop: 12 }}
-      />
-    </Screen>
-  );
+  const { user, profile } = useAuth();
+
+  if (!user) return <Redirect href="/(auth)/welcome" />;
+
+  // Right after sign-up the profile document is still being written
+  if (!profile) return <LoadingScreen offerLogout />;
+
+  switch (profile.role) {
+    case "student":
+      return <Redirect href="/(student)/home" />;
+    case "counsellor":
+      return <Redirect href="/(counsellor)/dashboard" />;
+    case "admin":
+      return <Redirect href="/(admin)/dashboard" />;
+    case "lecturer":
+      return <Redirect href="/(lecturer)/overview" />;
+    default:
+      // A role value the app doesn't know (e.g. mistyped in the console).
+      // Shown here instead of redirecting, which would loop with (auth).
+      return (
+        <Screen style={styles.content}>
+          <Text style={typography.title} accessibilityRole="header">
+            Account not set up
+          </Text>
+          <Card>
+            <Text style={typography.body}>
+              Your account doesn't have a role this app recognises. Please
+              contact an admin.
+            </Text>
+          </Card>
+          <LogoutButton />
+        </Screen>
+      );
+  }
 }
+
+const styles = StyleSheet.create({
+  content: { gap: spacing.md },
+});
