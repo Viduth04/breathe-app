@@ -565,7 +565,7 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: "#FFF",
-    borderRadius: radius.xl,
+    borderRadius: 24,
     padding: spacing.xl,
     alignItems: "center",
   },

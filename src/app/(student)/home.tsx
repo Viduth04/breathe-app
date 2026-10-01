@@ -90,7 +90,7 @@ export default function Home() {
   const session = DUMMY.upcomingSession;
 
   const goToCheckIn = () => router.navigate("/(student)/check-in");
-  const goToSessions = () => router.navigate("/(student)/sessions");
+  const goToSessions = () => router.navigate("/(student)/session/dashboard");
   const goToExercises = () => router.navigate("/(student)/exercises");
 
   return (
