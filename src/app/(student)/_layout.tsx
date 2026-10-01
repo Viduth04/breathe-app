@@ -27,7 +27,7 @@ export default function StudentLayout() {
           }}
         />
         <Tabs.Screen
-          name="sessions"
+          name="session/dashboard"
           options={{
             title: "Sessions",
             tabBarIcon: tabIcon("calendar", "calendar-outline"),
@@ -57,6 +57,15 @@ export default function StudentLayout() {
         {/* Reachable from Profile, but not shown in the tab bar */}
         <Tabs.Screen name="privacy" options={{ href: null }} />
         <Tabs.Screen name="companion" options={{ href: null }} />
+        
+        {/* Booking sub-screens, not shown in the tab bar */}
+        <Tabs.Screen name="session/chat" options={{ href: null, tabBarStyle: { display: "none" } }} />
+        <Tabs.Screen name="session/summary" options={{ href: null, tabBarStyle: { display: "none" } }} />
+        <Tabs.Screen name="session/video-call" options={{ href: null, tabBarStyle: { display: "none" } }} />
+        <Tabs.Screen name="session/counselor" options={{ href: null, tabBarStyle: { display: "none" } }} />
+        <Tabs.Screen name="session/book" options={{ href: null, tabBarStyle: { display: "none" } }} />
+        <Tabs.Screen name="session/details" options={{ href: null, tabBarStyle: { display: "none" } }} />
+        <Tabs.Screen name="session/cancel" options={{ href: null, tabBarStyle: { display: "none" } }} />
       </Tabs>
       {/* Crisis support is one tap away on every student screen (F9 / R9) */}
       <FloatingHelpButton />
