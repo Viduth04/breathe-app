@@ -115,20 +115,26 @@ export default function CounsellorDashboard() {
     );
   };
 
-  // View request details in an accessible modal
+  // View request details in full detail screen or accessible modal
   const handleViewRequest = (request: BookingRequestItem) => {
-    setActiveModalData({
-      title: `Booking Request: ${request.displayName}`,
-      description: `Mode: ${request.sessionType.toUpperCase()} • Duration: ${request.duration} • Scheduled: ${request.requestedTime}`,
-      details: request.aiMoodBrief
-        ? `Focus Area: ${request.topic}\n\nAI Mood Brief (Supportive Summary):\n${request.aiMoodBrief}`
-        : `Focus Area: ${request.topic}`,
-    });
+    if (request.studentAnonId === "Student #5104" || request.id === "req-1") {
+      router.navigate("/(counsellor-detail)/request-detail");
+    } else {
+      setActiveModalData({
+        title: `Booking Request: ${request.displayName}`,
+        description: `Mode: ${request.sessionType.toUpperCase()} • Duration: ${request.duration} • Scheduled: ${request.requestedTime}`,
+        details: request.aiMoodBrief
+          ? `Focus Area: ${request.topic}\n\nAI Mood Brief (Supportive Summary):\n${request.aiMoodBrief}`
+          : `Focus Area: ${request.topic}`,
+      });
+    }
   };
 
-  // Action button pressed on a session card
+  // Action button pressed on a session card: navigate to Confirmed Session for Student #4021
   const handleSessionAction = (session: SessionItem) => {
-    if (session.isNext) {
+    if (session.studentAnonId === "Student #4021" || session.id === "session-1") {
+      router.navigate("/(counsellor-detail)/confirmed-session");
+    } else if (session.isNext) {
       setActiveModalData({
         title: "Starting Encrypted Consultation",
         description: `Connecting to secure session with ${session.displayName}...`,
@@ -262,16 +268,23 @@ export default function CounsellorDashboard() {
 
         {/* Stat Metrics Cards Grid (3 Columns) */}
         <View style={styles.statsRow}>
-          <StatCard
-            title="Sessions"
-            value={sessions.length}
-            subtitle="Scheduled today"
-            iconName="calendar-outline"
-            iconColor="#0369A1"
-            iconBg="#E0F2FE"
-            iconBorder="#BAE6FD"
-            subtitleColor="#0369A1"
-          />
+          <Pressable
+            style={{ flex: 1 }}
+            onPress={() => router.navigate("/(counsellor-detail)/past-sessions")}
+            accessibilityRole="button"
+            accessibilityLabel="View Past Sessions History"
+          >
+            <StatCard
+              title="Sessions"
+              value={sessions.length}
+              subtitle="Scheduled today"
+              iconName="calendar-outline"
+              iconColor="#0369A1"
+              iconBg="#E0F2FE"
+              iconBorder="#BAE6FD"
+              subtitleColor="#0369A1"
+            />
+          </Pressable>
           <StatCard
             title="Requests"
             value={requests.length}

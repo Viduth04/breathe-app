@@ -45,12 +45,9 @@ export default function CounsellorAlertsScreen() {
     setTimeout(() => setFeedbackMessage(null), 3000);
   };
 
-  // Navigate to Dashboard with param to open Student #5104 detail modal
+  // Navigate to Request Detail screen for Student #5104
   const handleReviewRequest = () => {
-    router.navigate({
-      pathname: "/(counsellor)/dashboard",
-      params: { reviewStudentId: "std-5104" },
-    });
+    router.navigate("/(counsellor-detail)/request-detail");
   };
 
   // Navigate to Messages for Secure Chat with Student #4021
@@ -276,7 +273,12 @@ export default function CounsellorAlertsScreen() {
 
                 {/* Card 1: New Session Request */}
                 {visibleTodayAlerts.some((a) => a.id === "alert-1") && (
-                  <View style={styles.card} accessibilityRole="summary">
+                  <Pressable
+                    style={styles.card}
+                    accessibilityRole="button"
+                    accessibilityLabel="View triage notification for Student #5104"
+                    onPress={() => router.navigate("/(counsellor-detail)/notification-detail")}
+                  >
                     <View style={styles.cardMainRow}>
                       <View style={styles.iconBox}>
                         <Ionicons
@@ -307,7 +309,10 @@ export default function CounsellorAlertsScreen() {
                           </View>
                           <Pressable
                             style={styles.actionBtnFilled}
-                            onPress={handleReviewRequest}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              handleReviewRequest();
+                            }}
                             accessibilityRole="button"
                             accessibilityLabel="Review Request for Student #5104"
                           >
@@ -324,7 +329,7 @@ export default function CounsellorAlertsScreen() {
                         />
                       </View>
                     </View>
-                  </View>
+                  </Pressable>
                 )}
 
                 {/* Card 2: Intake Questionnaire Submitted */}
