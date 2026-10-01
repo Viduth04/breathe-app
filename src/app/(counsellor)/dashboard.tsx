@@ -19,9 +19,10 @@ import {
   CounsellorProfileInfo,
   SessionItem,
 } from "@/types/counsellorDashboard";
+import { useCounsellorBadges } from "@/context/CounsellorBadgeContext";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import { useState } from "react";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -34,6 +35,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function CounsellorDashboard() {
+  const { alertsUnread } = useCounsellorBadges();
+  const params = useLocalSearchParams<{ reviewStudentId?: string }>();
+
   // Local state for interactive prototype (mock data first, no Firestore)
   const [profile, setProfile] = useState<CounsellorProfileInfo>(
     MOCK_COUNSELLOR_PROFILE
@@ -45,6 +49,7 @@ export default function CounsellorDashboard() {
     MOCK_PENDING_REQUESTS
   );
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [feedbackActionStudent, setFeedbackActionStudent] = useState<string | null>(null);
   const [activeModalData, setActiveModalData] = useState<{
     title: string;
     description: string;
@@ -53,9 +58,22 @@ export default function CounsellorDashboard() {
   } | null>(null);
   const [loading] = useState<boolean>(false);
 
+  // If navigated here with reviewStudentId (e.g. from Alerts screen), open detail modal automatically
+  useEffect(() => {
+    if (params?.reviewStudentId) {
+      const targetReq =
+        requests.find((r) => r.studentId === params.reviewStudentId) ||
+        requests[0];
+      if (targetReq) {
+        handleViewRequest(targetReq);
+      }
+    }
+  }, [params?.reviewStudentId]);
+
   // Toggle availability state with inline feedback
   const handleToggleAvailability = (value: boolean) => {
     setIsAvailable(value);
+    setFeedbackActionStudent(null);
     setFeedbackMessage(
       value
         ? "You are now online and available for bookings."
@@ -91,6 +109,7 @@ export default function CounsellorDashboard() {
     };
 
     setSessions((prev) => [...prev, newSession]);
+    setFeedbackActionStudent(request.studentAnonId);
     setFeedbackMessage(
       `Accepted session with ${request.displayName}. Added to schedule.`
     );
@@ -194,8 +213,26 @@ export default function CounsellorDashboard() {
               importantForAccessibility="no"
             />
             <Text style={styles.toastText}>{feedbackMessage}</Text>
+            {feedbackActionStudent && (
+              <Pressable
+                onPress={() => router.navigate("/(counsellor)/messages")}
+                accessibilityRole="button"
+                accessibilityLabel="Message Student"
+                style={styles.toastActionBtn}
+              >
+                <Text style={styles.toastActionText}>Message</Text>
+                <Ionicons
+                  name="arrow-forward"
+                  size={12}
+                  color={colors.white}
+                />
+              </Pressable>
+            )}
             <Pressable
-              onPress={() => setFeedbackMessage(null)}
+              onPress={() => {
+                setFeedbackMessage(null);
+                setFeedbackActionStudent(null);
+              }}
               accessibilityRole="button"
               accessibilityLabel="Dismiss message"
               hitSlop={8}
@@ -211,7 +248,7 @@ export default function CounsellorDashboard() {
 
         {/* Profile Card with Availability Switch */}
         <CounsellorProfileCard
-          profile={profile}
+          profile={{ ...profile, unreadAlertsCount: alertsUnread }}
           isAvailable={isAvailable}
           onToggleAvailability={handleToggleAvailability}
         />
@@ -230,10 +267,10 @@ export default function CounsellorDashboard() {
             value={sessions.length}
             subtitle="Scheduled today"
             iconName="calendar-outline"
-            iconColor="#0284C7"
+            iconColor="#0369A1"
             iconBg="#E0F2FE"
             iconBorder="#BAE6FD"
-            subtitleColor="#0284C7"
+            subtitleColor="#0369A1"
           />
           <StatCard
             title="Requests"
@@ -447,6 +484,21 @@ const styles = StyleSheet.create({
     color: "#064E3B",
     fontWeight: "600",
     flex: 1,
+  },
+  toastActionBtn: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 4,
+    borderRadius: radius.full,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginRight: 4,
+  },
+  toastActionText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: "700",
   },
   emptyContainer: {
     backgroundColor: colors.surface,

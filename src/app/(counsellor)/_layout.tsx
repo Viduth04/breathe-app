@@ -1,17 +1,16 @@
 import LoadingScreen from "@/components/navigation/LoadingScreen";
 import { tabIcon, tabScreenOptions } from "@/components/navigation/tabs";
 import { useAuth } from "@/context/AuthContext";
+import {
+  CounsellorBadgeProvider,
+  useCounsellorBadges,
+} from "@/context/CounsellorBadgeContext";
 import { colors } from "@/theme";
 import { Redirect } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
 
-// Counsellors only: logged-out users go to Welcome, other roles go back to index
-export default function CounsellorLayout() {
-  const { user, profile } = useAuth();
-
-  if (!user) return <Redirect href="/(auth)/welcome" />;
-  if (!profile) return <LoadingScreen offerLogout />;
-  if (profile.role !== "counsellor") return <Redirect href="/" />;
+function CounsellorTabsNavigator() {
+  const { alertsUnread, messagesUnread } = useCounsellorBadges();
 
   return (
     <Tabs screenOptions={tabScreenOptions} backBehavior="history">
@@ -34,7 +33,7 @@ export default function CounsellorLayout() {
         options={{
           title: "Messages",
           tabBarIcon: tabIcon("chatbubbles", "chatbubbles-outline"),
-          tabBarBadge: 3,
+          tabBarBadge: messagesUnread > 0 ? messagesUnread : undefined,
           tabBarBadgeStyle: {
             backgroundColor: colors.primary,
             color: colors.white,
@@ -48,7 +47,7 @@ export default function CounsellorLayout() {
         options={{
           title: "Alerts",
           tabBarIcon: tabIcon("notifications", "notifications-outline"),
-          tabBarBadge: 3,
+          tabBarBadge: alertsUnread > 0 ? alertsUnread : undefined,
           tabBarBadgeStyle: {
             backgroundColor: colors.danger,
             color: colors.white,
@@ -61,3 +60,17 @@ export default function CounsellorLayout() {
   );
 }
 
+// Counsellors only: logged-out users go to Welcome, other roles go back to index
+export default function CounsellorLayout() {
+  const { user, profile } = useAuth();
+
+  if (!user) return <Redirect href="/(auth)/welcome" />;
+  if (!profile) return <LoadingScreen offerLogout />;
+  if (profile.role !== "counsellor") return <Redirect href="/" />;
+
+  return (
+    <CounsellorBadgeProvider>
+      <CounsellorTabsNavigator />
+    </CounsellorBadgeProvider>
+  );
+}

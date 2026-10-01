@@ -1,185 +1,206 @@
 // Counsellor Messages - Muaath (Member 4). Supports FR07, NFR01, NFR02.
-import React, { useState } from "react";
+// Secure, confidential, E2E encrypted chat inbox matching exact Figma design specifications.
+
+import { useCounsellorBadges } from "@/context/CounsellorBadgeContext";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TextInput,
-  Pressable,
+  MOCK_CHAT_BUBBLES,
+  MOCK_CHAT_THREADS,
+} from "@/services/mockMessagesData";
+import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
+import {
+  ChatBubble,
+  ChatThread,
+  MessageFilter,
+} from "@/types/counsellorMessages";
+import { Ionicons } from "@expo/vector-icons";
+import { router, useLocalSearchParams } from "expo-router";
+import React, { useEffect, useState } from "react";
+import {
+  FlatList,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
-  FlatList,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing, radius, typography, TOUCH_TARGET } from "@/theme";
-import { router } from "expo-router";
 
-// Mocking the imports to ensure the file compiles without issues if types are missing
-// import { MOCK_CHAT_THREADS, MOCK_CHAT_BUBBLES } from "@/services/mockMessagesData";
-// import { ChatThread, ChatBubble, MessageFilter } from "@/types/counsellorMessages";
-
-type MessageFilter = "all" | "unread" | "urgent" | "anon" | "archived";
-
-const MOCK_CHAT_THREADS = [
-  {
-    id: "1",
-    name: "Maya Lin",
-    studentId: "6291",
-    isAnonymous: false,
-    avatar: "https://i.pravatar.cc/150?u=maya",
-    status: "online",
-    tag: "Weekly Check-in · In-Person",
-    unreadCount: 2,
-    time: "10:42 AM",
-    lastMessage: "I've been feeling a bit overwhelmed lately...",
-    isUrgent: false,
-  },
-  {
-    id: "2",
-    name: "Student #5104",
-    studentId: "5104",
-    isAnonymous: true,
-    avatar: null,
-    status: "online",
-    tag: "URGENT TRIAGE · PHQ-9: 14",
-    unreadCount: 1,
-    time: "09:15 AM",
-    lastMessage: "Can someone please talk to me right now",
-    isUrgent: true,
-  },
-  {
-    id: "3",
-    name: "Sarah Jenkins",
-    studentId: "8922",
-    isAnonymous: false,
-    avatar: "https://i.pravatar.cc/150?u=sarah",
-    status: "offline",
-    tag: "Weekly Consultation",
-    unreadCount: 0,
-    time: "Yesterday",
-    lastMessage: "Thank you for the session today.",
-    isUrgent: false,
-  },
-  {
-    id: "4",
-    name: "Student #8821",
-    studentId: "8821",
-    isAnonymous: true,
-    avatar: null,
-    status: "online",
-    tag: "Crisis Follow-up",
-    unreadCount: 0,
-    time: "Oct 14",
-    lastMessage: "The coping strategies are helping a bit.",
-    isUrgent: false,
-  },
-  {
-    id: "5",
-    name: "Alex Rivera",
-    studentId: "3321",
-    isAnonymous: false,
-    avatar: "https://i.pravatar.cc/150?u=alex",
-    status: "offline",
-    tag: "Bi-weekly Ongoing",
-    unreadCount: 0,
-    time: "Oct 11",
-    lastMessage: "See you next week.",
-    isUrgent: false,
-  },
-];
-
-const MOCK_CHAT_BUBBLES = [
-  {
-    id: "1",
-    sender: "counsellor",
-    text: "Hi Maya, how have you been feeling since our last session?",
-    time: "10:30 AM",
-  },
-  {
-    id: "2",
-    sender: "student",
-    text: "I've been feeling a bit overwhelmed lately with midterms coming up.",
-    time: "10:32 AM",
-  },
-  {
-    id: "3",
-    type: "system",
-    label: "Prescribed Coping Module",
-    title: "Anxiety Reduction Techniques",
-    subtitle: "Completed on Oct 12",
-  },
-  {
-    id: "4",
-    sender: "counsellor",
-    text: "I understand. That's completely normal. Have you had a chance to try the techniques we discussed?",
-    time: "10:35 AM",
-  },
-];
-
-export default function MessagesScreen() {
+export default function CounsellorMessagesScreen() {
+  const { messagesUnread, decrementMessages } = useCounsellorBadges();
+  const params = useLocalSearchParams<{ studentAnonId?: string }>();
   const [activeFilter, setActiveFilter] = useState<MessageFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
-  const [localMessages, setLocalMessages] = useState(MOCK_CHAT_BUBBLES);
-  
+  const [threads, setThreads] = useState<ChatThread[]>(MOCK_CHAT_THREADS);
+  const [messages, setMessages] = useState<ChatBubble[]>(MOCK_CHAT_BUBBLES);
+
+  // Outreach Modal state (with Anonymous Student ID search bar)
+  const [outreachModalVisible, setOutreachModalVisible] = useState(false);
+  const [outreachSearchId, setOutreachSearchId] = useState("");
+  const [outreachFeedback, setOutreachFeedback] = useState<string | null>(null);
+  const [caseNotesModalVisible, setCaseNotesModalVisible] = useState(false);
+
+  // Deep-link handling (e.g. from Alerts screen "Secure Chat")
+  useEffect(() => {
+    if (params?.studentAnonId) {
+      const match = threads.find(
+        (t) =>
+          t.studentAnonId.toLowerCase() ===
+            params.studentAnonId?.toLowerCase() ||
+          t.displayName
+            .toLowerCase()
+            .includes(params.studentAnonId?.toLowerCase() || "")
+      );
+      if (match) {
+        handleOpenThread(match);
+      } else {
+        // Open the primary active conversation if specific student thread is unlisted
+        setActiveChatId("chat-1");
+      }
+    }
+  }, [params?.studentAnonId]);
+
+  // Open a conversation thread
+  const handleOpenThread = (thread: ChatThread) => {
+    setActiveChatId(thread.id);
+    if (thread.unreadCount > 0) {
+      setThreads((prev) =>
+        prev.map((t) => (t.id === thread.id ? { ...t, unreadCount: 0 } : t))
+      );
+      decrementMessages();
+    }
+  };
+
+  // Send a new confidential message
   const handleSend = () => {
     if (!chatInput.trim()) return;
-    setLocalMessages([
-      ...localMessages,
-      {
-        id: Date.now().toString(),
-        sender: "counsellor",
-        text: chatInput,
-        time: "Just now",
-      },
-    ]);
+    const newBubble: ChatBubble = {
+      id: `msg-${Date.now()}`,
+      senderId: "counsellor-1",
+      senderRole: "counsellor",
+      text: chatInput.trim(),
+      timestamp: "Just now",
+      deliveryStatus: "delivered",
+    };
+    setMessages((prev) => [...prev, newBubble]);
     setChatInput("");
   };
 
+  // Filter threads based on active filter chip and search query
+  const filteredThreads = threads.filter((thread) => {
+    const matchesSearch =
+      thread.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      thread.studentAnonId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      thread.sessionTag.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    if (activeFilter === "unread") return thread.unreadCount > 0;
+    if (activeFilter === "urgent") return thread.triageLevel === "urgent";
+    if (activeFilter === "anonymous") return thread.idMode === "anonymous";
+    if (activeFilter === "archived") return thread.status === "archived";
+    return true;
+  });
+
+  const activeThread = threads.find((t) => t.id === activeChatId) || threads[0];
+
+  // ==========================================
+  // THREAD LIST VIEW (MAIN INBOX)
+  // ==========================================
   const renderThreadListView = () => (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-      {/* HEADER */}
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* 1. CLINICAL PORTAL HEADER */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <View style={styles.logoCircle}>
-            <Ionicons name="medical" size={24} color={colors.surface} />
+          <View style={styles.emblemCircle}>
+            <Ionicons name="leaf-outline" size={20} color={colors.primary} />
           </View>
           <View>
             <View style={styles.headerTitleRow}>
               <Text style={styles.headerTitle}>Breathe Clinical</Text>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>PORTAL</Text>
+              <View style={styles.portalBadge}>
+                <Text style={styles.portalBadgeText}>PORTAL</Text>
               </View>
             </View>
-            <Text style={styles.headerSubtitle}>Dr. Anjali Perera · Lead Counselor</Text>
+            <View style={styles.counselorSubRow}>
+              <View style={styles.onDutyDot} />
+              <Text style={styles.headerSubtitle}>
+                Dr. Anjali Perera · Lead Counselor
+              </Text>
+            </View>
           </View>
         </View>
+
         <View style={styles.headerRight}>
-          <Pressable style={styles.iconButton} accessibilityRole="button" accessibilityLabel="Notifications">
-            <Ionicons name="notifications-outline" size={24} color={colors.text} />
+          {/* Notification bell with navigate to Alerts */}
+          <Pressable
+            style={styles.headerIconBtn}
+            onPress={() => router.navigate("/(counsellor)/alerts")}
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+          >
+            <Ionicons
+              name="notifications-outline"
+              size={22}
+              color={colors.text}
+            />
+            <View style={styles.headerBellBadge} />
           </Pressable>
-          <Image source={{ uri: "https://i.pravatar.cc/150?u=dr" }} style={styles.headerAvatar} />
+
+          <View style={styles.headerAvatarContainer}>
+            <Image
+              source={{
+                uri: "https://images.unsplash.com/photo-1594824813645-316b2cfd2906?auto=format&fit=crop&w=256&q=80",
+              }}
+              style={styles.headerAvatar}
+            />
+            <View style={styles.headerAvatarOnlineBadge} />
+          </View>
         </View>
       </View>
 
-      {/* TITLE & COMPOSE */}
+      {/* 2. TITLE & COMPOSE BUTTON */}
       <View style={styles.titleSection}>
-        <View>
-          <Text style={styles.pageTitle}>Messages</Text>
-          <Text style={styles.pageSubtitle}>Breathe Sanctuary · Confidential Consultations (18 Active Students)</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.pageTitle} accessibilityRole="header">
+            Messages
+          </Text>
+          <Text style={styles.pageSubtitle}>
+            Breathe Sanctuary · Confidential Consultations (18 Active Students)
+          </Text>
         </View>
-        <Pressable style={styles.composeButton} accessibilityRole="button" accessibilityLabel="Compose new message">
-          <Ionicons name="pencil" size={24} color={colors.surface} />
+        <Pressable
+          style={styles.composeButton}
+          onPress={() => setOutreachModalVisible(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Compose new confidential message"
+        >
+          <Ionicons
+            name="create-outline"
+            size={22}
+            color={colors.primary}
+          />
         </Pressable>
       </View>
 
-      {/* SEARCH */}
+      {/* 3. SEARCH BAR WITH FILTER TUNE ICON */}
       <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color={colors.textSecondary} style={styles.searchIcon} />
+        <Ionicons
+          name="search-outline"
+          size={18}
+          color={colors.textSecondary}
+          style={styles.searchIcon}
+        />
         <TextInput
           style={styles.searchInput}
           placeholder="Search student name, ID, or clinical tags..."
@@ -187,240 +208,715 @@ export default function MessagesScreen() {
           onChangeText={setSearchQuery}
           placeholderTextColor={colors.textSecondary}
         />
-        <Ionicons name="options-outline" size={20} color={colors.textSecondary} style={styles.filterIcon} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Filter search results"
+          hitSlop={8}
+        >
+          <Ionicons
+            name="options-outline"
+            size={18}
+            color={colors.textSecondary}
+          />
+        </Pressable>
       </View>
 
-      {/* FILTER CHIPS */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterContent}>
-        <Pressable 
-          style={[styles.filterChip, activeFilter === "all" && styles.filterChipActive]}
+      {/* 4. FILTER CHIPS */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterScroll}
+        contentContainerStyle={styles.filterContent}
+      >
+        <Pressable
+          style={[
+            styles.filterChip,
+            activeFilter === "all" && styles.filterChipActive,
+          ]}
           onPress={() => setActiveFilter("all")}
           accessibilityRole="button"
           accessibilityLabel="All messages"
         >
-          <Text style={[styles.filterChipText, activeFilter === "all" && styles.filterChipTextActive]}>All</Text>
+          <Text
+            style={[
+              styles.filterChipText,
+              activeFilter === "all" && styles.filterChipTextActive,
+            ]}
+          >
+            All
+          </Text>
         </Pressable>
-        
-        <Pressable 
-          style={[styles.filterChip, activeFilter === "unread" && styles.filterChipActive]}
+
+        <Pressable
+          style={[
+            styles.filterChip,
+            activeFilter === "unread" && styles.filterChipActive,
+          ]}
           onPress={() => setActiveFilter("unread")}
           accessibilityRole="button"
           accessibilityLabel="Unread messages"
         >
-          <Text style={[styles.filterChipText, activeFilter === "unread" && styles.filterChipTextActive]}>Unread (3)</Text>
-          <View style={[styles.dot, { backgroundColor: colors.primary, marginLeft: 4 }]} />
+          <Text
+            style={[
+              styles.filterChipText,
+              activeFilter === "unread" && styles.filterChipTextActive,
+            ]}
+          >
+            Unread (3)
+          </Text>
+          <View style={[styles.filterDot, { backgroundColor: "#10B981" }]} />
         </Pressable>
 
-        <Pressable 
-          style={[styles.filterChip, activeFilter === "urgent" && styles.filterChipActive]}
+        <Pressable
+          style={[
+            styles.filterChip,
+            activeFilter === "urgent" && styles.filterChipActive,
+          ]}
           onPress={() => setActiveFilter("urgent")}
           accessibilityRole="button"
-          accessibilityLabel="Urgent messages"
+          accessibilityLabel="Urgent and triage messages"
         >
-          <Text style={[styles.filterChipText, activeFilter === "urgent" && styles.filterChipTextActive]}>Urgent / Triage</Text>
-          <View style={[styles.dot, { backgroundColor: colors.danger, marginLeft: 4 }]} />
+          <View style={[styles.filterDot, { backgroundColor: "#F59E0B" }]} />
+          <Text
+            style={[
+              styles.filterChipText,
+              activeFilter === "urgent" && styles.filterChipTextActive,
+            ]}
+          >
+            Urgent / Triage
+          </Text>
         </Pressable>
 
-        <Pressable 
-          style={[styles.filterChip, activeFilter === "anon" && styles.filterChipActive]}
-          onPress={() => setActiveFilter("anon")}
+        <Pressable
+          style={[
+            styles.filterChip,
+            activeFilter === "anonymous" && styles.filterChipActive,
+          ]}
+          onPress={() => setActiveFilter("anonymous")}
           accessibilityRole="button"
-          accessibilityLabel="Anonymous messages"
+          accessibilityLabel="Anonymous students"
         >
-          <Text style={[styles.filterChipText, activeFilter === "anon" && styles.filterChipTextActive]}>Anon...</Text>
+          <Text
+            style={[
+              styles.filterChipText,
+              activeFilter === "anonymous" && styles.filterChipTextActive,
+            ]}
+          >
+            Anonymous Students
+          </Text>
         </Pressable>
-        
-        <Pressable 
-          style={[styles.filterChip, activeFilter === "archived" && styles.filterChipActive]}
+
+        <Pressable
+          style={[
+            styles.filterChip,
+            activeFilter === "archived" && styles.filterChipActive,
+          ]}
           onPress={() => setActiveFilter("archived")}
           accessibilityRole="button"
-          accessibilityLabel="Archived messages"
+          accessibilityLabel="Archived consultations"
         >
-          <Text style={[styles.filterChipText, activeFilter === "archived" && styles.filterChipTextActive]}>Archived</Text>
+          <Text
+            style={[
+              styles.filterChipText,
+              activeFilter === "archived" && styles.filterChipTextActive,
+            ]}
+          >
+            Archived
+          </Text>
         </Pressable>
       </ScrollView>
 
-      {/* ENCRYPTION BANNER */}
-      <View style={styles.encryptionBanner}>
-        <Ionicons name="shield-checkmark" size={16} color={colors.primary} />
-        <Text style={styles.encryptionText}>HIPAA & FERPA Compliant · E2E Encrypted</Text>
-        <Ionicons name="lock-closed" size={14} color={colors.primary} />
+      {/* 5. ENCRYPTED CLINICAL CHANNEL BANNER */}
+      <View style={styles.encryptionBanner} accessibilityRole="summary">
+        <View style={styles.shieldIconBox}>
+          <Ionicons
+            name="shield-checkmark"
+            size={18}
+            color={colors.primary}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.encryptionTitle}>
+            HIPAA & FERPA Compliant · E2E Encrypted
+          </Text>
+          <Text style={styles.encryptionSubtitle}>
+            Authorized Clinical Record Storage & Audit Logs Active
+          </Text>
+        </View>
+        <Ionicons name="lock-closed" size={16} color={colors.primary} />
       </View>
 
-      {/* THREAD CARDS */}
+      {/* 6. CONVERSATION THREAD CARDS OR EMPTY STATE */}
       <View style={styles.threadList}>
-        {MOCK_CHAT_THREADS.map((thread) => (
-          <Pressable 
-            key={thread.id}
-            style={styles.threadCard}
-            onPress={() => setActiveChatId(thread.id)}
-            accessibilityRole="button"
-            accessibilityLabel={`Chat with ${thread.name}`}
-          >
-            {thread.unreadCount > 0 && (
-              <View style={[styles.accentBar, { backgroundColor: thread.isUrgent ? colors.danger : colors.primary }]} />
-            )}
-            
-            <View style={styles.threadContent}>
-              <View style={styles.avatarContainer}>
-                {thread.avatar ? (
-                  <Image source={{ uri: thread.avatar }} style={styles.threadAvatar} />
-                ) : (
-                  <View style={[styles.textAvatar, thread.isUrgent && styles.textAvatarUrgent]}>
-                    <Text style={[styles.textAvatarLabel, thread.isUrgent && styles.textAvatarLabelUrgent]}>
-                      #{thread.studentId}
+        {filteredThreads.length === 0 ? (
+          <View style={styles.emptyThreadsBox} accessibilityRole="summary">
+            <View style={styles.emptyThreadsIconCircle}>
+              <Ionicons
+                name="chatbubbles-outline"
+                size={32}
+                color={colors.textSecondary}
+              />
+            </View>
+            <Text style={styles.emptyThreadsTitle}>No conversations found</Text>
+            <Text style={styles.emptyThreadsSubtitle}>
+              {searchQuery
+                ? `No students matching "${searchQuery}"`
+                : `No active consultations in the "${activeFilter}" category.`}
+            </Text>
+          </View>
+        ) : (
+          filteredThreads.map((thread) => {
+          const isUrgent = thread.triageLevel === "urgent";
+          const hasUnread = thread.unreadCount > 0;
+
+          return (
+            <Pressable
+              key={thread.id}
+              style={[
+                styles.threadCard,
+                hasUnread && !isUrgent && styles.threadCardUnreadGreen,
+                isUrgent && styles.threadCardUnreadAmber,
+              ]}
+              onPress={() => handleOpenThread(thread)}
+              accessibilityRole="button"
+              accessibilityLabel={`Conversation with ${thread.displayName}, ${thread.lastMessageTime}. ${
+                hasUnread ? `${thread.unreadCount} unread messages` : ""
+              }`}
+            >
+              {/* Left Color Accent Bar */}
+              {hasUnread && (
+                <View
+                  style={[
+                    styles.accentBar,
+                    {
+                      backgroundColor: isUrgent ? "#F59E0B" : colors.primary,
+                    },
+                  ]}
+                />
+              )}
+
+              <View style={styles.threadContent}>
+                {/* Avatar Column */}
+                <View style={styles.avatarContainer}>
+                  {thread.avatarUrl ? (
+                    <Image
+                      source={{ uri: thread.avatarUrl }}
+                      style={styles.threadAvatar}
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.anonAvatarCircle,
+                        isUrgent && styles.anonAvatarCircleAmber,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.anonAvatarText,
+                          isUrgent && styles.anonAvatarTextAmber,
+                        ]}
+                      >
+                        #{thread.studentId.replace("std-", "")}
+                      </Text>
+                    </View>
+                  )}
+                  <View
+                    style={[
+                      styles.onlineBadgeDot,
+                      {
+                        backgroundColor: thread.isOnline
+                          ? isUrgent
+                            ? "#F59E0B"
+                            : "#10B981"
+                          : "#CBD5E1",
+                      },
+                    ]}
+                  />
+                </View>
+
+                {/* Main Content Column */}
+                <View style={styles.threadMain}>
+                  <View style={styles.threadHeaderRow}>
+                    <Text style={styles.threadName} numberOfLines={1}>
+                      {thread.displayName}{" "}
+                      {thread.idMode === "standard" && (
+                        <Text style={styles.threadAnonSub}>
+                          ({thread.studentAnonId})
+                        </Text>
+                      )}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.threadTime,
+                        hasUnread && styles.threadTimeUnread,
+                      ]}
+                    >
+                      {thread.lastMessageTime}
                     </Text>
                   </View>
-                )}
-                <View style={[
-                  styles.onlineDot, 
-                  { backgroundColor: thread.status === "online" ? (thread.isUrgent ? colors.danger : colors.primary) : colors.textSecondary }
-                ]} />
-              </View>
 
-              <View style={styles.threadMain}>
-                <View style={styles.threadHeaderRow}>
-                  <Text style={styles.threadName}>{thread.name} {thread.isAnonymous ? "" : `(Student #${thread.studentId})`}</Text>
-                  <Text style={styles.threadTime}>{thread.time}</Text>
-                </View>
-                <View style={[styles.tagContainer, thread.isUrgent && styles.tagContainerUrgent]}>
-                  <Text style={[styles.tagText, thread.isUrgent && styles.tagTextUrgent]}>{thread.tag}</Text>
-                </View>
-                <Text style={styles.lastMessage} numberOfLines={1}>{thread.lastMessage}</Text>
-              </View>
-
-              <View style={styles.threadRight}>
-                {thread.unreadCount > 0 ? (
-                  <View style={[styles.unreadBadge, { backgroundColor: thread.isUrgent ? colors.danger : colors.primary }]}>
-                    <Text style={styles.unreadBadgeText}>{thread.unreadCount}</Text>
+                  {/* Modality Tag Chip */}
+                  <View
+                    style={[
+                      styles.tagChip,
+                      isUrgent && styles.tagChipUrgent,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.tagChipText,
+                        isUrgent && styles.tagChipTextUrgent,
+                      ]}
+                    >
+                      {thread.sessionTag}
+                    </Text>
                   </View>
-                ) : (
-                  <Ionicons name={thread.id === "5" ? "checkmark" : "checkmark-done"} size={16} color={colors.textSecondary} />
-                )}
+
+                  {/* Last Message Quote */}
+                  <Text style={styles.lastMessage} numberOfLines={1}>
+                    {thread.lastMessage}
+                  </Text>
+                </View>
+
+                {/* Right Badge Column */}
+                <View style={styles.threadRight}>
+                  {hasUnread ? (
+                    <View
+                      style={[
+                        styles.unreadBadge,
+                        {
+                          backgroundColor: isUrgent
+                            ? "#D97706"
+                            : colors.primary,
+                        },
+                      ]}
+                    >
+                      <Text style={styles.unreadBadgeText}>
+                        {thread.unreadCount}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Ionicons
+                      name={
+                        thread.deliveryStatus === "read"
+                          ? "checkmark-done"
+                          : "checkmark"
+                      }
+                      size={18}
+                      color={
+                        thread.deliveryStatus === "read"
+                          ? "#0D9488"
+                          : colors.textSecondary
+                      }
+                    />
+                  )}
+                  <Ionicons
+                    name="chevron-forward"
+                    size={16}
+                    color={colors.textSecondary}
+                    style={{ marginTop: 6 }}
+                  />
+                </View>
               </View>
-            </View>
-          </Pressable>
-        ))}
+            </Pressable>
+          );
+        })
+      )}
       </View>
 
-      {/* OUTREACH CARD */}
-      <View style={styles.outreachCard}>
-        <Text style={styles.outreachTitle}>Urgent Student Outreach</Text>
-        <Text style={styles.outreachDesc}>
-          Initiate contact with students identified via triage or referral.
-        </Text>
+      {/* 7. URGENT STUDENT OUTREACH CARD */}
+      <View style={styles.outreachCard} accessibilityRole="summary">
+        <View style={styles.outreachHeaderRow}>
+          <View style={styles.outreachIconBox}>
+            <Ionicons
+              name="newspaper-outline"
+              size={20}
+              color={colors.primary}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.outreachTitle}>Urgent Student Outreach</Text>
+            <Text style={styles.outreachDesc}>
+              Need to initiate urgent outreach? Search student ID or schedule
+              an intake consult.
+            </Text>
+          </View>
+        </View>
+
         <View style={styles.outreachButtons}>
-          <Pressable style={styles.primaryButton} accessibilityRole="button" accessibilityLabel="New Student Message">
-            <Text style={styles.primaryButtonText}>New Student Message</Text>
+          <Pressable
+            style={styles.primaryOutreachBtn}
+            onPress={() => setOutreachModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="New Student Message"
+          >
+            <Ionicons name="send" size={16} color={colors.white} />
+            <Text style={styles.primaryOutreachBtnText}>
+              New Student Message
+            </Text>
           </Pressable>
-          <Pressable style={styles.outlineButton} accessibilityRole="button" accessibilityLabel="Student Lookup">
-            <Text style={styles.outlineButtonText}>Student Lookup</Text>
+          <Pressable
+            style={styles.outlineOutreachBtn}
+            onPress={() => setOutreachModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Student Lookup"
+          >
+            <Ionicons
+              name="people-outline"
+              size={18}
+              color={colors.primary}
+            />
+            <Text style={styles.outlineOutreachBtnText}>Student Lookup</Text>
           </Pressable>
         </View>
       </View>
-      
-      <View style={{ height: 40 }} />
     </ScrollView>
   );
 
-  const renderChatDetailView = () => {
-    const activeThread = MOCK_CHAT_THREADS.find(t => t.id === activeChatId);
+  // ==========================================
+  // INLINE CHAT DETAIL VIEW
+  // ==========================================
+  const renderChatDetailView = () => (
+    <View style={styles.chatDetailContainer}>
+      {/* Sticky Top Header */}
+      <View style={styles.chatHeader}>
+        <Pressable
+          style={styles.chatBackBtn}
+          onPress={() => setActiveChatId(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Back to messages inbox"
+        >
+          <Ionicons name="arrow-back" size={22} color={colors.text} />
+        </Pressable>
 
-    return (
-      <View style={styles.chatDetailContainer}>
-        {/* STICKY HEADER */}
-        <View style={styles.chatHeader}>
-          <Pressable style={styles.backButton} onPress={() => setActiveChatId(null)} accessibilityRole="button" accessibilityLabel="Back to messages">
-            <Ionicons name="arrow-back" size={24} color={colors.text} />
-          </Pressable>
-          <View style={styles.chatHeaderCenter}>
-            <Text style={styles.chatHeaderTitle}>{activeThread?.name}</Text>
-            <Text style={styles.chatHeaderSubtitle}>{activeThread?.tag}</Text>
-          </View>
-          <View style={styles.chatHeaderRight}>
-            <Pressable style={styles.iconButton} accessibilityRole="button" accessibilityLabel="Case notes">
-              <Ionicons name="document-text-outline" size={24} color={colors.text} />
-            </Pressable>
-            <Pressable style={styles.iconButton} accessibilityRole="button" accessibilityLabel="Schedule">
-              <Ionicons name="calendar-outline" size={24} color={colors.text} />
-            </Pressable>
+        <View style={styles.chatHeaderCenter}>
+          <Text style={styles.chatHeaderTitle} numberOfLines={1}>
+            {activeThread.displayName}{" "}
+            {activeThread.idMode === "standard" && (
+              <Text style={{ fontSize: 13, fontWeight: "500" }}>
+                ({activeThread.studentAnonId})
+              </Text>
+            )}
+          </Text>
+          <View style={styles.chatHeaderSubRow}>
+            <View style={styles.chatHeaderStatusDot} />
+            <Text style={styles.chatHeaderSubtitle}>
+              Active Session · Encrypted
+            </Text>
           </View>
         </View>
 
-        {/* CONSULTATION BANNER */}
-        <View style={styles.consultBanner}>
-          <Ionicons name="time-outline" size={20} color={colors.danger} />
-          <Text style={styles.consultText}>Next consultation: Tomorrow, 2:00 PM</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="View File">
-            <Text style={styles.consultLink}>View File</Text>
+        <View style={styles.chatHeaderActions}>
+          <Pressable
+            style={styles.chatHeaderIconBtn}
+            onPress={() => setCaseNotesModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Open Case Notes"
+          >
+            <Ionicons
+              name="document-text-outline"
+              size={22}
+              color={colors.primary}
+            />
+          </Pressable>
+          <Pressable
+            style={styles.chatHeaderIconBtn}
+            onPress={() => router.navigate("/(counsellor)/schedule")}
+            accessibilityRole="button"
+            accessibilityLabel="View Clinical Schedule"
+          >
+            <Ionicons
+              name="calendar-outline"
+              size={22}
+              color={colors.primary}
+            />
           </Pressable>
         </View>
+      </View>
 
-        {/* CHAT MESSAGES */}
-        <ScrollView style={styles.chatMessages} contentContainerStyle={{ padding: spacing.md }}>
-          {localMessages.map((msg: any) => {
-            if (msg.type === "system") {
-              return (
-                <View key={msg.id} style={styles.systemCard}>
-                  <Text style={styles.systemLabel}>{msg.label}</Text>
-                  <Text style={styles.systemTitle}>{msg.title}</Text>
-                  <Text style={styles.systemSubtitle}>{msg.subtitle}</Text>
-                </View>
-              );
-            }
-            
-            const isCounsellor = msg.sender === "counsellor";
-            
+      {/* Next Consultation Reminder Banner */}
+      <View style={styles.consultationBanner} accessibilityRole="summary">
+        <Ionicons name="time" size={18} color="#D97706" />
+        <Text style={styles.consultationText}>
+          Next Consultation: Tomorrow, 2:00 PM (Counseling Suite 304B)
+        </Text>
+        <Pressable
+          onPress={() => setCaseNotesModalVisible(true)}
+          accessibilityRole="button"
+          accessibilityLabel="View File"
+        >
+          <Text style={styles.consultationLink}>View File</Text>
+        </Pressable>
+      </View>
+
+      {/* Chat Messages Stream */}
+      <ScrollView
+        style={styles.chatStream}
+        contentContainerStyle={styles.chatStreamContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {messages.map((bubble) => {
+          if (bubble.isSystemCard) {
             return (
-              <View key={msg.id} style={[styles.bubbleWrapper, isCounsellor ? styles.bubbleWrapperRight : styles.bubbleWrapperLeft]}>
-                {!isCounsellor && (
-                  <Image source={{ uri: activeThread?.avatar || "https://i.pravatar.cc/150?u=fallback" }} style={styles.bubbleAvatar} />
-                )}
-                <View style={[styles.bubble, isCounsellor ? styles.bubbleCounsellor : styles.bubbleStudent]}>
-                  <Text style={[styles.bubbleText, isCounsellor ? styles.bubbleTextCounsellor : styles.bubbleTextStudent]}>{msg.text}</Text>
-                  <Text style={[styles.bubbleTime, isCounsellor ? styles.bubbleTimeCounsellor : styles.bubbleTimeStudent]}>{msg.time}</Text>
+              <View
+                key={bubble.id}
+                style={styles.systemModuleCard}
+                accessibilityRole="summary"
+              >
+                <View style={styles.systemCardHeader}>
+                  <Ionicons name="sparkles" size={16} color={colors.primary} />
+                  <Text style={styles.systemCardLabel}>
+                    Prescribed Coping Module
+                  </Text>
+                  <View style={styles.ehrBadge}>
+                    <Text style={styles.ehrBadgeText}>Auto-logged to EHR</Text>
+                  </View>
                 </View>
+                <Text style={styles.systemCardTitle}>
+                  {bubble.systemCardTitle}
+                </Text>
+                <Text style={styles.systemCardSubtitle}>
+                  {bubble.systemCardSubtitle}
+                </Text>
               </View>
             );
-          })}
-        </ScrollView>
+          }
 
-        {/* INPUT BAR */}
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <View style={styles.inputBar}>
-            <Pressable style={styles.attachButton} accessibilityRole="button" accessibilityLabel="Attach file">
-              <Ionicons name="add" size={28} color={colors.textSecondary} />
-            </Pressable>
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Type a message..."
-                placeholderTextColor={colors.textSecondary}
-                value={chatInput}
-                onChangeText={setChatInput}
-                multiline
-              />
-              <Pressable style={styles.quickPhrasesButton} accessibilityRole="button" accessibilityLabel="Quick phrases">
-                <Ionicons name="flash-outline" size={20} color={colors.primary} />
-              </Pressable>
-            </View>
-            <Pressable 
-              style={[styles.sendButton, !chatInput.trim() && { opacity: 0.5 }]} 
-              onPress={handleSend}
-              accessibilityRole="button"
-              accessibilityLabel="Send message"
+          const isCounsellor = bubble.senderRole === "counsellor";
+
+          return (
+            <View
+              key={bubble.id}
+              style={[
+                styles.bubbleRow,
+                isCounsellor ? styles.bubbleRowRight : styles.bubbleRowLeft,
+              ]}
             >
-              <Ionicons name="send" size={20} color={colors.surface} style={{ marginLeft: 2 }} />
+              {!isCounsellor && (
+                <View style={styles.studentBubbleAvatar}>
+                  <Ionicons name="person" size={14} color={colors.textSecondary} />
+                </View>
+              )}
+
+              <View
+                style={[
+                  styles.bubble,
+                  isCounsellor ? styles.bubbleCounsellor : styles.bubbleStudent,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.bubbleText,
+                    isCounsellor
+                      ? styles.bubbleTextCounsellor
+                      : styles.bubbleTextStudent,
+                  ]}
+                >
+                  {bubble.text}
+                </Text>
+                <View style={styles.bubbleMetaRow}>
+                  <Text
+                    style={[
+                      styles.bubbleTime,
+                      isCounsellor
+                        ? styles.bubbleTimeCounsellor
+                        : styles.bubbleTimeStudent,
+                    ]}
+                  >
+                    {bubble.timestamp}
+                    {isCounsellor ? " · Sent as Lead Counselor" : ""}
+                  </Text>
+                  {isCounsellor && (
+                    <Ionicons
+                      name="checkmark-done"
+                      size={14}
+                      color="#A7F3D0"
+                      style={{ marginLeft: 4 }}
+                    />
+                  )}
+                </View>
+              </View>
+            </View>
+          );
+        })}
+      </ScrollView>
+
+      {/* Message Input Bar */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={styles.inputBar}>
+          <Pressable
+            style={styles.attachBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Attach coping exercise or assessment"
+            onPress={() => setCaseNotesModalVisible(true)}
+          >
+            <Ionicons name="add" size={26} color={colors.primary} />
+          </Pressable>
+
+          <View style={styles.textInputBox}>
+            <TextInput
+              style={styles.textInput}
+              placeholder="Type confidential message..."
+              placeholderTextColor={colors.textSecondary}
+              value={chatInput}
+              onChangeText={setChatInput}
+              multiline
+            />
+            <Pressable
+              style={styles.quickPhrasesBtn}
+              onPress={() => setChatInput("Remember to take slow, 4-7-8 breaths.")}
+              accessibilityRole="button"
+              accessibilityLabel="Insert quick clinical phrases"
+            >
+              <Ionicons name="flash-outline" size={18} color={colors.primary} />
             </Pressable>
           </View>
-        </KeyboardAvoidingView>
-      </View>
-    );
-  };
+
+          <Pressable
+            style={[
+              styles.sendBtn,
+              !chatInput.trim() && styles.sendBtnDisabled,
+            ]}
+            onPress={handleSend}
+            disabled={!chatInput.trim()}
+            accessibilityRole="button"
+            accessibilityLabel="Send confidential message"
+          >
+            <Ionicons name="arrow-up" size={20} color={colors.white} />
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
       {activeChatId ? renderChatDetailView() : renderThreadListView()}
+
+      {/* Outreach / Student Lookup Bottom Sheet Modal */}
+      <Modal
+        visible={outreachModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setOutreachModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.outreachSheet} accessibilityViewIsModal={true}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle} accessibilityRole="header">
+                Student Outreach & Lookup
+              </Text>
+              <Pressable
+                onPress={() => setOutreachModalVisible(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close lookup sheet"
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={22} color={colors.text} />
+              </Pressable>
+            </View>
+
+            <Text style={styles.sheetSubtitle}>
+              Initiate encrypted outreach or lookup confidential clinical file
+              by Anonymous ID.
+            </Text>
+
+            {/* Anonymous Student ID Search Bar */}
+            <View style={styles.sheetSearchBox}>
+              <Ionicons
+                name="search"
+                size={18}
+                color={colors.textSecondary}
+                style={{ marginRight: 6 }}
+              />
+              <TextInput
+                style={styles.sheetSearchInput}
+                placeholder="Search by Anonymous ID, e.g. #5104 or #6291"
+                placeholderTextColor={colors.textSecondary}
+                value={outreachSearchId}
+                onChangeText={setOutreachSearchId}
+                autoCapitalize="none"
+              />
+            </View>
+
+            {/* Quick Suggestions */}
+            <Text style={styles.quickSuggestLabel}>Recent Priority Triage:</Text>
+            <View style={styles.quickSuggestRow}>
+              {["#5104", "#6291", "#8821", "#4021"].map((anonTag) => (
+                <Pressable
+                  key={anonTag}
+                  style={styles.suggestPill}
+                  onPress={() => setOutreachSearchId(anonTag)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select student ${anonTag}`}
+                >
+                  <Text style={styles.suggestPillText}>{anonTag}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={styles.sheetActions}>
+              <Pressable
+                style={styles.sheetSubmitBtn}
+                onPress={() => {
+                  setOutreachFeedback(
+                    `Found Student ${outreachSearchId || "#5104"}. E2E channel ready.`
+                  );
+                  setTimeout(() => {
+                    setOutreachModalVisible(false);
+                    setOutreachFeedback(null);
+                    setActiveChatId("chat-2");
+                  }, 1200);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Start Encrypted Chat"
+              >
+                <Text style={styles.sheetSubmitBtnText}>
+                  {outreachFeedback || "Open Encrypted Outreach Channel"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Case Notes Modal */}
+      <Modal
+        visible={caseNotesModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCaseNotesModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.notesCard} accessibilityViewIsModal={true}>
+            <Text style={styles.notesCardTitle} accessibilityRole="header">
+              Clinical Case Notes
+            </Text>
+            <Text style={styles.notesCardSubtitle}>
+              {activeThread.displayName} ({activeThread.studentAnonId})
+            </Text>
+            <View style={styles.notesBox}>
+              <Text style={styles.notesText}>
+                • Ongoing Exam Anxiety & Midterm Stress Panic Management{"\n"}•
+                PHQ-9 Intake score logged as Moderate{"\n"}• Box Breathing 4-4-4-4
+                prescribed on Oct 12{"\n"}• Next video check-in scheduled for
+                Thursday 2:00 PM
+              </Text>
+            </View>
+            <Pressable
+              style={styles.notesCloseBtn}
+              onPress={() => setCaseNotesModalVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Close Case Notes"
+            >
+              <Text style={styles.notesCloseBtnText}>Close Notes</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -434,147 +930,197 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xl * 2,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: spacing.xl,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.xs,
   },
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
   },
-  logoCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.primary,
-    justifyContent: "center",
+  emblemCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.full,
+    backgroundColor: "#D1FAE5",
     alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
   },
   headerTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
+    gap: 6,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: colors.text,
+    fontSize: 16,
+    fontWeight: "800",
+    color: colors.primary,
   },
-  badge: {
-    backgroundColor: colors.success,
+  portalBadge: {
+    backgroundColor: "#A7F3D0",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: "bold",
-    color: colors.primary,
+  portalBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#064E3B",
+  },
+  counselorSubRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+  },
+  onDutyDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#10B981",
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: 11,
     color: colors.textSecondary,
-    marginTop: 2,
+    fontWeight: "500",
   },
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
   },
-  iconButton: {
-    width: 44,
-    height: 44,
-    justifyContent: "center",
+  headerIconBtn: {
+    position: "relative",
+    width: TOUCH_TARGET - 6,
+    height: TOUCH_TARGET - 6,
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: "center",
+    justifyContent: "center",
+  },
+  headerBellBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.danger,
+    borderWidth: 1.5,
+    borderColor: colors.white,
+  },
+  headerAvatarContainer: {
+    position: "relative",
   },
   headerAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+  },
+  headerAvatarOnlineBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#10B981",
+    borderWidth: 2,
+    borderColor: colors.white,
   },
   titleSection: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: spacing.lg,
+    marginVertical: spacing.sm,
   },
   pageTitle: {
-    fontSize: 26,
-    fontWeight: "bold",
+    fontSize: 24,
+    fontWeight: "800",
     color: colors.text,
+    letterSpacing: -0.4,
   },
   pageSubtitle: {
-    fontSize: 14,
+    fontSize: 11,
     color: colors.textSecondary,
-    marginTop: 4,
+    marginTop: 2,
   },
   composeButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.primary,
-    justifyContent: "center",
+    width: TOUCH_TARGET - 4,
+    height: TOUCH_TARGET - 4,
+    borderRadius: radius.full,
+    backgroundColor: "#D1FAE5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
     alignItems: "center",
+    justifyContent: "center",
   },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.full,
-    paddingHorizontal: spacing.md,
-    height: 48,
-    marginBottom: spacing.md,
+    minHeight: TOUCH_TARGET - 4,
+    marginBottom: spacing.sm,
   },
   searchIcon: {
     marginRight: spacing.sm,
   },
   searchInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 13,
     color: colors.text,
   },
-  filterIcon: {
-    marginLeft: spacing.sm,
-  },
   filterScroll: {
-    flexGrow: 0,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm + 2,
   },
   filterContent: {
-    gap: spacing.sm,
-    paddingRight: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   filterChip: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 6,
     paddingHorizontal: spacing.md,
-    height: 36,
+    minHeight: TOUCH_TARGET - 14,
     borderRadius: radius.full,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
   },
   filterChipActive: {
-    backgroundColor: colors.success,
+    backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
   filterChipText: {
-    fontSize: 14,
+    fontSize: 12,
+    fontWeight: "600",
     color: colors.textSecondary,
-    fontWeight: "500",
   },
   filterChipTextActive: {
-    color: colors.primary,
-    fontWeight: "bold",
+    color: colors.white,
+    fontWeight: "700",
   },
-  dot: {
+  filterDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
@@ -582,187 +1128,259 @@ const styles = StyleSheet.create({
   encryptionBanner: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.success,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
-    marginBottom: spacing.lg,
+    backgroundColor: "#ECFDF5",
+    borderRadius: radius.md,
+    padding: spacing.sm + 4,
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
     gap: spacing.sm,
+    marginBottom: spacing.md,
   },
-  encryptionText: {
+  shieldIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  encryptionTitle: {
     fontSize: 12,
+    fontWeight: "700",
     color: colors.primary,
-    fontWeight: "bold",
+  },
+  encryptionSubtitle: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    marginTop: 1,
   },
   threadList: {
-    gap: spacing.sm,
-    marginBottom: spacing.xl,
+    gap: spacing.sm + 2,
+    marginBottom: spacing.lg,
   },
   threadCard: {
-    flexDirection: "row",
+    position: "relative",
     backgroundColor: colors.surface,
     borderRadius: radius.md,
-    overflow: "hidden",
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: "hidden",
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  threadCardUnreadGreen: {
+    borderColor: "rgba(7, 96, 71, 0.2)",
+  },
+  threadCardUnreadAmber: {
+    borderColor: "rgba(245, 158, 11, 0.4)",
   },
   accentBar: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
     width: 4,
   },
   threadContent: {
-    flex: 1,
     flexDirection: "row",
-    padding: spacing.md,
-    gap: spacing.md,
+    alignItems: "center",
+    padding: spacing.sm + 4,
+    paddingLeft: spacing.md,
   },
   avatarContainer: {
     position: "relative",
+    marginRight: spacing.sm + 4,
   },
   threadAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-  },
-  textAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: colors.border,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  textAvatarUrgent: {
-    backgroundColor: "#FEF2F2",
+    width: 46,
+    height: 46,
+    borderRadius: radius.full,
     borderWidth: 1,
-    borderColor: colors.danger,
+    borderColor: colors.border,
   },
-  textAvatarLabel: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: colors.textSecondary,
+  anonAvatarCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: radius.full,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  textAvatarLabelUrgent: {
-    color: colors.danger,
+  anonAvatarCircleAmber: {
+    backgroundColor: "#FFFBEB",
+    borderColor: "#FDE68A",
   },
-  onlineDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: colors.surface,
+  anonAvatarText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  anonAvatarTextAmber: {
+    color: "#B45309",
+  },
+  onlineBadgeDot: {
     position: "absolute",
     bottom: 0,
     right: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: colors.white,
   },
   threadMain: {
     flex: 1,
   },
   threadHeaderRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 4,
+    justifyContent: "space-between",
+    marginBottom: 2,
   },
   threadName: {
-    fontSize: 16,
-    fontWeight: "bold",
+    fontSize: 14,
+    fontWeight: "800",
     color: colors.text,
+    flex: 1,
+    marginRight: spacing.xs,
   },
-  threadTime: {
-    fontSize: 12,
+  threadAnonSub: {
+    fontSize: 11,
+    fontWeight: "500",
     color: colors.textSecondary,
   },
-  tagContainer: {
-    alignSelf: "flex-start",
-    backgroundColor: colors.background,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginBottom: 6,
-  },
-  tagContainerUrgent: {
-    backgroundColor: "#FFFBEB",
-  },
-  tagText: {
+  threadTime: {
     fontSize: 11,
     color: colors.textSecondary,
     fontWeight: "500",
   },
-  tagTextUrgent: {
-    color: colors.danger,
+  threadTimeUnread: {
+    color: colors.primary,
+    fontWeight: "700",
+  },
+  tagChip: {
+    alignSelf: "flex-start",
+    backgroundColor: "#ECFDF5",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginVertical: 3,
+  },
+  tagChipUrgent: {
+    backgroundColor: "#FEF3C7",
+  },
+  tagChipText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  tagChipTextUrgent: {
+    color: "#B45309",
   },
   lastMessage: {
-    fontSize: 14,
+    fontSize: 12,
     color: colors.textSecondary,
+    lineHeight: 16,
+    fontStyle: "italic",
   },
   threadRight: {
-    justifyContent: "flex-end",
     alignItems: "flex-end",
+    justifyContent: "center",
+    paddingLeft: spacing.sm,
   },
   unreadBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: "center",
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
     alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
   },
   unreadBadgeText: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: colors.surface,
+    fontSize: 10,
+    fontWeight: "800",
+    color: colors.white,
   },
   outreachCard: {
     backgroundColor: colors.surface,
-    padding: spacing.lg,
     borderRadius: radius.md,
+    padding: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  outreachHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm + 2,
+    marginBottom: spacing.md,
+  },
+  outreachIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.sm + 4,
+    backgroundColor: "#D1FAE5",
+    alignItems: "center",
+    justifyContent: "center",
   },
   outreachTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
+    fontSize: 14,
+    fontWeight: "800",
     color: colors.text,
-    marginBottom: spacing.xs,
   },
   outreachDesc: {
-    fontSize: 14,
+    fontSize: 11,
     color: colors.textSecondary,
-    marginBottom: spacing.lg,
+    marginTop: 2,
+    lineHeight: 16,
   },
   outreachButtons: {
     flexDirection: "row",
-    gap: spacing.md,
+    gap: spacing.sm,
   },
-  primaryButton: {
+  primaryOutreachBtn: {
     flex: 1,
+    minHeight: TOUCH_TARGET - 6,
     backgroundColor: colors.primary,
-    height: 48,
-    borderRadius: radius.full,
-    justifyContent: "center",
+    borderRadius: radius.md,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
   },
-  primaryButtonText: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: colors.surface,
+  primaryOutreachBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.white,
   },
-  outlineButton: {
+  outlineOutreachBtn: {
     flex: 1,
-    backgroundColor: "transparent",
+    minHeight: TOUCH_TARGET - 6,
+    backgroundColor: "#ECFDF5",
     borderWidth: 1,
-    borderColor: colors.primary,
-    height: 48,
-    borderRadius: radius.full,
-    justifyContent: "center",
+    borderColor: "#A7F3D0",
+    borderRadius: radius.md,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
   },
-  outlineButtonText: {
-    fontSize: 14,
-    fontWeight: "bold",
+  outlineOutreachBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
     color: colors.primary,
   },
 
-  /* CHAT DETAIL STYLES */
+  // CHAT DETAIL STYLES
   chatDetailContainer: {
     flex: 1,
     backgroundColor: colors.background,
@@ -770,104 +1388,151 @@ const styles = StyleSheet.create({
   chatHeader: {
     flexDirection: "row",
     alignItems: "center",
-    padding: spacing.md,
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  backButton: {
-    width: 44,
-    height: 44,
+  chatBackBtn: {
+    width: TOUCH_TARGET - 4,
+    height: TOUCH_TARGET - 4,
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "flex-start",
+    borderRadius: radius.full,
   },
   chatHeaderCenter: {
     flex: 1,
-    marginLeft: spacing.sm,
+    marginHorizontal: spacing.sm,
   },
   chatHeaderTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
+    fontSize: 15,
+    fontWeight: "800",
     color: colors.text,
+  },
+  chatHeaderSubRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 1,
+  },
+  chatHeaderStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#10B981",
   },
   chatHeaderSubtitle: {
-    fontSize: 12,
+    fontSize: 10,
     color: colors.textSecondary,
+    fontWeight: "500",
   },
-  chatHeaderRight: {
-    flexDirection: "row",
-    gap: spacing.xs,
-  },
-  consultBanner: {
+  chatHeaderActions: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFBEB",
-    padding: spacing.sm,
+    gap: 6,
+  },
+  chatHeaderIconBtn: {
+    width: TOUCH_TARGET - 8,
+    height: TOUCH_TARGET - 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.sm,
+    backgroundColor: "#ECFDF5",
+  },
+  consultationBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
     paddingHorizontal: spacing.md,
-    gap: spacing.sm,
+    paddingVertical: spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: "#FDE68A",
+    gap: spacing.xs + 2,
   },
-  consultText: {
+  consultationText: {
+    fontSize: 11,
+    color: "#92400E",
+    fontWeight: "600",
     flex: 1,
-    fontSize: 14,
-    fontWeight: "500",
-    color: colors.danger,
   },
-  consultLink: {
-    fontSize: 14,
-    fontWeight: "bold",
+  consultationLink: {
+    fontSize: 11,
     color: colors.primary,
+    fontWeight: "800",
     textDecorationLine: "underline",
   },
-  chatMessages: {
+  chatStream: {
     flex: 1,
   },
-  systemCard: {
-    backgroundColor: colors.success,
+  chatStreamContent: {
     padding: spacing.md,
+    gap: spacing.md,
+  },
+  systemModuleCard: {
+    backgroundColor: "#ECFDF5",
     borderRadius: radius.md,
-    alignSelf: "center",
-    alignItems: "center",
-    marginBottom: spacing.lg,
-    maxWidth: "80%",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    padding: spacing.md,
+    marginVertical: spacing.xs,
   },
-  systemLabel: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: colors.primary,
-    marginBottom: 4,
-  },
-  systemTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: colors.text,
-    textAlign: "center",
-    marginBottom: 4,
-  },
-  systemSubtitle: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  bubbleWrapper: {
+  systemCardHeader: {
     flexDirection: "row",
-    marginBottom: spacing.md,
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 4,
+  },
+  systemCardLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: colors.primary,
+    flex: 1,
+  },
+  ehrBadge: {
+    backgroundColor: "#D1FAE5",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+  },
+  ehrBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#064E3B",
+  },
+  systemCardTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: colors.text,
+    marginBottom: 2,
+  },
+  systemCardSubtitle: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    lineHeight: 16,
+  },
+  bubbleRow: {
+    flexDirection: "row",
     alignItems: "flex-end",
+    gap: spacing.xs + 2,
+    maxWidth: "86%",
   },
-  bubbleWrapperLeft: {
-    justifyContent: "flex-start",
+  bubbleRowLeft: {
+    alignSelf: "flex-start",
   },
-  bubbleWrapperRight: {
-    justifyContent: "flex-end",
+  bubbleRowRight: {
+    alignSelf: "flex-end",
   },
-  bubbleAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    marginRight: spacing.sm,
+  studentBubbleAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#E2E8F0",
+    alignItems: "center",
+    justifyContent: "center",
   },
   bubble: {
-    maxWidth: "75%",
     padding: spacing.md,
     borderRadius: radius.md,
   },
@@ -877,75 +1542,255 @@ const styles = StyleSheet.create({
   },
   bubbleStudent: {
     backgroundColor: colors.surface,
-    borderBottomLeftRadius: 4,
     borderWidth: 1,
     borderColor: colors.border,
+    borderBottomLeftRadius: 4,
   },
   bubbleText: {
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 13,
+    lineHeight: 19,
   },
   bubbleTextCounsellor: {
-    color: colors.surface,
+    color: colors.white,
   },
   bubbleTextStudent: {
     color: colors.text,
   },
+  bubbleMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    marginTop: 6,
+  },
   bubbleTime: {
-    fontSize: 11,
-    marginTop: 4,
-    alignSelf: "flex-end",
+    fontSize: 10,
   },
   bubbleTimeCounsellor: {
-    color: "rgba(255,255,255,0.7)",
+    color: "rgba(255, 255, 255, 0.75)",
   },
   bubbleTimeStudent: {
     color: colors.textSecondary,
   },
   inputBar: {
     flexDirection: "row",
-    alignItems: "flex-end",
-    padding: spacing.md,
+    alignItems: "center",
     backgroundColor: colors.surface,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    paddingBottom: Platform.OS === "ios" ? 32 : spacing.md,
+    gap: spacing.xs + 2,
   },
-  attachButton: {
-    width: 44,
-    height: 44,
-    justifyContent: "center",
+  attachBtn: {
+    width: TOUCH_TARGET - 6,
+    height: TOUCH_TARGET - 6,
     alignItems: "center",
-    marginRight: spacing.sm,
+    justifyContent: "center",
+    borderRadius: radius.full,
+    backgroundColor: "#ECFDF5",
   },
-  inputWrapper: {
+  textInputBox: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: colors.background,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 22,
-    paddingHorizontal: spacing.md,
-    marginRight: spacing.sm,
-    minHeight: 44,
+    minHeight: TOUCH_TARGET - 6,
   },
   textInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 13,
     color: colors.text,
-    maxHeight: 100,
-    paddingVertical: 10,
+    maxHeight: 80,
+    paddingVertical: 6,
   },
-  quickPhrasesButton: {
-    padding: spacing.xs,
+  quickPhrasesBtn: {
+    padding: 4,
   },
-  sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  sendBtn: {
+    width: TOUCH_TARGET - 6,
+    height: TOUCH_TARGET - 6,
+    borderRadius: radius.full,
     backgroundColor: colors.primary,
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
+  },
+  sendBtnDisabled: {
+    opacity: 0.4,
+  },
+
+  // MODAL OVERLAYS
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: "flex-end",
+  },
+  outreachSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.md + 8,
+    borderTopRightRadius: radius.md + 8,
+    padding: spacing.lg,
+    paddingBottom: spacing.xl * 2,
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: colors.border,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: spacing.md,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.xs,
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  sheetSubtitle: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: spacing.md,
+  },
+  sheetSearchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.background,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minHeight: TOUCH_TARGET,
+    marginBottom: spacing.md,
+  },
+  sheetSearchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.text,
+  },
+  quickSuggestLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.textSecondary,
+    marginBottom: 6,
+  },
+  quickSuggestRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  suggestPill: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    backgroundColor: "#F1F5F9",
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  suggestPillText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  sheetActions: {
+    marginTop: spacing.xs,
+  },
+  sheetSubmitBtn: {
+    minHeight: TOUCH_TARGET,
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetSubmitBtnText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  notesCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md + 4,
+    padding: spacing.lg,
+    margin: spacing.lg,
+    alignSelf: "center",
+    width: "90%",
+    maxWidth: 400,
+    elevation: 8,
+  },
+  notesCardTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: colors.text,
+    marginBottom: 2,
+  },
+  notesCardSubtitle: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: "600",
+    marginBottom: spacing.md,
+  },
+  notesBox: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: radius.sm,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.lg,
+  },
+  notesText: {
+    fontSize: 12,
+    color: colors.text,
+    lineHeight: 20,
+  },
+  notesCloseBtn: {
+    minHeight: TOUCH_TARGET - 6,
+    backgroundColor: colors.primary,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  notesCloseBtnText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  emptyThreadsBox: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    padding: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginVertical: spacing.md,
+    gap: spacing.xs + 2,
+  },
+  emptyThreadsIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#ECFDF5",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.xs,
+  },
+  emptyThreadsTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  emptyThreadsSubtitle: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 18,
   },
 });

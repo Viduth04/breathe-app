@@ -1,292 +1,602 @@
 // Counsellor Alerts - Muaath (Member 4). Supports FR05, NFR01.
-import React, { useState } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+// Notification & clinical alert center matching exact Figma layout and interactions.
+
+import { useCounsellorBadges } from "@/context/CounsellorBadgeContext";
+import {
+  MOCK_ALERTS_EARLIER,
+  MOCK_ALERTS_TODAY,
+} from "@/services/mockAlertsData";
+import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
+import { AlertFilter, AlertItem } from "@/types/counsellorAlerts";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { colors, spacing, radius, typography, TOUCH_TARGET } from "@/theme";
-
-import { MOCK_ALERT_SECTIONS, MOCK_ALERTS_TODAY, MOCK_ALERTS_EARLIER } from "@/services/mockAlertsData";
-import { AlertItem, AlertFilter, AlertSection } from "@/types/counsellorAlerts";
+import React, { useState } from "react";
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function CounsellorAlertsScreen() {
-  const [activeFilter, setActiveFilter] = useState<string>("all");
+  const { alertsUnread, markAlertsAsRead } = useCounsellorBadges();
+  const [activeFilter, setActiveFilter] = useState<AlertFilter>("all");
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
-  
-  const [isAllRead, setIsAllRead] = useState(false);
+  const [isAllRead, setIsAllRead] = useState(alertsUnread === 0);
+  const [modalData, setModalData] = useState<{
+    title: string;
+    description: string;
+    details?: string;
+  } | null>(null);
 
-  const handleMarkAllRead = () => setIsAllRead(true);
+  const handleMarkAllRead = () => {
+    setIsAllRead(true);
+    markAlertsAsRead();
+    setFeedbackMessage("All notifications marked as read.");
+    setTimeout(() => setFeedbackMessage(null), 3000);
+  };
 
   const showToast = (msg: string) => {
     setFeedbackMessage(msg);
     setTimeout(() => setFeedbackMessage(null), 3000);
   };
 
-  const renderBadge = (text: string, type: "outline" | "filled" | "gray") => {
-    if (type === "outline") {
-      return (
-        <View style={styles.badgeOutline}>
-          <Text style={styles.badgeOutlineText}>{text}</Text>
-        </View>
-      );
-    }
-    if (type === "gray") {
-      return (
-        <View style={styles.badgeGray}>
-          <Text style={styles.badgeGrayText}>{text}</Text>
-        </View>
-      );
-    }
-    return (
-      <View style={styles.badgeFilled}>
-        <Text style={styles.badgeFilledText}>{text}</Text>
-      </View>
-    );
+  // Navigate to Dashboard with param to open Student #5104 detail modal
+  const handleReviewRequest = () => {
+    router.navigate({
+      pathname: "/(counsellor)/dashboard",
+      params: { reviewStudentId: "std-5104" },
+    });
   };
+
+  // Navigate to Messages for Secure Chat with Student #4021
+  const handleSecureChat = () => {
+    router.navigate({
+      pathname: "/(counsellor)/messages",
+      params: { studentAnonId: "Student #4021" },
+    });
+  };
+
+  // Dynamic filter matching
+  const isAlertVisible = (alert: AlertItem) => {
+    if (activeFilter === "unread") return alert.isUnread && !isAllRead;
+    if (activeFilter === "intake")
+      return alert.category === "intake" || alert.category === "request";
+    if (activeFilter === "schedule")
+      return alert.category === "session" || alert.category === "reschedule";
+    return true;
+  };
+
+  const visibleTodayAlerts = MOCK_ALERTS_TODAY.filter(isAlertVisible);
+  const visibleEarlierAlerts = MOCK_ALERTS_EARLIER.filter(isAlertVisible);
+  const totalVisible = visibleTodayAlerts.length + visibleEarlierAlerts.length;
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-      {/* HEADER */}
+      {/* 1. TOP HEADER */}
       <View style={styles.header}>
-        <Pressable 
-          style={styles.headerBtn} 
-          onPress={() => router.navigate('/(counsellor)/dashboard')}
+        <Pressable
+          style={styles.headerBtn}
+          onPress={() => router.navigate("/(counsellor)/dashboard")}
           accessibilityRole="button"
-          accessibilityLabel="Go back"
+          accessibilityLabel="Go back to Dashboard"
         >
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
+          <Ionicons name="arrow-back" size={22} color={colors.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Notifications</Text>
-        <Pressable 
-          style={styles.headerBtn} 
-          onPress={() => showToast("Settings opened")}
+        <Text style={styles.headerTitle} accessibilityRole="header">
+          Notifications
+        </Text>
+        <Pressable
+          style={styles.headerBtn}
+          onPress={() =>
+            setModalData({
+              title: "Notification Settings",
+              description:
+                "Configure urgent alert push notifications, intake review alerts, and quiet hours schedule.",
+            })
+          }
           accessibilityRole="button"
-          accessibilityLabel="Settings"
+          accessibilityLabel="Notification Settings"
         >
-          <Ionicons name="settings-outline" size={24} color={colors.text} />
+          <Ionicons name="settings-outline" size={22} color={colors.text} />
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
-        {/* CLINICAL ALERTS BANNER */}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 2. CLINICAL ALERTS BANNER */}
         {!bannerDismissed && (
-          <View style={styles.banner}>
-            <View style={styles.bannerIcon}>
-              <Ionicons name="document-text" size={24} color={colors.primary} />
+          <View style={styles.banner} accessibilityRole="alert">
+            <View style={styles.bannerIconBox}>
+              <Ionicons
+                name="document-text-outline"
+                size={22}
+                color={colors.primary}
+              />
             </View>
             <View style={styles.bannerContent}>
-              <Text style={styles.bannerTitle}>Clinical Alerts & Schedule Updates</Text>
-              <Text style={styles.bannerDesc}>2 pending student triage requests and 1 intake assessment awaiting clinical review.</Text>
+              <Text style={styles.bannerTitle}>
+                Clinical Alerts & Schedule Updates
+              </Text>
+              <Text style={styles.bannerDesc}>
+                2 pending student triage requests and 1 intake assessment
+                awaiting clinical review.
+              </Text>
             </View>
-            <Pressable 
-              style={styles.bannerClose} 
+            <Pressable
+              style={styles.bannerClose}
               onPress={() => setBannerDismissed(true)}
               accessibilityRole="button"
               accessibilityLabel="Dismiss banner"
             >
-              <Ionicons name="close" size={20} color={colors.primary} />
+              <Ionicons name="close" size={18} color={colors.textSecondary} />
             </Pressable>
           </View>
         )}
 
-        {/* FILTER CHIPS */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterContainer}>
-          <Pressable 
-            style={[styles.filterChip, activeFilter === "all" && styles.filterChipActive]}
-            onPress={() => setActiveFilter("all")}
-            accessibilityRole="button"
-            accessibilityLabel="Filter All"
+        {/* 3. FILTER CHIPS BAR */}
+        <View style={styles.filterRow}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterContainer}
           >
-            <Text style={[styles.filterText, activeFilter === "all" && styles.filterTextActive]}>All</Text>
-          </Pressable>
-          
-          <Pressable 
-            style={[styles.filterChip, activeFilter === "unread" && styles.filterChipActive]}
-            onPress={() => setActiveFilter("unread")}
-            accessibilityRole="button"
-            accessibilityLabel="Filter Unread"
-          >
-            <Text style={[styles.filterText, activeFilter === "unread" && styles.filterTextActive]}>Unread</Text>
-            <View style={styles.filterBadge}>
-              <Text style={styles.filterBadgeText}>3</Text>
-            </View>
-          </Pressable>
+            <Pressable
+              style={[
+                styles.filterChip,
+                activeFilter === "all" && styles.filterChipActive,
+              ]}
+              onPress={() => setActiveFilter("all")}
+              accessibilityRole="button"
+              accessibilityLabel="All notifications"
+            >
+              <Text
+                style={[
+                  styles.filterText,
+                  activeFilter === "all" && styles.filterTextActive,
+                ]}
+              >
+                All
+              </Text>
+            </Pressable>
 
-          <Pressable 
-            style={[styles.filterChip, activeFilter === "intake" && styles.filterChipActive]}
-            onPress={() => setActiveFilter("intake")}
-            accessibilityRole="button"
-            accessibilityLabel="Filter Intake Alerts"
-          >
-            <Text style={[styles.filterText, activeFilter === "intake" && styles.filterTextActive]}>Intake / Alerts</Text>
-          </Pressable>
+            <Pressable
+              style={[
+                styles.filterChip,
+                activeFilter === "unread" && styles.filterChipActive,
+              ]}
+              onPress={() => setActiveFilter("unread")}
+              accessibilityRole="button"
+              accessibilityLabel="Unread notifications"
+            >
+              <Text
+                style={[
+                  styles.filterText,
+                  activeFilter === "unread" && styles.filterTextActive,
+                ]}
+              >
+                Unread
+              </Text>
+              {!isAllRead && (
+                <View style={styles.filterBadge}>
+                  <Text style={styles.filterBadgeText}>3</Text>
+                </View>
+              )}
+            </Pressable>
 
-          <Pressable 
-            style={[styles.filterChip, activeFilter === "schedule" && styles.filterChipActive]}
-            onPress={() => setActiveFilter("schedule")}
-            accessibilityRole="button"
-            accessibilityLabel="Filter Schedule"
-          >
-            <Text style={[styles.filterText, activeFilter === "schedule" && styles.filterTextActive]}>Sche...</Text>
-          </Pressable>
+            <Pressable
+              style={[
+                styles.filterChip,
+                activeFilter === "intake" && styles.filterChipActive,
+              ]}
+              onPress={() => setActiveFilter("intake")}
+              accessibilityRole="button"
+              accessibilityLabel="Filter Intake and Alerts"
+            >
+              <Text
+                style={[
+                  styles.filterText,
+                  activeFilter === "intake" && styles.filterTextActive,
+                ]}
+              >
+                Intake / Alerts
+              </Text>
+            </Pressable>
 
-          <Pressable 
-            style={styles.markAllReadBtn} 
+            <Pressable
+              style={[
+                styles.filterChip,
+                activeFilter === "schedule" && styles.filterChipActive,
+              ]}
+              onPress={() => setActiveFilter("schedule")}
+              accessibilityRole="button"
+              accessibilityLabel="Filter Schedule"
+            >
+              <Text
+                style={[
+                  styles.filterText,
+                  activeFilter === "schedule" && styles.filterTextActive,
+                ]}
+              >
+                Schedule Re...
+              </Text>
+            </Pressable>
+          </ScrollView>
+
+          {/* Mark All Read Action Button (≥44x44px touch target) */}
+          <Pressable
+            style={styles.markAllReadBtn}
             onPress={handleMarkAllRead}
             accessibilityRole="button"
-            accessibilityLabel="Mark all read"
+            accessibilityLabel="Mark all as read"
           >
-            <Ionicons name="checkmark-done" size={20} color={colors.textSecondary} />
+            <Ionicons
+              name="checkmark-done"
+              size={22}
+              color={isAllRead ? colors.primary : colors.textSecondary}
+            />
           </Pressable>
-        </ScrollView>
-
-        {/* TODAY SECTION */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionTitleRow}>
-              <Text style={styles.sectionTitle}>Today</Text>
-              {!isAllRead && <View style={styles.dotIndicator} />}
-            </View>
-            <Text style={styles.sectionCount}>3 priority</Text>
-          </View>
-
-          {/* Card 1 */}
-          <View style={[styles.card, !isAllRead && styles.cardUnread]}>
-            <View style={styles.cardHeader}>
-              <View style={styles.iconBox}>
-                <Ionicons name="send" size={20} color={colors.text} accessibilityElementsHidden importantForAccessibility="no" />
-              </View>
-              <View style={styles.cardTitleBox}>
-                <Text style={styles.cardTitle}>New Session Request</Text>
-                <View style={styles.timeRow}>
-                  <Text style={styles.timeText}>10m ago</Text>
-                  {!isAllRead && <View style={styles.dotIndicatorSmall} />}
-                </View>
-              </View>
-            </View>
-            <Text style={styles.cardBody}>Student #5104 requested a 45-min Anxiety Consultation for...</Text>
-            <View style={styles.cardActions}>
-              <View style={styles.badgeRow}>
-                {renderBadge("Urgent / Triage", "outline")}
-              </View>
-            </View>
-            <View style={styles.cardFooter}>
-              <Pressable style={styles.actionBtnFilled} onPress={() => showToast("Review Request pressed")} accessibilityRole="button" accessibilityLabel="Review Request">
-                <Text style={styles.actionBtnFilledText}>Review Request</Text>
-              </Pressable>
-              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} accessibilityElementsHidden importantForAccessibility="no" />
-            </View>
-          </View>
-
-          {/* Card 2 */}
-          <View style={[styles.card, !isAllRead && styles.cardUnread]}>
-            <View style={styles.cardHeader}>
-              <View style={styles.iconBox}>
-                <Ionicons name="checkmark-circle" size={20} color={colors.text} accessibilityElementsHidden importantForAccessibility="no" />
-              </View>
-              <View style={styles.cardTitleBox}>
-                <Text style={styles.cardTitle}>Intake Questionnaire Su...</Text>
-                <View style={styles.timeRow}>
-                  <Text style={styles.timeText}>45m ago</Text>
-                  {!isAllRead && <View style={styles.dotIndicatorSmall} />}
-                </View>
-              </View>
-            </View>
-            <Text style={styles.cardBody}>Sarah Jenkins completed her pre-session PHQ-9 assessment</Text>
-            <View style={styles.cardActions}>
-              <View style={styles.badgeRow}>
-                {renderBadge("PHQ-9 • Moderate", "outline")}
-              </View>
-            </View>
-            <View style={styles.cardFooter}>
-              <Pressable style={styles.actionBtnGray} onPress={() => showToast("View Assessment pressed")} accessibilityRole="button" accessibilityLabel="View Assessment">
-                <Text style={styles.actionBtnGrayText}>View Assessment</Text>
-              </Pressable>
-              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} accessibilityElementsHidden importantForAccessibility="no" />
-            </View>
-          </View>
-
-          {/* Card 3 */}
-          <View style={[styles.card, !isAllRead && styles.cardUnread]}>
-            <View style={styles.cardHeader}>
-              <View style={styles.iconBox}>
-                <Ionicons name="videocam" size={20} color={colors.text} accessibilityElementsHidden importantForAccessibility="no" />
-              </View>
-              <View style={styles.cardTitleBox}>
-                <Text style={styles.cardTitle}>Session in 15 Minutes</Text>
-                <View style={styles.timeRow}>
-                  <Text style={[styles.timeText, { color: colors.primary, fontWeight: "600" }]}>Just now</Text>
-                  {!isAllRead && <View style={styles.dotIndicatorSmall} />}
-                </View>
-              </View>
-            </View>
-            <Text style={styles.cardBody}>Upcoming Video Consultation with Alex Rivera at 10:00 AM....</Text>
-            <View style={styles.cardFooter}>
-              <Pressable style={styles.actionBtnFilled} onPress={() => showToast("Enter Room pressed")} accessibilityRole="button" accessibilityLabel="Enter Room">
-                <View style={styles.pulseDot} />
-                <Text style={styles.actionBtnFilledText}>Enter Room</Text>
-              </Pressable>
-            </View>
-          </View>
         </View>
 
-        {/* EARLIER THIS WEEK SECTION */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitleBold}>Earlier this week</Text>
-
-          {/* Card 4 */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <View style={styles.iconBox}>
-                <Ionicons name="chatbubbles" size={20} color={colors.text} accessibilityElementsHidden importantForAccessibility="no" />
-              </View>
-              <View style={styles.cardTitleBox}>
-                <Text style={styles.cardTitle}>Message from Student</Text>
-                <Text style={styles.timeText}>Yesterday</Text>
-              </View>
+        {/* DYNAMIC ALERT FEED OR EMPTY STATE */}
+        {totalVisible === 0 ? (
+          <View style={styles.emptyFeedBox} accessibilityRole="summary">
+            <View style={styles.emptyFeedIconCircle}>
+              <Ionicons
+                name="checkmark-done-circle-outline"
+                size={40}
+                color={colors.primary}
+              />
             </View>
-            <Text style={styles.cardBody}>Student #4021 sent a message in secure chat regarding breathing</Text>
-            <View style={styles.cardFooter}>
-              <Pressable style={styles.actionBtnGray} onPress={() => showToast("Secure Chat pressed")} accessibilityRole="button" accessibilityLabel="Secure Chat">
-                <Text style={styles.actionBtnGrayText}>Secure Chat</Text>
-              </Pressable>
-              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} accessibilityElementsHidden importantForAccessibility="no" />
-            </View>
+            <Text style={styles.emptyFeedTitle}>All caught up!</Text>
+            <Text style={styles.emptyFeedSubtitle}>
+              No notifications matching the "{activeFilter}" filter.
+            </Text>
           </View>
+        ) : (
+          <>
+            {/* 4. TODAY SECTION */}
+            {visibleTodayAlerts.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <View style={styles.sectionTitleRow}>
+                    <Text style={styles.sectionTitle}>Today</Text>
+                    <View style={styles.dotIndicator} />
+                  </View>
+                  <Text style={styles.sectionCount}>
+                    {visibleTodayAlerts.length} priority
+                  </Text>
+                </View>
 
-          {/* Card 5 */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <View style={styles.iconBox}>
-                <Ionicons name="calendar" size={20} color={colors.text} accessibilityElementsHidden importantForAccessibility="no" />
-              </View>
-              <View style={styles.cardTitleBox}>
-                <Text style={styles.cardTitle}>Session Cancelled / Resch</Text>
-                <Text style={styles.timeText}>Tuesday</Text>
-              </View>
-            </View>
-            <Text style={styles.cardBody}>Student #8821 requested to reschedule Thursday's slot to...</Text>
-            <View style={[styles.cardFooter, { justifyContent: "flex-end" }]}>
-              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} accessibilityElementsHidden importantForAccessibility="no" />
-            </View>
-          </View>
-        </View>
+                {/* Card 1: New Session Request */}
+                {visibleTodayAlerts.some((a) => a.id === "alert-1") && (
+                  <View style={styles.card} accessibilityRole="summary">
+                    <View style={styles.cardMainRow}>
+                      <View style={styles.iconBox}>
+                        <Ionicons
+                          name="send-outline"
+                          size={20}
+                          color={colors.text}
+                        />
+                      </View>
 
-        {/* COMPLIANCE FOOTER */}
+                      <View style={styles.cardContent}>
+                        <View style={styles.cardTitleRow}>
+                          <Text style={styles.cardTitle} numberOfLines={1}>
+                            New Session Request
+                          </Text>
+                          <View style={styles.timeRow}>
+                            <Text style={styles.timeText}>10m ago</Text>
+                            {!isAllRead && <View style={styles.unreadDot} />}
+                          </View>
+                        </View>
+                        <Text style={styles.cardBody} numberOfLines={2}>
+                          Student #5104 requested a 45-min Anxiety Consultation for...
+                        </Text>
+
+                        {/* Badges & Actions Row (Side by Side per PNG) */}
+                        <View style={styles.actionRowInline}>
+                          <View style={styles.badgeMint}>
+                            <Text style={styles.badgeMintText}>Urgent / Triage</Text>
+                          </View>
+                          <Pressable
+                            style={styles.actionBtnFilled}
+                            onPress={handleReviewRequest}
+                            accessibilityRole="button"
+                            accessibilityLabel="Review Request for Student #5104"
+                          >
+                            <Text style={styles.actionBtnFilledText}>Review Request</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+
+                      <View style={styles.chevronBox}>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color={colors.textSecondary}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {/* Card 2: Intake Questionnaire Submitted */}
+                {visibleTodayAlerts.some((a) => a.id === "alert-2") && (
+                  <View style={styles.card} accessibilityRole="summary">
+                    <View style={styles.cardMainRow}>
+                      <View style={styles.iconBox}>
+                        <Ionicons
+                          name="checkmark-circle-outline"
+                          size={20}
+                          color={colors.text}
+                        />
+                      </View>
+
+                      <View style={styles.cardContent}>
+                        <View style={styles.cardTitleRow}>
+                          <Text style={styles.cardTitle} numberOfLines={1}>
+                            Intake Questionnaire Submitted
+                          </Text>
+                          <View style={styles.timeRow}>
+                            <Text style={styles.timeText}>45m ago</Text>
+                            {!isAllRead && <View style={styles.unreadDot} />}
+                          </View>
+                        </View>
+                        <Text style={styles.cardBody} numberOfLines={2}>
+                          Sarah Jenkins completed her pre-session PHQ-9 assessment
+                        </Text>
+
+                        {/* Badges & Actions Row (Side by Side per PNG) */}
+                        <View style={styles.actionRowInline}>
+                          <View style={styles.badgeMint}>
+                            <Text style={styles.badgeMintText}>PHQ-9 • Moderate</Text>
+                          </View>
+                          <Pressable
+                            style={styles.actionBtnGray}
+                            onPress={() =>
+                              setModalData({
+                                title: "PHQ-9 Intake Assessment",
+                                description:
+                                  "Sarah Jenkins (Student #4810) · Score: 12 (Moderate Depression/Anxiety)\n\nPre-session clinical questionnaire completed. Notes flagged for follow-up review.",
+                              })
+                            }
+                            accessibilityRole="button"
+                            accessibilityLabel="View Assessment for Sarah Jenkins"
+                          >
+                            <Text style={styles.actionBtnGrayText}>View Assessment</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+
+                      <View style={styles.chevronBox}>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color={colors.textSecondary}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {/* Card 3: Session in 15 Minutes */}
+                {visibleTodayAlerts.some((a) => a.id === "alert-3") && (
+                  <View style={styles.card} accessibilityRole="summary">
+                    <View style={styles.cardMainRow}>
+                      <View style={styles.iconBox}>
+                        <Ionicons
+                          name="videocam-outline"
+                          size={20}
+                          color={colors.text}
+                        />
+                      </View>
+
+                      <View style={styles.cardContent}>
+                        <View style={styles.cardTitleRow}>
+                          <Text style={styles.cardTitle} numberOfLines={1}>
+                            Session in 15 Minutes
+                          </Text>
+                          <View style={styles.timeRow}>
+                            <Text style={styles.timeTextUrgent}>Just now</Text>
+                            {!isAllRead && <View style={styles.unreadDot} />}
+                          </View>
+                        </View>
+                        <Text style={styles.cardBody} numberOfLines={2}>
+                          Upcoming Video Consultation with Alex Rivera at 10:00 AM....
+                        </Text>
+
+                        <View style={styles.actionRowInline}>
+                          <Pressable
+                            style={styles.actionBtnFilled}
+                            onPress={() =>
+                              setModalData({
+                                title: "Connecting Encrypted Video Consultation",
+                                description:
+                                  "Launching verified consultation room with Alex Rivera. E2E Encryption verified.",
+                              })
+                            }
+                            accessibilityRole="button"
+                            accessibilityLabel="Enter Consultation Room with Alex Rivera"
+                          >
+                            <View style={styles.pulseDot} />
+                            <Text style={styles.actionBtnFilledText}>Enter Room</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+
+                      <View style={styles.chevronBox}>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color={colors.textSecondary}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* 5. EARLIER THIS WEEK SECTION */}
+            {visibleEarlierAlerts.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitleBold}>Earlier this week</Text>
+
+                {/* Card 4: Message from Student */}
+                {visibleEarlierAlerts.some((a) => a.id === "alert-4") && (
+                  <View style={styles.card} accessibilityRole="summary">
+                    <View style={styles.cardMainRow}>
+                      <View style={styles.iconBox}>
+                        <Ionicons
+                          name="chatbubble-outline"
+                          size={20}
+                          color={colors.text}
+                        />
+                      </View>
+
+                      <View style={styles.cardContent}>
+                        <View style={styles.cardTitleRow}>
+                          <Text style={styles.cardTitle} numberOfLines={1}>
+                            Message from Student
+                          </Text>
+                          <Text style={styles.timeText}>Yesterday</Text>
+                        </View>
+                        <Text style={styles.cardBody} numberOfLines={2}>
+                          Student #4021 sent a message in secure chat regarding breathing
+                        </Text>
+
+                        <View style={styles.actionRowInline}>
+                          <Pressable
+                            style={styles.actionBtnGray}
+                            onPress={handleSecureChat}
+                            accessibilityRole="button"
+                            accessibilityLabel="Secure Chat with Student #4021"
+                          >
+                            <Text style={styles.actionBtnGrayText}>Secure Chat</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+
+                      <View style={styles.chevronBox}>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color={colors.textSecondary}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {/* Card 5: Session Cancelled / Rescheduled */}
+                {visibleEarlierAlerts.some((a) => a.id === "alert-5") && (
+                  <View style={styles.card} accessibilityRole="summary">
+                    <View style={styles.cardMainRow}>
+                      <View style={styles.iconBox}>
+                        <Ionicons
+                          name="calendar-outline"
+                          size={20}
+                          color={colors.text}
+                        />
+                      </View>
+
+                      <View style={styles.cardContent}>
+                        <View style={styles.cardTitleRow}>
+                          <Text style={styles.cardTitle} numberOfLines={1}>
+                            Session Cancelled / Resch
+                          </Text>
+                          <Text style={styles.timeText}>Tuesday</Text>
+                        </View>
+                        <Text style={styles.cardBody} numberOfLines={2}>
+                          Student #8821 requested to reschedule Thursday's slot to...
+                        </Text>
+
+                        {/* Actionable Reschedule Link to Schedule per Fix #5 */}
+                        <View style={styles.actionRowInline}>
+                          <Pressable
+                            style={styles.actionBtnGray}
+                            onPress={() => router.navigate("/(counsellor)/schedule")}
+                            accessibilityRole="button"
+                            accessibilityLabel="View in Schedule"
+                          >
+                            <Text style={styles.actionBtnGrayText}>View in Schedule</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+
+                      <View style={styles.chevronBox}>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color={colors.textSecondary}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+          </>
+        )}
+
+        {/* 6. COMPLIANCE FOOTER */}
         <View style={styles.footer}>
-          <Ionicons name="shield-checkmark" size={16} color={colors.textSecondary} accessibilityElementsHidden importantForAccessibility="no" />
-          <Text style={styles.footerText}>All clinical notifications synced with portal • HIPAA compliant</Text>
+          <Ionicons
+            name="shield-checkmark"
+            size={16}
+            color={colors.textSecondary}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          />
+          <Text style={styles.footerText}>
+            All clinical notifications synced with portal •{" "}
+            <Text style={{ fontWeight: "700", color: colors.primary }}>
+              HIPAA compliant
+            </Text>
+          </Text>
         </View>
       </ScrollView>
 
-      {/* Feedback Toast */}
+      {/* Floating Feedback Toast */}
       {feedbackMessage && (
-        <View style={styles.toast}>
+        <View style={styles.toast} accessibilityRole="alert">
           <Text style={styles.toastText}>{feedbackMessage}</Text>
         </View>
       )}
+
+      {/* Accessible Detail Modal Overlay */}
+      <Modal
+        visible={modalData !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModalData(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard} accessibilityViewIsModal={true}>
+            <Text style={styles.modalTitle} accessibilityRole="header">
+              {modalData?.title}
+            </Text>
+            <Text style={styles.modalDescription}>
+              {modalData?.description}
+            </Text>
+            <Pressable
+              onPress={() => setModalData(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss modal"
+              style={styles.modalBtn}
+            >
+              <Text style={styles.modalBtnText}>Got It</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -302,23 +612,31 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+    backgroundColor: "rgba(255, 249, 236, 0.95)",
   },
   headerBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: TOUCH_TARGET - 4,
+    height: TOUCH_TARGET - 4,
+    borderRadius: radius.full,
     backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: colors.text,
+    fontSize: 20,
+    fontWeight: "700",
+    color: colors.primary,
   },
   scrollContent: {
-    padding: spacing.md,
-    paddingBottom: spacing.xl,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.xl * 2,
   },
   banner: {
     backgroundColor: colors.success,
@@ -326,46 +644,59 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     flexDirection: "row",
     alignItems: "flex-start",
-    marginBottom: spacing.lg,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm + 2,
+    borderWidth: 1,
+    borderColor: "rgba(110, 231, 183, 0.6)",
   },
-  bannerIcon: {
-    marginRight: spacing.sm,
-    marginTop: 2,
+  bannerIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.sm + 2,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: spacing.sm + 2,
   },
   bannerContent: {
     flex: 1,
   },
   bannerTitle: {
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 13,
+    fontWeight: "800",
     color: colors.primary,
-    marginBottom: spacing.xs,
+    marginBottom: 2,
   },
   bannerDesc: {
-    fontSize: 14,
+    fontSize: 11,
     color: colors.primary,
-    lineHeight: 20,
+    lineHeight: 16,
   },
   bannerClose: {
-    width: 32,
-    height: 32,
+    width: 28,
+    height: 28,
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: spacing.xs,
+  },
+  filterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginVertical: spacing.xs,
   },
   filterContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: spacing.lg,
+    gap: spacing.xs + 2,
+    paddingVertical: 2,
   },
   filterChip: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
-    height: 44,
-    borderRadius: 22,
-    marginRight: spacing.sm,
+    minHeight: TOUCH_TARGET - 12,
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -374,235 +705,223 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   filterText: {
-    fontSize: 14,
-    fontWeight: "500",
+    fontSize: 12,
+    fontWeight: "600",
     color: colors.textSecondary,
   },
   filterTextActive: {
     color: colors.white,
+    fontWeight: "700",
   },
   filterBadge: {
-    backgroundColor: colors.danger,
-    borderRadius: 10,
-    width: 20,
-    height: 20,
+    backgroundColor: colors.text,
+    borderRadius: radius.full,
+    minWidth: 16,
+    height: 16,
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: spacing.xs,
+    marginLeft: 6,
+    paddingHorizontal: 3,
   },
   filterBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
     color: colors.white,
-    fontSize: 12,
-    fontWeight: "bold",
   },
   markAllReadBtn: {
-    width: 44,
-    height: 44,
+    width: TOUCH_TARGET - 4,
+    height: TOUCH_TARGET - 4,
+    borderRadius: radius.full,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.surface,
-    borderRadius: 22,
     borderWidth: 1,
     borderColor: colors.border,
-    marginLeft: "auto",
+    marginLeft: spacing.xs,
   },
   section: {
-    marginBottom: spacing.xl,
+    marginTop: spacing.md,
   },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
+    paddingHorizontal: 2,
   },
   sectionTitleRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 6,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+    color: colors.primary,
   },
   sectionTitleBold: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: colors.text,
-    marginBottom: spacing.md,
-  },
-  sectionCount: {
-    fontSize: 14,
-    color: colors.textSecondary,
+    fontSize: 15,
+    fontWeight: "800",
+    color: colors.primary,
+    marginBottom: spacing.sm,
+    paddingHorizontal: 2,
   },
   dotIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.primary,
-    marginLeft: spacing.xs,
-  },
-  dotIndicatorSmall: {
     width: 6,
     height: 6,
     borderRadius: 3,
     backgroundColor: colors.primary,
-    marginLeft: spacing.xs,
+  },
+  sectionCount: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textSecondary,
   },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.md,
     padding: spacing.md,
-    marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "rgba(7, 96, 71, 0.08)",
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
+    marginBottom: spacing.sm + 2,
   },
-  cardUnread: {
-    backgroundColor: "#F2F9F6",
-  },
-  cardHeader: {
+  cardMainRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    marginBottom: spacing.sm,
   },
   iconBox: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.background,
+    borderRadius: radius.sm + 2,
+    backgroundColor: "#F1F5F9",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: spacing.sm,
+    marginRight: spacing.sm + 2,
   },
-  cardTitleBox: {
+  cardContent: {
     flex: 1,
+  },
+  cardTitleRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginTop: spacing.xs,
+    justifyContent: "space-between",
+    marginBottom: 2,
   },
   cardTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.text,
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.primary,
     flex: 1,
+    marginRight: spacing.xs,
   },
   timeRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 4,
   },
   timeText: {
-    fontSize: 13,
+    fontSize: 11,
+    fontWeight: "500",
     color: colors.textSecondary,
+  },
+  timeTextUrgent: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  unreadDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
   },
   cardBody: {
-    fontSize: 14,
+    fontSize: 11,
+    lineHeight: 16,
     color: colors.textSecondary,
-    lineHeight: 20,
-    marginBottom: spacing.md,
+    marginBottom: spacing.xs + 2,
   },
-  cardActions: {
-    marginBottom: spacing.md,
-  },
-  badgeRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-  },
-  badgeOutline: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.primary,
-  },
-  badgeOutlineText: {
-    fontSize: 12,
-    color: colors.primary,
-    fontWeight: "500",
-  },
-  badgeGray: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radius.sm,
-    backgroundColor: colors.border,
-  },
-  badgeGrayText: {
-    fontSize: 12,
-    color: colors.text,
-    fontWeight: "500",
-  },
-  badgeFilled: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radius.sm,
-    backgroundColor: colors.primary,
-  },
-  badgeFilledText: {
-    fontSize: 12,
-    color: colors.white,
-    fontWeight: "500",
-  },
-  cardFooter: {
+  actionRowInline: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: spacing.md,
+    gap: spacing.sm,
+    marginTop: 4,
+  },
+  badgeMint: {
+    backgroundColor: colors.success,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: "rgba(110, 231, 183, 0.6)",
+  },
+  badgeMintText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#064E3B",
   },
   actionBtnFilled: {
-    flexDirection: "row",
+    minHeight: TOUCH_TARGET - 10,
     backgroundColor: colors.primary,
+    borderRadius: radius.md,
     paddingHorizontal: spacing.md,
-    height: 44,
-    borderRadius: 22,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 6,
   },
   actionBtnFilledText: {
+    fontSize: 12,
+    fontWeight: "700",
     color: colors.white,
-    fontSize: 14,
-    fontWeight: "600",
   },
   actionBtnGray: {
-    backgroundColor: colors.border,
+    minHeight: TOUCH_TARGET - 10,
+    backgroundColor: "#F1F5F9",
+    borderRadius: radius.md,
     paddingHorizontal: spacing.md,
-    height: 44,
-    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
   actionBtnGrayText: {
+    fontSize: 12,
+    fontWeight: "700",
     color: colors.text,
-    fontSize: 14,
-    fontWeight: "600",
   },
   pulseDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.white,
-    marginRight: spacing.sm,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#34D399",
+  },
+  chevronBox: {
+    paddingLeft: spacing.xs,
+    paddingTop: 2,
   },
   footer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: spacing.lg,
+    paddingTop: spacing.md,
     paddingBottom: spacing.xl,
+    gap: 6,
   },
   footerText: {
-    fontSize: 12,
+    fontSize: 11,
     color: colors.textSecondary,
-    marginLeft: spacing.xs,
   },
   toast: {
     position: "absolute",
-    bottom: 40,
+    bottom: 30,
     alignSelf: "center",
     backgroundColor: colors.text,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.sm + 2,
     borderRadius: radius.full,
     zIndex: 100,
   },
@@ -610,5 +929,75 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 13,
     fontWeight: "600",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md + 4,
+    padding: spacing.lg,
+    elevation: 8,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: colors.text,
+    marginBottom: spacing.xs,
+  },
+  modalDescription: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: spacing.lg,
+  },
+  modalBtn: {
+    minHeight: TOUCH_TARGET - 4,
+    backgroundColor: colors.primary,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalBtnText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  emptyFeedBox: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    padding: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginTop: spacing.xl,
+    gap: spacing.xs + 2,
+  },
+  emptyFeedIconCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: colors.success,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.xs,
+  },
+  emptyFeedTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  emptyFeedSubtitle: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 18,
   },
 });
