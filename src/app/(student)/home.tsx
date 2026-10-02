@@ -5,6 +5,7 @@ import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
 import Screen from "@/components/common/Screen";
 import { useAuth } from "@/context/AuthContext";
+import { MoodLevel, MOODS } from "@/types/checkin";
 import {
   colors,
   moodColors,
@@ -16,8 +17,6 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-
-type MoodLevel = 1 | 2 | 3 | 4 | 5;
 
 type Session = {
   counsellorName: string;
@@ -32,15 +31,6 @@ type Resource = {
   title: string;
   meta: string;
 };
-
-// Mood scale shared by the check-in card and the weekly row
-const MOODS: { level: MoodLevel; emoji: string; label: string }[] = [
-  { level: 1, emoji: "😢", label: "Very low" },
-  { level: 2, emoji: "😕", label: "Low" },
-  { level: 3, emoji: "😐", label: "Okay" },
-  { level: 4, emoji: "🙂", label: "Good" },
-  { level: 5, emoji: "😄", label: "Great" },
-];
 
 // DUMMY DATA - Ishara: replace with Firestore data (checkins, bookings, resources)
 const DUMMY: {
@@ -90,6 +80,12 @@ export default function Home() {
   const session = DUMMY.upcomingSession;
 
   const goToCheckIn = () => router.navigate("/(student)/check-in");
+  // A tapped face opens check-in with that mood already selected
+  const checkInAs = (mood: MoodLevel) =>
+    router.navigate({
+      pathname: "/(student)/check-in",
+      params: { mood: String(mood) },
+    });
   const goToSessions = () => router.navigate("/(student)/session/dashboard");
   const goToExercises = () => router.navigate("/(student)/exercises");
 
@@ -116,7 +112,7 @@ export default function Home() {
             // Faces open the same check-in flow as the button, so they don't compete with it
             <Pressable
               key={mood.level}
-              onPress={goToCheckIn}
+              onPress={() => checkInAs(mood.level)}
               accessibilityRole="button"
               accessibilityLabel={`Check in as ${mood.label}`}
               style={({ pressed }) => [styles.face, pressed && styles.pressed]}
