@@ -15,6 +15,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState } from "react";
+import { useCounsellorStore } from "@/services/counsellorStore";
 import {
   FlatList,
   Image,
@@ -32,13 +33,24 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function CounsellorMessagesScreen() {
   const { messagesUnread, decrementMessages } = useCounsellorBadges();
-  const params = useLocalSearchParams<{ studentAnonId?: string }>();
+  const {
+    threads: storeThreads,
+    clearAllConversations,
+    resetConversations,
+  } = useCounsellorStore();
+
+  const params = useLocalSearchParams<{ studentAnonId?: string; fromAcceptance?: string }>();
   const [activeFilter, setActiveFilter] = useState<MessageFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
-  const [threads, setThreads] = useState<ChatThread[]>(MOCK_CHAT_THREADS);
+  const [threads, setThreads] = useState<ChatThread[]>(storeThreads);
   const [messages, setMessages] = useState<ChatBubble[]>(MOCK_CHAT_BUBBLES);
+
+  // Sync threads whenever store updates
+  useEffect(() => {
+    setThreads(storeThreads);
+  }, [storeThreads]);
 
   // Outreach Modal state (with Anonymous Student ID search bar)
   const [outreachModalVisible, setOutreachModalVisible] = useState(false);
@@ -46,9 +58,17 @@ export default function CounsellorMessagesScreen() {
   const [outreachFeedback, setOutreachFeedback] = useState<string | null>(null);
   const [caseNotesModalVisible, setCaseNotesModalVisible] = useState(false);
 
-  // Deep-link handling (e.g. from Alerts screen "Secure Chat")
+  // Deep-link handling (e.g. from Alerts screen "Secure Chat" or Request Accepted)
   useEffect(() => {
     if (params?.studentAnonId) {
+      if (params.fromAcceptance === "true") {
+        router.navigate({
+          pathname: "/(counsellor-detail)/pre-chat-empty-state",
+          params: { studentAnonId: params.studentAnonId },
+        });
+        return;
+      }
+
       const match = threads.find(
         (t) =>
           t.studentAnonId.toLowerCase() ===
@@ -60,11 +80,14 @@ export default function CounsellorMessagesScreen() {
       if (match) {
         handleOpenThread(match);
       } else {
-        // Open the primary active conversation if specific student thread is unlisted
-        setActiveChatId("chat-1");
+        // New thread without prior messages -> open pre-chat waiting room
+        router.navigate({
+          pathname: "/(counsellor-detail)/pre-chat-empty-state",
+          params: { studentAnonId: params.studentAnonId },
+        });
       }
     }
-  }, [params?.studentAnonId]);
+  }, [params?.studentAnonId, params?.fromAcceptance]);
 
   // Open a conversation thread
   const handleOpenThread = (thread: ChatThread) => {
@@ -108,7 +131,10 @@ export default function CounsellorMessagesScreen() {
     return true;
   });
 
-  const activeThread = threads.find((t) => t.id === activeChatId) || threads[0];
+  const activeThread =
+    (activeChatId ? threads.find((t) => t.id === activeChatId) : null) ||
+    threads[0] ||
+    null;
 
   // ==========================================
   // THREAD LIST VIEW (MAIN INBOX)
@@ -179,18 +205,39 @@ export default function CounsellorMessagesScreen() {
             Breathe Sanctuary · Confidential Consultations (18 Active Students)
           </Text>
         </View>
-        <Pressable
-          style={styles.composeButton}
-          onPress={() => setOutreachModalVisible(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Compose new confidential message"
-        >
-          <Ionicons
-            name="create-outline"
-            size={22}
-            color={colors.primary}
-          />
-        </Pressable>
+        <View style={styles.titleActionsRow}>
+          <Pressable
+            style={[
+              styles.demoTogglePill,
+              threads.length === 0 && styles.demoTogglePillActive,
+            ]}
+            onPress={threads.length === 0 ? resetConversations : clearAllConversations}
+            accessibilityRole="button"
+            accessibilityLabel={threads.length === 0 ? "Restore sample conversations" : "Demo empty state"}
+          >
+            <Text
+              style={[
+                styles.demoTogglePillText,
+                threads.length === 0 && styles.demoTogglePillTextActive,
+              ]}
+            >
+              {threads.length === 0 ? "Restore" : "Demo Empty"}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.composeButton}
+            onPress={() => setOutreachModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Compose new confidential message"
+          >
+            <Ionicons
+              name="create-outline"
+              size={22}
+              color={colors.primary}
+            />
+          </Pressable>
+        </View>
       </View>
 
       {/* 3. SEARCH BAR WITH FILTER TUNE ICON */}
@@ -349,21 +396,87 @@ export default function CounsellorMessagesScreen() {
       {/* 6. CONVERSATION THREAD CARDS OR EMPTY STATE */}
       <View style={styles.threadList}>
         {filteredThreads.length === 0 ? (
-          <View style={styles.emptyThreadsBox} accessibilityRole="summary">
-            <View style={styles.emptyThreadsIconCircle}>
-              <Ionicons
-                name="chatbubbles-outline"
-                size={32}
-                color={colors.textSecondary}
-              />
+          threads.length === 0 ? (
+            <View style={styles.calmEmptyCard} accessibilityRole="summary">
+              <View style={styles.calmRadarOuter}>
+                <View style={styles.calmRadarMiddle}>
+                  <View style={styles.calmRadarInner}>
+                    <Ionicons
+                      name="shield-checkmark"
+                      size={28}
+                      color={colors.primary}
+                    />
+                  </View>
+                </View>
+              </View>
+
+              <Text style={styles.calmEmptyTitle}>Your Clinical Inbox is Clear</Text>
+              <Text style={styles.calmEmptySub}>
+                All conversations are confidential and end-to-end encrypted. When a session request is accepted or an urgent outreach is initiated, the secure consultation channel will appear here.
+              </Text>
+
+              <View style={styles.calmEmptyActionsCol}>
+                <Pressable
+                  style={styles.calmPrimaryBtn}
+                  onPress={() => router.navigate("/(counsellor)/dashboard")}
+                  accessibilityRole="button"
+                  accessibilityLabel="View pending session requests on dashboard"
+                >
+                  <Ionicons name="calendar-outline" size={16} color={colors.white} />
+                  <Text style={styles.calmPrimaryBtnText}>View Pending Requests</Text>
+                </Pressable>
+
+                <Pressable
+                  style={styles.calmSecondaryBtn}
+                  onPress={() => router.push("/(counsellor-detail)/pre-chat-empty-state")}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open Student #4021 Waiting Room"
+                >
+                  <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.primary} />
+                  <Text style={styles.calmSecondaryBtnText}>Open Student Waiting Room</Text>
+                </Pressable>
+
+                <Pressable
+                  style={styles.calmRestoreBtn}
+                  onPress={resetConversations}
+                  accessibilityRole="button"
+                  accessibilityLabel="Restore sample conversations"
+                >
+                  <Ionicons name="refresh-outline" size={15} color={colors.textSecondary} />
+                  <Text style={styles.calmRestoreBtnText}>Restore Sample Conversations</Text>
+                </Pressable>
+              </View>
             </View>
-            <Text style={styles.emptyThreadsTitle}>No conversations found</Text>
-            <Text style={styles.emptyThreadsSubtitle}>
-              {searchQuery
-                ? `No students matching "${searchQuery}"`
-                : `No active consultations in the "${activeFilter}" category.`}
-            </Text>
-          </View>
+          ) : (
+            <View style={styles.emptyThreadsBox} accessibilityRole="summary">
+              <View style={styles.emptyThreadsIconCircle}>
+                <Ionicons
+                  name="chatbubbles-outline"
+                  size={32}
+                  color={colors.textSecondary}
+                />
+              </View>
+              <Text style={styles.emptyThreadsTitle}>No matching conversations</Text>
+              <Text style={styles.emptyThreadsSubtitle}>
+                {searchQuery
+                  ? `No students matching "${searchQuery}"`
+                  : `No consultations currently under "${activeFilter}".`}
+              </Text>
+              {(searchQuery.length > 0 || activeFilter !== "all") && (
+                <Pressable
+                  style={styles.resetFilterBtn}
+                  onPress={() => {
+                    setSearchQuery("");
+                    setActiveFilter("all");
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear search and filter"
+                >
+                  <Text style={styles.resetFilterBtnText}>Reset Filter & Search</Text>
+                </Pressable>
+              )}
+            </View>
+          )
         ) : (
           filteredThreads.map((thread) => {
           const isUrgent = thread.triageLevel === "urgent";
@@ -591,8 +704,8 @@ export default function CounsellorMessagesScreen() {
 
         <View style={styles.chatHeaderCenter}>
           <Text style={styles.chatHeaderTitle} numberOfLines={1}>
-            {activeThread.displayName}{" "}
-            {activeThread.idMode === "standard" && (
+            {activeThread?.displayName || "Student"}{" "}
+            {activeThread?.idMode === "standard" && activeThread?.studentAnonId && (
               <Text style={{ fontSize: 13, fontWeight: "500" }}>
                 ({activeThread.studentAnonId})
               </Text>
@@ -896,7 +1009,9 @@ export default function CounsellorMessagesScreen() {
               Clinical Case Notes
             </Text>
             <Text style={styles.notesCardSubtitle}>
-              {activeThread.displayName} ({activeThread.studentAnonId})
+              {activeThread
+                ? `${activeThread.displayName} (${activeThread.studentAnonId})`
+                : "Confidential Student Case"}
             </Text>
             <View style={styles.notesBox}>
               <Text style={styles.notesText}>
@@ -1058,6 +1173,31 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  titleActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  demoTogglePill: {
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+  },
+  demoTogglePillActive: {
+    backgroundColor: "#FEF2F2",
+    borderColor: "#FECACA",
+  },
+  demoTogglePillText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.textSecondary,
+  },
+  demoTogglePillTextActive: {
+    color: "#DC2626",
   },
   composeButton: {
     width: TOUCH_TARGET - 4,
@@ -1792,5 +1932,129 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: "center",
     lineHeight: 18,
+  },
+  resetFilterBtn: {
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    backgroundColor: "#ECFDF5",
+    borderRadius: radius.full,
+  },
+  resetFilterBtnText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  calmEmptyCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginVertical: spacing.md,
+    shadowColor: "#076047",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  calmRadarOuter: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1.5,
+    borderColor: "#A7F3D0",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.md,
+  },
+  calmRadarMiddle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: "#D1FAE5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  calmRadarInner: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.white,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  calmEmptyTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: colors.text,
+    textAlign: "center",
+    marginBottom: spacing.xs,
+  },
+  calmEmptySub: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 19,
+    marginBottom: spacing.lg,
+    maxWidth: 320,
+  },
+  calmEmptyActionsCol: {
+    width: "100%",
+    gap: spacing.sm,
+  },
+  calmPrimaryBtn: {
+    minHeight: TOUCH_TARGET,
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs + 2,
+    paddingHorizontal: spacing.lg,
+  },
+  calmPrimaryBtnText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  calmSecondaryBtn: {
+    minHeight: TOUCH_TARGET,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    borderRadius: radius.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs + 2,
+    paddingHorizontal: spacing.lg,
+  },
+  calmSecondaryBtnText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  calmRestoreBtn: {
+    minHeight: TOUCH_TARGET - 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    marginTop: 4,
+  },
+  calmRestoreBtnText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "600",
   },
 });

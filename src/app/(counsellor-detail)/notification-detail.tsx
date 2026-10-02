@@ -33,20 +33,16 @@ export default function NotificationDetailScreen() {
   };
 
   const handleDecline = () => {
-    Alert.alert(
-      "Decline Triage Request",
-      "Are you sure you want to decline this intake? The triage coordinator will re-route Student #5104 to another on-duty counselor.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Decline Request",
-          style: "destructive",
-          onPress: () => {
-            setFeedback("Request declined. Re-routed to triage queue.");
-          },
-        },
-      ]
-    );
+    router.push({
+      pathname: "/(counsellor-detail)/decline-request",
+      params: {
+        requestId: "req-1",
+        studentAnonId: data.studentAnonId,
+        proposedDate: "Tomorrow, Tue 19 Aug",
+        proposedTime: "10:00–10:45 AM",
+        sessionTypeLabel: "Encrypted Video Call (45m)",
+      },
+    });
   };
 
   return (

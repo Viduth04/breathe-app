@@ -42,6 +42,9 @@ export default function CounsellorDetailLayout() {
           animation: "fade",
         }}
       />
+      <Stack.Screen name="pre-chat-empty-state" />
+      <Stack.Screen name="clinical-alerts-preferences" />
+      <Stack.Screen name="patients-list" />
     </Stack>
   );
 }
