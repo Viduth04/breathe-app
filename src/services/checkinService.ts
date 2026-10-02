@@ -1,0 +1,278 @@
+// Mood check-in - Ishara (Member 2). FR02, NFR03.
+// Mood tracking - Ishara (Member 2). FR09.
+//
+// Students read and write only their own checkins/ docs (see firestore.rules).
+// Admins and lecturers never touch this collection (NFR01).
+
+import { auth, db } from "@/firebase/config";
+import { recordAnonymousMoodStat } from "@/services/statsService";
+import {
+  CheckIn,
+  CheckInInput,
+  dateFromKey,
+  MoodFactor,
+  MoodLevel,
+} from "@/types/checkin";
+import { dateKey } from "@/utils/week";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+
+// Offline writes never resolve until the server answers, so give up after this
+// and let the student try again (their input stays on screen)
+const SAVE_TIMEOUT_MS = 15000;
+
+function withTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject({ code: "unavailable" }), // Same message as Firestore offline
+      SAVE_TIMEOUT_MS,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+// One doc per student per day, so retries and edits can't create duplicates
+export const checkinId = (uid: string, day: string) => `${uid}_${day}`;
+
+const clean = (input: CheckInInput): CheckInInput => ({
+  mood: input.mood,
+  factors: [...input.factors],
+  note: input.note.trim(),
+});
+
+// ---------- CHANGE EVENTS ----------
+
+// Keeps the mounted tab screens (check-in, history, entry detail) in sync when
+// another screen saves or deletes a check-in
+export type CheckinChange =
+  | { type: "saved"; checkin: CheckIn }
+  | { type: "deleted"; id: string };
+
+const listeners = new Set<(change: CheckinChange) => void>();
+
+export function subscribeToCheckinChanges(
+  listener: (change: CheckinChange) => void,
+) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+const notify = (change: CheckinChange) => listeners.forEach((l) => l(change));
+
+// ---------- READ ----------
+
+// Today's check-in, or null if there isn't one yet. A query (not getDoc)
+// because the rules deny reading a doc that doesn't exist.
+export async function getTodayCheckin(uid: string): Promise<CheckIn | null> {
+  const snap = await getDocs(
+    query(
+      collection(db, "checkins"),
+      where("userId", "==", uid),
+      where("dateKey", "==", dateKey(new Date())),
+      limit(1),
+    ),
+  );
+  if (snap.empty) return null;
+  const d = snap.docs[0];
+  return { ...(d.data() as Omit<CheckIn, "id">), id: d.id };
+}
+
+/**
+ * The signed-in student's check-ins, newest first.
+ *   days  - only the last N days, including today
+ *   limit - at most this many entries
+ *
+ * Filters only on userId (which the rules require) and sorts/trims here, so no
+ * composite index is needed. That stays cheap: one doc per student per day.
+ */
+export async function listMyCheckins({
+  days,
+  limit: max,
+}: { days?: number; limit?: number } = {}): Promise<CheckIn[]> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) throw { code: "permission-denied" };
+  const snap = await getDocs(
+    query(collection(db, "checkins"), where("userId", "==", uid)),
+  );
+  const since = days ? dayKeyBefore(dateKey(new Date()), days - 1) : null;
+  const list = snap.docs
+    .map((d) => ({ ...(d.data() as Omit<CheckIn, "id">), id: d.id }))
+    .filter((c) => !since || c.dateKey >= since) // "YYYY-MM-DD" sorts as text
+    .sort((a, b) => b.dateKey.localeCompare(a.dateKey));
+  return max ? list.slice(0, max) : list;
+}
+
+// One check-in, or null if it doesn't exist. The rules deny reading a missing
+// doc, so for the owner permission-denied means "not found".
+export async function getCheckin(id: string): Promise<CheckIn | null> {
+  try {
+    const snap = await getDoc(doc(db, "checkins", id));
+    return snap.exists()
+      ? { ...(snap.data() as Omit<CheckIn, "id">), id: snap.id }
+      : null;
+  } catch (e: any) {
+    if (e?.code === "permission-denied") return null;
+    throw e;
+  }
+}
+
+// ---------- CREATE ----------
+
+export async function createCheckin(
+  uid: string,
+  input: CheckInInput,
+): Promise<CheckIn> {
+  const day = dateKey(new Date());
+  const data = { ...clean(input), userId: uid, dateKey: day };
+  const id = checkinId(uid, day);
+  await withTimeout(
+    setDoc(doc(db, "checkins", id), {
+      ...data,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }),
+  );
+  // Anonymous weekly total for lecturers; only after the check-in is saved,
+  // and never blocks the student if it fails
+  recordAnonymousMoodStat(data.mood).catch(() => {});
+  const checkin = { ...data, id };
+  notify({ type: "saved", checkin });
+  return checkin;
+}
+
+// ---------- UPDATE ----------
+
+// Edits today's entry. Not counted again in the weekly stats.
+export async function updateCheckin(
+  existing: CheckIn,
+  input: CheckInInput,
+): Promise<CheckIn> {
+  const data = clean(input);
+  await withTimeout(
+    updateDoc(doc(db, "checkins", existing.id), {
+      ...data,
+      updatedAt: serverTimestamp(),
+    }),
+  );
+  const checkin = { ...existing, ...data };
+  notify({ type: "saved", checkin });
+  return checkin;
+}
+
+// ---------- DELETE ----------
+
+// Any entry, any day. Lecturer stats are left alone: they're anonymous weekly
+// totals with nothing linking them back to this check-in.
+export async function deleteCheckin(id: string) {
+  await withTimeout(deleteDoc(doc(db, "checkins", id)));
+  notify({ type: "deleted", id });
+}
+
+// ---------- PURE HELPERS (charts and insights) ----------
+
+// "YYYY-MM-DD" n days before the given day key
+export function dayKeyBefore(key: string, n: number) {
+  const d = dateFromKey(key);
+  d.setDate(d.getDate() - n);
+  return dateKey(d);
+}
+
+// Average mood 1-5, or null for an empty list
+export const averageMood = (list: CheckIn[]) =>
+  list.length ? list.reduce((sum, c) => sum + c.mood, 0) / list.length : null;
+
+export type MoodDay = { dateKey: string; date: Date; mood: MoodLevel | null };
+
+// One slot per day for the last `days` days, oldest first. Days without a
+// check-in are null (a gap in the chart, never zero).
+export function moodByDay(list: CheckIn[], days: number, today = new Date()) {
+  const byKey = new Map(list.map((c) => [c.dateKey, c.mood]));
+  const todayKey = dateKey(today);
+  return Array.from({ length: days }, (_, i): MoodDay => {
+    const key = dayKeyBefore(todayKey, days - 1 - i);
+    return { dateKey: key, date: dateFromKey(key), mood: byKey.get(key) ?? null };
+  });
+}
+
+// No pattern is shown until there's enough to go on
+export const MIN_ENTRIES_FOR_PATTERNS = 5;
+// A difference smaller than this (on the 1-5 scale) isn't worth mentioning
+const MEANINGFUL_GAP = 0.75;
+
+/**
+ * Plain-language observations, strongest first (at most 3). Empty until there
+ * are MIN_ENTRIES_FOR_PATTERNS check-ins. Worded as reflections, not diagnoses.
+ */
+export function detectPatterns(list: CheckIn[]): string[] {
+  if (list.length < MIN_ENTRIES_FOR_PATTERNS) return [];
+  const found: { gap: number; text: string }[] = [];
+
+  // Factors: days tagged with it vs days without it (at least 2 of each)
+  const factors = new Set<MoodFactor>(list.flatMap((c) => c.factors ?? []));
+  factors.forEach((factor) => {
+    const tagged = list.filter((c) => c.factors?.includes(factor));
+    const other = list.filter((c) => !c.factors?.includes(factor));
+    if (tagged.length < 2 || other.length < 2) return;
+    const gap = averageMood(tagged)! - averageMood(other)!;
+    if (Math.abs(gap) < MEANINGFUL_GAP) return;
+    found.push({
+      gap: Math.abs(gap),
+      text: `Your mood is usually ${gap < 0 ? "lower" : "higher"} on days you tag ${factor}.`,
+    });
+  });
+
+  // Weekends vs weekdays
+  const isWeekend = (c: CheckIn) => [0, 6].includes(dateFromKey(c.dateKey).getDay());
+  const weekend = list.filter(isWeekend);
+  const weekday = list.filter((c) => !isWeekend(c));
+  if (weekend.length >= 2 && weekday.length >= 2) {
+    const gap = averageMood(weekend)! - averageMood(weekday)!;
+    if (Math.abs(gap) >= MEANINGFUL_GAP) {
+      found.push({
+        gap: Math.abs(gap),
+        text: `You tend to feel ${gap > 0 ? "better" : "lower"} at weekends than on weekdays.`,
+      });
+    }
+  }
+
+  // Direction: the newer half of the entries vs the older half
+  const sorted = [...list].sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+  const half = Math.floor(sorted.length / 2);
+  const trend = averageMood(sorted.slice(-half))! - averageMood(sorted.slice(0, half))!;
+  if (Math.abs(trend) >= MEANINGFUL_GAP) {
+    found.push({
+      gap: Math.abs(trend),
+      text:
+        trend > 0
+          ? "Your recent check-ins are brighter than your earlier ones."
+          : "Your recent check-ins are lower than your earlier ones. Talking to someone can help.",
+    });
+  }
+
+  return found
+    .sort((a, b) => b.gap - a.gap)
+    .slice(0, 3)
+    .map((p) => p.text);
+}

@@ -57,6 +57,9 @@ export default function StudentLayout() {
         {/* Reachable from Profile, but not shown in the tab bar */}
         <Tabs.Screen name="privacy" options={{ href: null }} />
         <Tabs.Screen name="companion" options={{ href: null }} />
+        <Tabs.Screen name="mood-history" options={{ href: null }} />
+        <Tabs.Screen name="mood-entry/[id]" options={{ href: null }} />
+        <Tabs.Screen name="resource/[id]" options={{ href: null }} />
         
         {/* Booking sub-screens, not shown in the tab bar */}
         <Tabs.Screen name="session/chat" options={{ href: null, tabBarStyle: { display: "none" } }} />
