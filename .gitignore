@@ -39,8 +39,9 @@ example
 # generated native folders
 /ios
 /android
-.env.idea/
-
 # Local environment files
 .env
 .env*.local
+
+# IDE files
+.idea/

@@ -54,6 +54,7 @@ export const spacing = {
 export const radius = {
   sm: 8,
   md: 16,
+  xl: 24,
   full: 999, // Fully rounded buttons
 };
 
