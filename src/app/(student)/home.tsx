@@ -7,6 +7,7 @@
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
 import Screen from "@/components/common/Screen";
+import { openResource, resourceMeta } from "@/components/resources/ResourceCard";
 import { useAuth } from "@/context/AuthContext";
 import { getAuthErrorMessage } from "@/services/authService";
 import { listMyCheckins, moodByDay } from "@/services/checkinService";
@@ -309,11 +310,11 @@ export default function Home() {
         </Card>
       ) : resources.data?.length ? (
         resources.data.map((item) => {
-          const meta = `${item.durationMinutes} min ${item.type === "exercise" ? "exercise" : "read"}`;
+          const meta = resourceMeta(item);
           return (
             <Pressable
               key={item.id}
-              onPress={goToExercises}
+              onPress={() => openResource(item.id)}
               accessibilityRole="link"
               accessibilityLabel={`${item.title}, ${meta}`}
               style={({ pressed }) => [pressed && styles.pressed]}
