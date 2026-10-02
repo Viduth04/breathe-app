@@ -80,9 +80,12 @@ export default function ActiveVideoCallScreen() {
           style: "destructive",
           onPress: () => {
             completeSession("session-1");
-            router.navigate({
-              pathname: "/(counsellor)/dashboard",
-              params: { sessionCompleted: "true" },
+            router.replace({
+              pathname: "/(counsellor-detail)/past-sessions",
+              params: {
+                studentAnonId,
+                displayName: studentAnonId,
+              },
             });
           },
         },

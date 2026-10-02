@@ -2,6 +2,7 @@
 // Notification & clinical alert center matching exact Figma layout and interactions.
 
 import { useCounsellorBadges } from "@/context/CounsellorBadgeContext";
+import { useCounsellorStore } from "@/services/counsellorStore";
 import {
   MOCK_ALERTS_EARLIER,
   MOCK_ALERTS_TODAY,
@@ -23,6 +24,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function CounsellorAlertsScreen() {
   const { alertsUnread, markAlertsAsRead } = useCounsellorBadges();
+  const { alertPreferences } = useCounsellorStore();
   const [activeFilter, setActiveFilter] = useState<AlertFilter>("all");
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -89,9 +91,9 @@ export default function CounsellorAlertsScreen() {
         </Text>
         <Pressable
           style={styles.headerBtn}
-          onPress={() => router.navigate("/(counsellor-detail)/settings")}
+          onPress={() => router.navigate("/(counsellor-detail)/clinical-alerts-preferences")}
           accessibilityRole="button"
-          accessibilityLabel="Notification Settings"
+          accessibilityLabel="Clinical Alerts and Preferences"
         >
           <Ionicons name="settings-outline" size={22} color={colors.text} />
         </Pressable>
@@ -101,6 +103,34 @@ export default function CounsellorAlertsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* QUIET HOURS / DUTY OFF STATUS BANNER */}
+        {alertPreferences?.quietHoursDutyOff && (
+          <View style={styles.quietHoursBanner} accessibilityRole="summary">
+            <View style={styles.quietHoursLeft}>
+              <View style={styles.quietHoursIconBox}>
+                <Ionicons name="moon" size={16} color="#4338CA" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.quietHoursTitle}>
+                  Duty Off • Quiet Hours Active
+                </Text>
+                <Text style={styles.quietHoursSub}>
+                  Emergency crisis triggers remain prioritized • Standard alerts silenced (06:00 PM – 08:00 AM)
+                </Text>
+              </View>
+            </View>
+            <Pressable
+              style={styles.quietHoursEditBtn}
+              onPress={() => router.navigate("/(counsellor-detail)/clinical-alerts-preferences")}
+              accessibilityRole="button"
+              accessibilityLabel="Edit quiet hours preferences"
+              hitSlop={8}
+            >
+              <Text style={styles.quietHoursEditBtnText}>Edit</Text>
+            </Pressable>
+          </View>
+        )}
+
         {/* 2. CLINICAL ALERTS BANNER */}
         {!bannerDismissed && (
           <View style={styles.banner} accessibilityRole="alert">
@@ -111,20 +141,26 @@ export default function CounsellorAlertsScreen() {
                 color={colors.primary}
               />
             </View>
-            <View style={styles.bannerContent}>
+            <Pressable
+              style={styles.bannerContent}
+              onPress={() => router.navigate("/(counsellor-detail)/clinical-alerts-preferences")}
+              accessibilityRole="button"
+              accessibilityLabel="Manage Clinical Alerts and Schedule Updates"
+            >
               <Text style={styles.bannerTitle}>
                 Clinical Alerts & Schedule Updates
               </Text>
               <Text style={styles.bannerDesc}>
                 2 pending student triage requests and 1 intake assessment
-                awaiting clinical review.
+                awaiting clinical review. Tap to manage preferences.
               </Text>
-            </View>
+            </Pressable>
             <Pressable
               style={styles.bannerClose}
               onPress={() => setBannerDismissed(true)}
               accessibilityRole="button"
               accessibilityLabel="Dismiss banner"
+              hitSlop={10}
             >
               <Ionicons name="close" size={18} color={colors.textSecondary} />
             </Pressable>
@@ -672,10 +708,58 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   bannerClose: {
-    width: 28,
-    height: 28,
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
+  },
+  quietHoursBanner: {
+    backgroundColor: "#EEF2FF",
+    borderWidth: 1,
+    borderColor: "#C7D2FE",
+    borderRadius: radius.md,
+    padding: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
+    gap: spacing.sm,
+  },
+  quietHoursLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+  },
+  quietHoursIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#E0E7FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quietHoursTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#3730A3",
+  },
+  quietHoursSub: {
+    fontSize: 11,
+    color: "#4F46E5",
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  quietHoursEditBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    backgroundColor: "#4338CA",
+  },
+  quietHoursEditBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.white,
   },
   filterRow: {
     flexDirection: "row",
@@ -693,7 +777,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: spacing.md,
-    minHeight: TOUCH_TARGET - 12,
+    minHeight: TOUCH_TARGET,
     borderRadius: radius.full,
     backgroundColor: colors.surface,
     borderWidth: 1,

@@ -31,15 +31,15 @@ export default function RequestAcceptedScreen() {
 
   const handleMessageStudent = () => {
     router.navigate({
-      pathname: "/(counsellor)/messages",
-      params: { studentAnonId },
+      pathname: "/(counsellor-detail)/pre-chat-empty-state",
+      params: { studentAnonId, fromAcceptance: "true" },
     });
   };
 
   const handleViewInCalendar = () => {
     router.navigate({
       pathname: "/(counsellor-detail)/my-calendar",
-      params: { highlightId: "mnd-5104-sec" },
+      params: { highlightId: "brth-5104-sec" },
     });
   };
 
@@ -61,7 +61,7 @@ export default function RequestAcceptedScreen() {
           <View style={styles.portalPill}>
             <Ionicons name="shield-checkmark" size={14} color="#065F46" />
             <Text style={styles.portalPillText}>
-              MINDEASE <Text style={styles.portalDot}>•</Text> CLINICAL PORTAL
+              BREATHE <Text style={styles.portalDot}>•</Text> CLINICAL PORTAL
             </Text>
           </View>
 
@@ -271,7 +271,7 @@ export default function RequestAcceptedScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#FAF8F4",
+    backgroundColor: colors.background,
   },
   container: {
     flex: 1,

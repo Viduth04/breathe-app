@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import {
   MOCK_PAST_SESSIONS,
@@ -25,11 +25,19 @@ import {
 } from "@/types/counsellorDetailScreens";
 
 export default function PastSessionsHistoryScreen() {
+  const params = useLocalSearchParams<{
+    studentAnonId?: string;
+    displayName?: string;
+  }>();
+
   const [sessions, setSessions] = useState<PastSessionItem[]>(MOCK_PAST_SESSIONS);
   const [stats, setStats] = useState<PastSessionsStats>(MOCK_PAST_SESSIONS_STATS);
   const [activeFilter, setActiveFilter] = useState<PastSessionFilter>("all");
   const [expandedId, setExpandedId] = useState<string | null>("past-5"); // Default expanded wrap-up card per PNG
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [activeStudentFilter, setActiveStudentFilter] = useState<string | null>(
+    params.studentAnonId || null
+  );
 
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -50,8 +58,23 @@ export default function PastSessionsHistoryScreen() {
     router.navigate("/(counsellor)/schedule");
   };
 
+  const handleMessageStudent = (studentIdOrAnon: string) => {
+    router.navigate({
+      pathname: "/(counsellor)/messages",
+      params: { studentAnonId: studentIdOrAnon },
+    });
+  };
+
   // Filter sessions
   const filteredSessions = sessions.filter((s) => {
+    if (activeStudentFilter) {
+      const match =
+        s.studentAnonId.toLowerCase() === activeStudentFilter.toLowerCase() ||
+        s.displayName.toLowerCase().includes(activeStudentFilter.toLowerCase()) ||
+        (params.displayName &&
+          s.displayName.toLowerCase() === params.displayName.toLowerCase());
+      if (!match) return false;
+    }
     if (activeFilter === "completed") return s.status === "completed";
     if (activeFilter === "rescheduled") return s.status === "rescheduled";
     return true; // 'all'
@@ -70,9 +93,15 @@ export default function PastSessionsHistoryScreen() {
         {/* Card Header Row */}
         <Pressable
           style={styles.cardHeaderPressable}
-          onPress={() => (isWrapUp ? toggleExpand(item.id) : null)}
+          onPress={() =>
+            isWrapUp
+              ? toggleExpand(item.id)
+              : handleMessageStudent(item.studentAnonId || item.displayName)
+          }
           accessibilityRole="button"
-          accessibilityLabel={`Session for ${item.displayName}`}
+          accessibilityLabel={`Session for ${item.displayName}. Tap to ${
+            isWrapUp ? "toggle wrap-up details" : "message student"
+          }`}
         >
           <View style={styles.cardTopRow}>
             <View style={styles.studentNameCol}>
@@ -145,9 +174,21 @@ export default function PastSessionsHistoryScreen() {
               <Text style={styles.dateTimeText}>
                 {item.date} • {item.time}
               </Text>
-              {!isWrapUp && (
-                <Ionicons name="chevron-forward" size={14} color="#CBD5E1" style={{ marginLeft: 4 }} />
-              )}
+              {!isWrapUp ? (
+                <Pressable
+                  style={styles.cardMessageBtn}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    handleMessageStudent(item.studentAnonId || item.displayName);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Message ${item.displayName}`}
+                  hitSlop={8}
+                >
+                  <Ionicons name="chatbubble-ellipses-outline" size={13} color={colors.primary} />
+                  <Text style={styles.cardMessageBtnText}>Message</Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
         </Pressable>
@@ -165,6 +206,16 @@ export default function PastSessionsHistoryScreen() {
             <View style={styles.notesTextBox}>
               <Text style={styles.notesText}>{item.privateNotes}</Text>
             </View>
+
+            <Pressable
+              style={styles.messageWrapUpBtn}
+              onPress={() => handleMessageStudent(item.studentAnonId || item.displayName)}
+              accessibilityLabel={`Message ${item.displayName}`}
+              accessibilityRole="button"
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={15} color={colors.primary} />
+              <Text style={styles.messageWrapUpBtnText}>Message Student</Text>
+            </Pressable>
 
             <Pressable
               style={styles.scheduleFollowUpBtn}
@@ -205,7 +256,7 @@ export default function PastSessionsHistoryScreen() {
           <Ionicons name="arrow-back" size={20} color={colors.text} />
         </Pressable>
 
-        <Text style={styles.headerTitle}>Past Sessions History</Text>
+        <Text style={styles.headerTitle}>Sessions</Text>
 
         <View style={styles.avatarCircle}>
           <Ionicons name="person" size={18} color={colors.white} />
@@ -289,6 +340,31 @@ export default function PastSessionsHistoryScreen() {
             </View>
           </View>
         </View>
+
+        {/* ─── Active Student Filter Banner ─── */}
+        {activeStudentFilter && (
+          <View style={styles.studentFilterPillBanner}>
+            <View style={styles.studentFilterLeft}>
+              <Ionicons name="person-circle-outline" size={18} color={colors.primary} />
+              <Text style={styles.studentFilterText}>
+                Showing:{" "}
+                <Text style={styles.studentFilterBold}>
+                  {params.displayName || activeStudentFilter}
+                </Text>
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => setActiveStudentFilter(null)}
+              style={styles.studentFilterClearBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Show all students"
+              hitSlop={8}
+            >
+              <Text style={styles.studentFilterClearText}>Show All</Text>
+              <Ionicons name="close-circle" size={16} color={colors.primary} />
+            </Pressable>
+          </View>
+        )}
 
         {/* ─── Filter Pills Bar ─── */}
         <ScrollView
@@ -786,6 +862,78 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: colors.white,
+  },
+  cardMessageBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.full,
+    marginLeft: 8,
+    minHeight: 28,
+  },
+  cardMessageBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  messageWrapUpBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    minHeight: TOUCH_TARGET,
+    borderRadius: radius.md,
+    gap: 6,
+    marginBottom: 8,
+  },
+  messageWrapUpBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  studentFilterPillBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    marginBottom: 12,
+  },
+  studentFilterLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flex: 1,
+  },
+  studentFilterText: {
+    fontSize: 12,
+    color: colors.text,
+  },
+  studentFilterBold: {
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  studentFilterClearBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingLeft: 8,
+  },
+  studentFilterClearText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.primary,
   },
   complianceCard: {
     flexDirection: "row",
