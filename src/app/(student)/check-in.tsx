@@ -4,6 +4,7 @@
 // factors and the note are optional. One check-in per day; if today's already
 // exists it's shown with "Edit today's check-in" instead of a second entry.
 // Route param "mood" (1-5) preselects a face, e.g. when tapped on Home.
+// Route param "edit" opens today's entry for editing (from the entry detail).
 
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
@@ -13,6 +14,7 @@ import { getAuthErrorMessage } from "@/services/authService";
 import {
   createCheckin,
   getTodayCheckin,
+  subscribeToCheckinChanges,
   updateCheckin,
 } from "@/services/checkinService";
 import {
@@ -65,7 +67,7 @@ const todayLabel = () =>
 
 export default function CheckInScreen() {
   const { user } = useAuth();
-  const params = useLocalSearchParams<{ mood?: string }>();
+  const params = useLocalSearchParams<{ mood?: string; edit?: string }>();
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>();
@@ -123,6 +125,19 @@ export default function CheckInScreen() {
     router.setParams({ mood: undefined });
   }, [params.mood, loading, today, editing]);
 
+  // Today's entry deleted from the entry detail screen: back to a fresh form
+  useEffect(
+    () =>
+      subscribeToCheckinChanges((change) => {
+        if (change.type === "deleted" && change.id === today?.id) {
+          setToday(null);
+          setEditing(false);
+          setJustSaved(false);
+        }
+      }),
+    [today?.id],
+  );
+
   const toggleFactor = (factor: MoodFactor) =>
     setFactors((current) =>
       current.includes(factor)
@@ -139,6 +154,14 @@ export default function CheckInScreen() {
     setJustSaved(false);
     setEditing(true);
   };
+
+  // "Edit today's check-in" on the entry detail screen
+  useEffect(() => {
+    if (!params.edit || loading) return;
+    if (today && !editing) startEdit();
+    router.setParams({ edit: undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.edit, loading, today, editing]);
 
   const cancelEdit = () => {
     setSaveError(undefined);
@@ -262,10 +285,9 @@ export default function CheckInScreen() {
           </Text>
 
           <View style={styles.actions}>
-            {/* TODO(Ishara, FR09): point at the mood history screen once it exists */}
             <Button
               title="View mood history"
-              onPress={() => router.navigate("/(student)/home")}
+              onPress={() => router.navigate("/(student)/mood-history")}
             />
             <Button
               title="Back to Home"

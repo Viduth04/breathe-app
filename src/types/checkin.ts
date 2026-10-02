@@ -52,3 +52,31 @@ export type CheckInInput = Pick<CheckIn, "mood" | "factors" | "note">;
 
 export const isMoodLevel = (value: unknown): value is MoodLevel =>
   typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 5;
+
+// Mood tracking - Ishara (Member 2). FR09.
+
+// "YYYY-MM-DD" -> local midnight of that day
+export function dateFromKey(key: string) {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// "Thursday, 2 October"
+export const longDate = (key: string) =>
+  dateFromKey(key).toLocaleDateString(undefined, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+
+// "Thu 2 Oct"
+export const shortDay = (key: string) =>
+  dateFromKey(key).toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+
+// Nearest mood level for an average, e.g. 3.6 -> 4 ("Good")
+export const nearestMood = (avg: number) =>
+  Math.min(5, Math.max(1, Math.round(avg))) as MoodLevel;

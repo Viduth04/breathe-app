@@ -1,11 +1,17 @@
+// Home dashboard - Ishara (Member 2). FR02, FR06.
 // Layout scaffold by Viduth (Member 1).
-// Owner: Ishara (FR02, FR06) - connects data and check-in logic.
+//
+// Each card loads on its own and fails on its own, so one error never blanks
+// the whole Home. Everything refreshes when the student comes back to Home.
 
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
 import Screen from "@/components/common/Screen";
 import { useAuth } from "@/context/AuthContext";
-import { MoodLevel, MOODS } from "@/types/checkin";
+import { getAuthErrorMessage } from "@/services/authService";
+import { listMyCheckins, moodByDay } from "@/services/checkinService";
+import { getUpcomingBooking, UpcomingBooking } from "@/services/homeService";
+import { listPublishedResources } from "@/services/resourceService";
 import {
   colors,
   moodColors,
@@ -14,70 +20,82 @@ import {
   TOUCH_TARGET,
   typography,
 } from "@/theme";
+import { CheckIn, MoodLevel, MOODS } from "@/types/checkin";
+import type { Resource } from "@/types/resource";
+import { dateKey, weekStartDate } from "@/utils/week";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { router, useFocusEffect } from "expo-router";
+import { ReactNode, useCallback, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
-type Session = {
-  counsellorName: string;
-  date: string;
-  time: string;
-  anonymous: boolean;
-};
+const HOME_RESOURCES = 2;
 
-type Resource = {
-  id: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  meta: string;
-};
+type CardState<T> = { data?: T; loading: boolean; error?: string };
 
-// DUMMY DATA - Ishara: replace with Firestore data (checkins, bookings, resources)
-const DUMMY: {
-  week: { day: string; fullDay: string; mood: MoodLevel | null }[];
-  upcomingSession: Session | null;
-  resources: Resource[];
-} = {
-  week: [
-    { day: "Mon", fullDay: "Monday", mood: 3 },
-    { day: "Tue", fullDay: "Tuesday", mood: 4 },
-    { day: "Wed", fullDay: "Wednesday", mood: 2 },
-    { day: "Thu", fullDay: "Thursday", mood: null }, // No check-in that day
-    { day: "Fri", fullDay: "Friday", mood: 4 },
-    { day: "Sat", fullDay: "Saturday", mood: 5 },
-    { day: "Sun", fullDay: "Sunday", mood: 3 },
-  ],
-  upcomingSession: {
-    counsellorName: "Dr. Nimali Perera",
-    date: "Thu, 2 Oct",
-    time: "3:00 PM",
-    anonymous: true,
-  },
-  resources: [
-    {
-      id: "box-breathing",
-      icon: "leaf-outline",
-      title: "Box breathing",
-      meta: "3 min exercise",
-    },
-    {
-      id: "exam-stress",
-      icon: "book-outline",
-      title: "Coping with exam stress",
-      meta: "5 min read",
-    },
-  ],
-};
+// One card's data: spinner only on the first load, quiet refresh after that
+function useCardData<T>(loader: () => Promise<T>) {
+  const [state, setState] = useState<CardState<T>>({ loading: true });
+  const loaderRef = useRef(loader);
+  loaderRef.current = loader;
+
+  const load = useCallback(async () => {
+    setState((s) => ({ ...s, loading: s.data === undefined, error: undefined }));
+    try {
+      const data = await loaderRef.current();
+      setState({ data, loading: false });
+    } catch (e) {
+      console.warn("Home card failed to load", e);
+      setState((s) => ({ ...s, loading: false, error: getAuthErrorMessage(e) }));
+    }
+  }, []);
+
+  return { ...state, load };
+}
 
 const moodLabel = (level: MoodLevel) => MOODS[level - 1].label;
 
+// Mon-Sun of the current week (future days are simply empty)
+function thisWeek(list: CheckIn[]) {
+  const sunday = weekStartDate();
+  sunday.setDate(sunday.getDate() + 6);
+  return moodByDay(list, 7, sunday);
+}
+
+const sessionDate = (d: Date) =>
+  d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+const sessionTime = (d: Date) =>
+  d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
 export default function Home() {
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const firstName =
     !profile || profile.isGuest || !profile.fullName.trim()
       ? "there"
       : profile.fullName.trim().split(/\s+/)[0];
-  const session = DUMMY.upcomingSession;
+
+  // Check-in card and week card share one read (this week's check-ins)
+  const checkins = useCardData(() => listMyCheckins({ days: 7 }));
+  const booking = useCardData<UpcomingBooking | null>(() =>
+    user ? getUpcomingBooking(user.uid) : Promise.resolve(null),
+  );
+  const resources = useCardData<Resource[]>(async () =>
+    (await listPublishedResources()).slice(0, HOME_RESOURCES),
+  );
+
+  // Initial load and every return to Home, so a new check-in or booking shows
+  useFocusEffect(
+    useCallback(() => {
+      checkins.load();
+      booking.load();
+      resources.load();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+  );
+
+  const todayKey = dateKey(new Date());
+  const today = checkins.data?.find((c) => c.dateKey === todayKey) ?? null;
+  const week = thisWeek(checkins.data ?? []);
+  const session = booking.data;
 
   const goToCheckIn = () => router.navigate("/(student)/check-in");
   // A tapped face opens check-in with that mood already selected
@@ -86,6 +104,9 @@ export default function Home() {
       pathname: "/(student)/check-in",
       params: { mood: String(mood) },
     });
+  const editCheckIn = () =>
+    router.navigate({ pathname: "/(student)/check-in", params: { edit: "1" } });
+  const goToMoodHistory = () => router.navigate("/(student)/mood-history");
   const goToSessions = () => router.navigate("/(student)/session/dashboard");
   const goToExercises = () => router.navigate("/(student)/exercises");
 
@@ -104,107 +125,144 @@ export default function Home() {
       {/* 2. Mood check-in: the one dominant action on this screen (R1, fixes F1) */}
       <Card variant="success">
         <Text style={typography.heading}>Daily check-in</Text>
-        <Text style={[typography.caption, styles.cardSubtitle]}>
-          Tap a face or check in below
-        </Text>
-        <View style={styles.faces}>
-          {MOODS.map((mood) => (
-            // Faces open the same check-in flow as the button, so they don't compete with it
-            <Pressable
-              key={mood.level}
-              onPress={() => checkInAs(mood.level)}
-              accessibilityRole="button"
-              accessibilityLabel={`Check in as ${mood.label}`}
-              style={({ pressed }) => [styles.face, pressed && styles.pressed]}
-            >
-              <Text style={styles.faceEmoji}>{mood.emoji}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <Button title="Check In Now" onPress={goToCheckIn} />
+        <CardBody state={checkins} label="today's check-in">
+          {today ? (
+            <>
+              <View
+                style={styles.todayMood}
+                accessible
+                accessibilityLabel={`You've checked in today. Today's mood: ${moodLabel(today.mood)}`}
+              >
+                <Text style={styles.todayEmoji}>{MOODS[today.mood - 1].emoji}</Text>
+                <View style={styles.rowText}>
+                  <Text style={styles.rowTitle}>You've checked in today</Text>
+                  <Text style={typography.caption}>
+                    Today's mood: {moodLabel(today.mood)}
+                  </Text>
+                </View>
+              </View>
+              <Button
+                title="Edit"
+                variant="secondary"
+                icon="create-outline"
+                onPress={editCheckIn}
+              />
+            </>
+          ) : (
+            <>
+              <Text style={[typography.caption, styles.cardSubtitle]}>
+                Tap a face or check in below
+              </Text>
+              <View style={styles.faces}>
+                {MOODS.map((mood) => (
+                  // Faces open the same check-in flow as the button, so they don't compete with it
+                  <Pressable
+                    key={mood.level}
+                    onPress={() => checkInAs(mood.level)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Check in as ${mood.label}`}
+                    style={({ pressed }) => [styles.face, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.faceEmoji}>{mood.emoji}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Button title="Check In Now" onPress={goToCheckIn} />
+            </>
+          )}
+        </CardBody>
       </Card>
 
       {/* 3. This week's mood */}
       <Card>
-        <Text style={typography.heading}>This week's mood</Text>
-        <View style={styles.week}>
-          {DUMMY.week.map(({ day, fullDay, mood }) => (
-            <View
-              key={day}
-              style={styles.day}
-              accessible
-              accessibilityLabel={`${fullDay}: ${mood ? moodLabel(mood) : "no check-in"}`}
-            >
-              <View
-                style={[
-                  styles.dot,
-                  mood
-                    ? { backgroundColor: moodColors[mood - 1] }
-                    : styles.dotEmpty,
-                ]}
-              />
-              <Text style={typography.caption}>{day}</Text>
-            </View>
-          ))}
+        <View style={styles.cardHeader}>
+          <Text style={typography.heading}>This week's mood</Text>
+          <Pressable
+            onPress={goToMoodHistory}
+            accessibilityRole="link"
+            accessibilityLabel="Mood history"
+            style={({ pressed }) => [styles.seeAll, pressed && styles.pressed]}
+          >
+            <Text style={styles.link}>Mood history</Text>
+          </Pressable>
         </View>
+        <CardBody state={checkins} label="this week's mood">
+          <View style={styles.week}>
+            {week.map(({ dateKey: key, date, mood }) => {
+              const fullDay = date.toLocaleDateString(undefined, { weekday: "long" });
+              const isToday = key === todayKey;
+              return (
+                <View
+                  key={key}
+                  style={styles.day}
+                  accessible
+                  accessibilityLabel={`${isToday ? "Today, " : ""}${fullDay}: ${mood ? moodLabel(mood) : "no check-in"}`}
+                >
+                  <View
+                    style={[
+                      styles.dot,
+                      mood ? { backgroundColor: moodColors[mood - 1] } : styles.dotEmpty,
+                    ]}
+                  />
+                  <Text style={[typography.caption, isToday && styles.todayLabel]}>
+                    {date.toLocaleDateString(undefined, { weekday: "short" })}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        </CardBody>
       </Card>
 
       {/* 4. Upcoming session */}
-      {session ? (
-        <Card>
-          <View style={styles.sessionHeader}>
-            <Text style={typography.heading}>Upcoming session</Text>
-            {session.anonymous ? (
-              <View style={styles.badge}>
+      <Card>
+        <View style={styles.sessionHeader}>
+          <Text style={typography.heading}>Upcoming session</Text>
+          {session && profile?.anonymousMode ? (
+            <View style={styles.badge}>
+              <Ionicons
+                name="eye-off-outline"
+                size={12}
+                color={colors.primary}
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+              />
+              <Text style={styles.badgeText}>Anonymous</Text>
+            </View>
+          ) : null}
+        </View>
+        <CardBody state={booking} label="your next session">
+          {session ? (
+            <>
+              <Text style={[typography.body, styles.sessionName]}>
+                {session.counsellorName}
+              </Text>
+              <View style={styles.sessionTime}>
                 <Ionicons
-                  name="eye-off-outline"
-                  size={12}
-                  color={colors.primary}
+                  name="time-outline"
+                  size={16}
+                  color={colors.textSecondary}
                   accessibilityElementsHidden
                   importantForAccessibility="no"
                 />
-                <Text style={styles.badgeText}>Anonymous</Text>
+                <Text style={typography.caption}>
+                  {sessionDate(session.startAt)} · {sessionTime(session.startAt)}
+                  {session.status === "pending" ? " · Awaiting confirmation" : ""}
+                </Text>
               </View>
-            ) : null}
-          </View>
-          <Text style={[typography.body, styles.sessionName]}>
-            {session.counsellorName}
-          </Text>
-          <View style={styles.sessionTime}>
-            <Ionicons
-              name="time-outline"
-              size={16}
-              color={colors.textSecondary}
-              accessibilityElementsHidden
-              importantForAccessibility="no"
-            />
-            <Text style={typography.caption}>
-              {session.date} · {session.time}
-            </Text>
-          </View>
-          <Button
-            title="View Sessions"
-            variant="secondary"
-            onPress={goToSessions}
-          />
-        </Card>
-      ) : null}
-      {/* Empty state - use this when there is no upcoming session:
-      {!session ? (
-        <Card>
-          <Text style={typography.heading}>Upcoming session</Text>
-          <Text style={[typography.body, styles.muted, styles.emptyText]}>
-            You have no sessions booked. Talking to a counsellor is free and
-            private.
-          </Text>
-          <Button
-            title="Book a Session"
-            variant="secondary"
-            onPress={goToSessions}
-          />
-        </Card>
-      ) : null}
-      */}
+              <Button title="View Sessions" variant="secondary" onPress={goToSessions} />
+            </>
+          ) : (
+            <>
+              <Text style={[typography.body, styles.muted, styles.emptyText]}>
+                You have no sessions booked. Talking to a counsellor is free and
+                private.
+              </Text>
+              <Button title="Book a session" variant="secondary" onPress={goToSessions} />
+            </>
+          )}
+        </CardBody>
+      </Card>
 
       {/* 5. Need support? */}
       <Pressable
@@ -245,46 +303,100 @@ export default function Home() {
           <Text style={styles.link}>See all</Text>
         </Pressable>
       </View>
-      {DUMMY.resources.map((item) => (
-        <Pressable
-          key={item.id}
-          onPress={goToExercises}
-          accessibilityRole="link"
-          accessibilityLabel={`${item.title}, ${item.meta}`}
-          style={({ pressed }) => [pressed && styles.pressed]}
-        >
-          <Card style={styles.row}>
-            <View style={styles.resourceIcon}>
-              <Ionicons
-                name={item.icon}
-                size={20}
-                color={colors.primary}
-                accessibilityElementsHidden
-                importantForAccessibility="no"
-              />
-            </View>
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>{item.title}</Text>
-              <Text style={typography.caption}>{item.meta}</Text>
-            </View>
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color={colors.textSecondary}
-              accessibilityElementsHidden
-              importantForAccessibility="no"
-            />
-          </Card>
-        </Pressable>
-      ))}
+      {resources.loading || resources.error ? (
+        <Card>
+          <CardBody state={resources} label="resources" />
+        </Card>
+      ) : resources.data?.length ? (
+        resources.data.map((item) => {
+          const meta = `${item.durationMinutes} min ${item.type === "exercise" ? "exercise" : "read"}`;
+          return (
+            <Pressable
+              key={item.id}
+              onPress={goToExercises}
+              accessibilityRole="link"
+              accessibilityLabel={`${item.title}, ${meta}`}
+              style={({ pressed }) => [pressed && styles.pressed]}
+            >
+              <Card style={styles.row}>
+                <View style={styles.resourceIcon}>
+                  <Ionicons
+                    name={item.type === "exercise" ? "leaf-outline" : "book-outline"}
+                    size={20}
+                    color={colors.primary}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no"
+                  />
+                </View>
+                <View style={styles.rowText}>
+                  <Text style={styles.rowTitle}>{item.title}</Text>
+                  <Text style={typography.caption}>{meta}</Text>
+                </View>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={colors.textSecondary}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                />
+              </Card>
+            </Pressable>
+          );
+        })
+      ) : (
+        <Card>
+          <Text style={[typography.body, styles.muted]}>
+            No resources yet. Check back soon.
+          </Text>
+        </Card>
+      )}
     </Screen>
   );
 }
 
+// Spinner while a card first loads, its own error + Try Again, else the content
+function CardBody({
+  state,
+  label,
+  children,
+}: {
+  state: CardState<unknown> & { load: () => void };
+  label: string;
+  children?: ReactNode;
+}) {
+  if (state.loading) {
+    return (
+      <ActivityIndicator
+        color={colors.primary}
+        style={styles.cardSpinner}
+        accessibilityLabel={`Loading ${label}`}
+      />
+    );
+  }
+  if (state.error) {
+    return (
+      <View style={styles.cardError}>
+        <Text style={[typography.body, styles.muted]} accessibilityLiveRegion="polite">
+          Couldn't load {label}. {state.error}
+        </Text>
+        <Button title="Try Again" variant="secondary" onPress={state.load} />
+      </View>
+    );
+  }
+  return <>{children}</>;
+}
+
 const styles = StyleSheet.create({
-  greeting: { gap: spacing.xs, marginBottom: spacing.lg },
+  // Right padding keeps the greeting clear of the floating crisis help button
+  greeting: {
+    gap: spacing.xs,
+    marginBottom: spacing.lg,
+    paddingRight: TOUCH_TARGET + spacing.sm,
+  },
   muted: { color: colors.textSecondary },
   cardSubtitle: { marginTop: spacing.xs },
+  cardSpinner: { marginVertical: spacing.lg },
+  cardError: { gap: spacing.md, marginTop: spacing.sm },
   faces: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -299,11 +411,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   faceEmoji: { fontSize: 26 },
+  todayMood: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    marginVertical: spacing.md,
+  },
+  todayEmoji: { fontSize: 36 },
   pressed: { opacity: 0.7 },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
   week: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: spacing.md,
+    marginTop: spacing.xs, // Header row's 48px link already adds space
   },
   day: { alignItems: "center", gap: spacing.xs, minWidth: 32 },
   dot: {
@@ -318,6 +443,7 @@ const styles = StyleSheet.create({
     borderStyle: "dashed",
     borderColor: colors.textSecondary,
   },
+  todayLabel: { fontWeight: "700", color: colors.text },
   sessionHeader: {
     flexDirection: "row",
     alignItems: "center",
