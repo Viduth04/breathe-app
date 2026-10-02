@@ -55,7 +55,7 @@ export default function ConfirmAcceptanceModal() {
             {/* ─── Header ─── */}
             <View style={styles.headerRow}>
               <View>
-                <Text style={styles.preHeaderLabel}>MINDEASE • SESSION DISPATCH</Text>
+                <Text style={styles.preHeaderLabel}>BREATHE • SESSION DISPATCH</Text>
                 <Text style={styles.modalTitle}>Confirm{"\n"}Acceptance</Text>
               </View>
 
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
   modalCard: {
     width: "100%",
     maxWidth: 390,
-    backgroundColor: colors.white,
+    backgroundColor: colors.background,
     borderRadius: 26,
     borderWidth: 1,
     borderColor: "#D1FAE5",
@@ -212,14 +212,16 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
     justifyContent: "center",
     alignItems: "center",
   },
   summaryCard: {
-    backgroundColor: "#F8FAFC",
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
     borderRadius: 16,
     padding: 14,
     marginBottom: 10,
@@ -230,7 +232,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#E2E8F0",
+    borderBottomColor: colors.border,
     marginBottom: 10,
   },
   studentIdTitle: {
@@ -299,7 +301,7 @@ const styles = StyleSheet.create({
   noteInput: {
     backgroundColor: colors.white,
     borderWidth: 1,
-    borderColor: "#CBD5E1",
+    borderColor: colors.border,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,

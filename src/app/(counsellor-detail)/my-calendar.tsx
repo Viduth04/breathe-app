@@ -41,10 +41,15 @@ export default function MyCalendarScreen() {
   };
 
   const handleEnterRoom = (booking: CalendarBooking) => {
-    Alert.alert(
-      "Enter Clinical Room",
-      `Launching E2E encrypted room for ${booking.studentAnonId} (Room ID: ${booking.roomId || "mnd-5104-sec"}). Video and audio hardware checks passed.`
-    );
+    router.navigate({
+      pathname: "/(counsellor-detail)/ready-to-join",
+      params: {
+        studentAnonId: booking.studentAnonId,
+        sessionTitle: booking.subInfo || "Encrypted Video Consultation",
+        timeRange: booking.timeRange || "10:00–10:45 AM",
+        duration: "45 min session",
+      },
+    });
   };
 
   const handleBlockSlot = (slotId: string) => {
@@ -320,7 +325,7 @@ export default function MyCalendarScreen() {
                         <Ionicons name="link-outline" size={15} color="#94A3B8" />
                         <View>
                           <Text style={styles.roomIdCaption}>ROOM ID</Text>
-                          <Text style={styles.roomIdValue}>{booking.roomId || "mnd-5104-sec"}</Text>
+                          <Text style={styles.roomIdValue}>{booking.roomId || "brth-5104-sec"}</Text>
                         </View>
                       </View>
 

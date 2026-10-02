@@ -18,6 +18,16 @@ import {
   MOCK_ALERTS_TODAY,
   MOCK_ALERTS_EARLIER,
 } from "@/services/mockAlertsData";
+import {
+  ClinicalAlertPreferences,
+  PatientItem,
+} from "@/types/counsellorDetailScreens";
+import { ChatThread } from "@/types/counsellorMessages";
+import {
+  DEFAULT_CLINICAL_ALERT_PREFERENCES,
+  MOCK_PATIENTS_LIST,
+} from "@/services/mockDetailScreensData";
+import { MOCK_CHAT_THREADS } from "@/services/mockMessagesData";
 
 export type CalendarBooking = {
   id: string;
@@ -137,6 +147,9 @@ type State = {
   lastAcceptedSession: AcceptedSessionPayload | null;
   lastDeclinedSession: DeclinedSessionPayload | null;
   callMediaState: CallMediaState;
+  alertPreferences: ClinicalAlertPreferences;
+  patients: PatientItem[];
+  threads: ChatThread[];
 };
 
 let state: State = {
@@ -168,6 +181,9 @@ let state: State = {
     micOn: true,
     camOn: true,
   },
+  alertPreferences: { ...DEFAULT_CLINICAL_ALERT_PREFERENCES },
+  patients: [...MOCK_PATIENTS_LIST],
+  threads: [...MOCK_CHAT_THREADS],
 };
 
 const listeners = new Set<() => void>();
@@ -263,7 +279,7 @@ export const counsellorStore = {
       timeRange: "10:00–10:45 AM",
       modality: "Encrypted Video Call (45m)",
       counselorNote,
-      roomId: "mnd-5104-sec",
+      roomId: "brth-5104-sec",
     };
 
     state = {
@@ -460,6 +476,91 @@ export const counsellorStore = {
     };
     notifyListeners();
   },
+
+  // Update clinical alert preferences
+  updateAlertPreferences(partial: Partial<ClinicalAlertPreferences>) {
+    state = {
+      ...state,
+      alertPreferences: {
+        ...state.alertPreferences,
+        ...partial,
+      },
+      // Keep quiet hours synced across general settings and alert preferences
+      settings: {
+        ...state.settings,
+        ...(typeof partial.quietHoursDutyOff === "boolean"
+          ? { quietHoursEnabled: partial.quietHoursDutyOff }
+          : {}),
+      },
+    };
+    notifyListeners();
+  },
+
+  // Send opening message to student from waiting room
+  sendOpeningMessage(studentAnonId: string, text: string): ChatThread {
+    let existingThread = state.threads.find(
+      (t) => t.studentAnonId.toLowerCase() === studentAnonId.toLowerCase()
+    );
+
+    if (existingThread) {
+      existingThread = {
+        ...existingThread,
+        lastMessage: `"${text}"`,
+        lastMessageTime: "Just now",
+        deliveryStatus: "delivered",
+      };
+      state = {
+        ...state,
+        threads: state.threads.map((t) =>
+          t.id === existingThread!.id ? existingThread! : t
+        ),
+      };
+    } else {
+      const newThread: ChatThread = {
+        id: `chat-${Date.now()}`,
+        studentId: `std-${studentAnonId.replace(/[^0-9]/g, "") || "4021"}`,
+        studentAnonId,
+        displayName: studentAnonId,
+        idMode: "anonymous",
+        isOnline: true,
+        lastMessage: `"${text}"`,
+        lastMessageTime: "Just now",
+        unreadCount: 0,
+        deliveryStatus: "delivered",
+        sessionTag: "Active Consultation",
+        triageLevel: "normal",
+        status: "active",
+      };
+      existingThread = newThread;
+      state = {
+        ...state,
+        threads: [newThread, ...state.threads],
+      };
+    }
+
+    notifyListeners();
+    return existingThread;
+  },
+
+  // Clear all conversations (demonstrates and switches Messages tab to empty state)
+  clearAllConversations() {
+    state = {
+      ...state,
+      threads: [],
+      messagesUnread: 0,
+    };
+    notifyListeners();
+  },
+
+  // Reset conversations back to default mock list
+  resetConversations() {
+    state = {
+      ...state,
+      threads: [...MOCK_CHAT_THREADS],
+      messagesUnread: 3,
+    };
+    notifyListeners();
+  },
 };
 
 // ─── React Hook for Functional Components ───
@@ -491,5 +592,9 @@ export function useCounsellorStore() {
     blockSlot: counsellorStore.blockSlot,
     markAlertsAsRead: counsellorStore.markAlertsAsRead,
     decrementMessages: counsellorStore.decrementMessages,
+    updateAlertPreferences: counsellorStore.updateAlertPreferences,
+    sendOpeningMessage: counsellorStore.sendOpeningMessage,
+    clearAllConversations: counsellorStore.clearAllConversations,
+    resetConversations: counsellorStore.resetConversations,
   };
 }

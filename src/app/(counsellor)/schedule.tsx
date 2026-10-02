@@ -283,6 +283,7 @@ export default function CounsellorScheduleScreen() {
               }}
               accessibilityRole="button"
               accessibilityLabel="Previous week"
+              hitSlop={8}
             >
               <Ionicons name="chevron-back" size={18} color={colors.text} />
             </Pressable>
@@ -294,6 +295,7 @@ export default function CounsellorScheduleScreen() {
               }}
               accessibilityRole="button"
               accessibilityLabel="Next week"
+              hitSlop={8}
             >
               <Ionicons name="chevron-forward" size={18} color={colors.text} />
             </Pressable>
@@ -304,6 +306,7 @@ export default function CounsellorScheduleScreen() {
             onPress={() => setSelectedDay(0)}
             accessibilityRole="button"
             accessibilityLabel="Go to today"
+            hitSlop={8}
           >
             <Text style={styles.todayBtnText}>Today</Text>
           </Pressable>
@@ -562,6 +565,7 @@ export default function CounsellorScheduleScreen() {
                       isBooked ? "Confirmed booking" : "Tap to toggle"
                     }`}
                     disabled={isBooked}
+                    hitSlop={6}
                   >
                     {isOpen && (
                       <Ionicons
@@ -1210,7 +1214,7 @@ const styles = StyleSheet.create({
     color: "#78716C",
   },
   slotActionPill: {
-    minHeight: TOUCH_TARGET - 6,
+    minHeight: TOUCH_TARGET,
     paddingHorizontal: spacing.md,
     borderRadius: radius.full,
     flexDirection: "row",

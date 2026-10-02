@@ -130,3 +130,57 @@ export type NotificationDetailData = {
     tertiary: string; // e.g. "Decline"
   };
 };
+
+// ─── Pre-Chat / Student Waiting Room ───
+export type ClinicalPromptItem = {
+  id: string;
+  iconName: string;
+  promptText: string;
+};
+
+export type PreChatWaitingRoomData = {
+  studentId: string;
+  studentAnonId: string;
+  scheduledTime: string;
+  intakeRoomStatus: string;
+  phqScore: number;
+  primaryConcern: string;
+  duration: string;
+  sharedContext: string;
+  openingPrompts: ClinicalPromptItem[];
+};
+
+// ─── Clinical Alerts & Preferences ───
+export type ClinicalAlertPreferences = {
+  crisisRiskTriggers: boolean;
+  newAppointmentRequests: boolean;
+  upcomingSessionReminders: boolean;
+  intakeFormSubmissions: boolean;
+  secureChatMessages: boolean;
+  quietHoursDutyOff: boolean;
+  advanceReminderMinutes: number;
+  advanceReminderType: "gentle" | "standard";
+  scheduledWindow: string;
+  previewStudentIdentityHidden: boolean;
+  priorityOverrideAlwaysOn: boolean;
+};
+
+// ─── Patients Directory Item ───
+export type PatientBadgeType = "WEEKLY" | "BI-WEEKLY" | "MONTHLY" | "ANONYMOUS";
+export type PatientItem = {
+  id: string;
+  studentId: string;
+  studentAnonId: string;
+  displayName: string;
+  idMode: "anonymous" | "standard";
+  initials?: string;
+  avatarIcon?: "shield" | "key" | "lock";
+  badgeText: string;
+  badgeStyle?: "mint" | "slate" | "amber" | "teal" | "indigo";
+  sessionTimingText: string;
+  isActive: boolean;
+  hasUnread?: boolean;
+  status: "active" | "inactive" | "pending";
+  totalLogs?: number;
+  lastSessionDate?: string;
+};

@@ -290,15 +290,22 @@ export default function CounsellorDashboard() {
             iconBg={colors.success}
             iconBorder="rgba(110, 231, 183, 0.6)"
           />
-          <StatCard
-            title="Clinical Time"
-            value="2.5h"
-            subtitle="Booked hours"
-            iconName="time-outline"
-            iconColor={colors.primary}
-            iconBg="#ECFDF5"
-            iconBorder="rgba(5, 150, 105, 0.2)"
-          />
+          <Pressable
+            style={{ flex: 1 }}
+            onPress={() => router.navigate("/(counsellor-detail)/patients-list")}
+            accessibilityRole="button"
+            accessibilityLabel="View Patients Caseload Directory"
+          >
+            <StatCard
+              title="Patients"
+              value="24"
+              subtitle="Caseload directory"
+              iconName="people-outline"
+              iconColor={colors.primary}
+              iconBg="#ECFDF5"
+              iconBorder="rgba(5, 150, 105, 0.2)"
+            />
+          </Pressable>
         </View>
 
         {/* Today's Sessions Section */}
