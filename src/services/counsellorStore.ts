@@ -21,11 +21,17 @@ import {
 import {
   ClinicalAlertPreferences,
   PatientItem,
+  AnonymousSessionDetailData,
+  SessionNotesData,
+  ClinicalNoteEntry,
+  NewSessionFormInput,
 } from "@/types/counsellorDetailScreens";
 import { ChatThread } from "@/types/counsellorMessages";
 import {
   DEFAULT_CLINICAL_ALERT_PREFERENCES,
   MOCK_PATIENTS_LIST,
+  MOCK_ANONYMOUS_SESSION_8812,
+  MOCK_SESSION_NOTES_MAYA,
 } from "@/services/mockDetailScreensData";
 import { MOCK_CHAT_THREADS } from "@/services/mockMessagesData";
 
@@ -65,6 +71,23 @@ export const INITIAL_CALENDAR_BOOKINGS: CalendarBooking[] = [
     statusText: "Secure Thread",
   },
   {
+    id: "cal-5104",
+    timeSlot: "10:00 AM",
+    studentId: "std-5104",
+    studentAnonId: "Student #5104",
+    displayName: "Student #5104",
+    idMode: "anonymous",
+    subInfo: "Anonymous • Intake Complete",
+    timeRange: "10:00 - 10:45",
+    modality: "video",
+    modalityLabel: "Consultation (45m)",
+    securityTag: "E2E Encrypted",
+    roomOrDetail: "mnd-5104-sec",
+    roomId: "mnd-5104-sec",
+    isJustAdded: true,
+    statusText: "Intake Complete",
+  },
+  {
     id: "cal-3",
     timeSlot: "11:30 AM",
     studentId: "std-3991",
@@ -90,6 +113,77 @@ export const INITIAL_CALENDAR_BOOKINGS: CalendarBooking[] = [
     modality: "video",
     modalityLabel: "Open Slot",
     isOpenSlot: true,
+  },
+];
+
+export type ScheduleDaySlot = {
+  id: string;
+  timeRange: string;
+  isBooked: boolean;
+  isHeld?: boolean;
+  studentName?: string;
+  subtitle?: string;
+  modalityText: string;
+  modalityType: "video" | "voice" | "in-person" | "open";
+  statusBadge: "Confirmed" | "Open";
+  isAnonymous?: boolean;
+  intakeNote?: string;
+  room?: string;
+};
+
+export const INITIAL_SCHEDULE_DAY_SLOTS: ScheduleDaySlot[] = [
+  {
+    id: "sch-slot-1",
+    timeRange: "09:00 AM – 09:45 AM",
+    isBooked: true,
+    studentName: "Sarah Jenkins",
+    subtitle: "Weekly Check-in",
+    modalityText: "Video Consultation (Encrypted)",
+    modalityType: "video",
+    statusBadge: "Confirmed",
+  },
+  {
+    id: "sch-slot-2",
+    timeRange: "10:30 AM – 11:15 AM",
+    isBooked: false,
+    studentName: "Open for booking",
+    subtitle: "Available for student triage or direct booking",
+    modalityText: "Open Slot",
+    modalityType: "open",
+    statusBadge: "Open",
+  },
+  {
+    id: "sch-slot-3",
+    timeRange: "01:00 PM – 01:45 PM",
+    isBooked: true,
+    studentName: "Student #5104",
+    subtitle: "PHQ-9",
+    modalityText: "Audio / Voice Consultation",
+    modalityType: "voice",
+    statusBadge: "Confirmed",
+    isAnonymous: true,
+    intakeNote: "Intake form submitted (PHQ-9 recorded)",
+  },
+  {
+    id: "sch-slot-4",
+    timeRange: "02:30 PM – 03:15 PM",
+    isBooked: true,
+    studentName: "Alex Rivera",
+    subtitle: "Bi-weekly Ongoing",
+    modalityText: "In-Person Clinic • Room 302",
+    modalityType: "in-person",
+    statusBadge: "Confirmed",
+    room: "Room 302",
+  },
+  {
+    id: "sch-slot-5",
+    timeRange: "04:00 PM – 04:45 PM",
+    isBooked: false,
+    studentName: "Open for booking",
+    subtitle: "Standard 45-min individual block",
+    modalityText: "Open Slot",
+    modalityType: "open",
+    statusBadge: "Open",
   },
 ];
 
@@ -150,6 +244,14 @@ type State = {
   alertPreferences: ClinicalAlertPreferences;
   patients: PatientItem[];
   threads: ChatThread[];
+  anonymousSession8812: AnonymousSessionDetailData;
+  sessionNotes: Record<string, SessionNotesData>;
+  prepNotes: Record<string, string>;
+  checkedInSessions: Record<string, boolean>;
+  selectedCalendarDay: number;
+  selectedCalendarMonth: string;
+  scheduleDaySlots: ScheduleDaySlot[];
+  heldScheduleSlots: Record<string, boolean>;
 };
 
 let state: State = {
@@ -184,6 +286,91 @@ let state: State = {
   alertPreferences: { ...DEFAULT_CLINICAL_ALERT_PREFERENCES },
   patients: [...MOCK_PATIENTS_LIST],
   threads: [...MOCK_CHAT_THREADS],
+  anonymousSession8812: { ...MOCK_ANONYMOUS_SESSION_8812 },
+  sessionNotes: {
+    "std-maya": { ...MOCK_SESSION_NOTES_MAYA },
+    "Student #3189": { ...MOCK_SESSION_NOTES_MAYA },
+    "Maya Senanayake": { ...MOCK_SESSION_NOTES_MAYA },
+    "session-2": { ...MOCK_SESSION_NOTES_MAYA },
+    "Student #8812": {
+      studentId: "std-8812",
+      studentAnonId: "Student #8812",
+      displayName: "Student #8812",
+      idMode: "anonymous",
+      sessionType: "in-person",
+      sessionTypeLabel: "In-Person Consultation",
+      timeRelative: "In 5h 15m",
+      timeRange: "02:30 PM – 03:15 PM",
+      duration: "45 min",
+      caseRef: "#ME-8812",
+      sessionOrdinal: "Single Intake",
+      followUpPriority: "Somatic Grounding & Exam Prep",
+      followUpAction:
+        "Evaluate routine balance from previous intake note. Practice somatic 4-7-8 breathing exercises.",
+      topics: [
+        { icon: "🎓", name: "Academic Pressure" },
+        { icon: "👥", name: "Social Connection" },
+        { icon: "🧘", name: "Grounding Routine" },
+      ],
+      notes: [
+        {
+          id: "note-8812-1",
+          date: "Aug 15, 2026 • Intake",
+          modality: "In-Person",
+          status: "Completed",
+          content:
+            "Initial intake completed. Elevated tension regarding presentation schedules. High receptivity to breathing practices.",
+          counselorName: "Dr. Anjali Perera",
+          signedStatus: "Signed & Synced",
+        },
+      ],
+    },
+    "session-3": {
+      studentId: "std-8812",
+      studentAnonId: "Student #8812",
+      displayName: "Student #8812",
+      idMode: "anonymous",
+      sessionType: "in-person",
+      sessionTypeLabel: "In-Person Consultation",
+      timeRelative: "In 5h 15m",
+      timeRange: "02:30 PM – 03:15 PM",
+      duration: "45 min",
+      caseRef: "#ME-8812",
+      sessionOrdinal: "Single Intake",
+      followUpPriority: "Somatic Grounding & Exam Prep",
+      followUpAction:
+        "Evaluate routine balance from previous intake note. Practice somatic 4-7-8 breathing exercises.",
+      topics: [
+        { icon: "🎓", name: "Academic Pressure" },
+        { icon: "👥", name: "Social Connection" },
+        { icon: "🧘", name: "Grounding Routine" },
+      ],
+      notes: [
+        {
+          id: "note-8812-1",
+          date: "Aug 15, 2026 • Intake",
+          modality: "In-Person",
+          status: "Completed",
+          content:
+            "Initial intake completed. Elevated tension regarding presentation schedules. High receptivity to breathing practices.",
+          counselorName: "Dr. Anjali Perera",
+          signedStatus: "Signed & Synced",
+        },
+      ],
+    },
+  },
+  prepNotes: {
+    "session-3": MOCK_ANONYMOUS_SESSION_8812.prepNotes,
+    "Student #8812": MOCK_ANONYMOUS_SESSION_8812.prepNotes,
+  },
+  checkedInSessions: {
+    "session-3": false,
+    "Student #8812": false,
+  },
+  selectedCalendarDay: 19,
+  selectedCalendarMonth: "August 2026",
+  scheduleDaySlots: [...INITIAL_SCHEDULE_DAY_SLOTS],
+  heldScheduleSlots: {},
 };
 
 const listeners = new Set<() => void>();
@@ -561,6 +748,267 @@ export const counsellorStore = {
     };
     notifyListeners();
   },
+
+  // Add a newly scheduled session (from Add Session screen)
+  addSession(input: NewSessionFormInput): SessionItem {
+    const newId = `session-${Date.now()}`;
+    const isToday =
+      input.date.toLowerCase().includes("today") ||
+      input.date.toLowerCase().includes("aug 18") ||
+      input.date.toLowerCase().includes("monday");
+
+    const newSession: SessionItem = {
+      id: newId,
+      studentId: input.studentId,
+      studentAnonId: input.studentAnonId,
+      displayName: input.displayName,
+      idMode: input.idMode,
+      timeRange: `${input.startTime} – ${input.endTime}`,
+      timeRelative: isToday ? "Today" : "Tomorrow",
+      isNext: false,
+      sessionType: input.sessionType,
+      sessionTypeLabel:
+        input.sessionType === "video"
+          ? "Encrypted Video Consultation"
+          : input.sessionType === "chat"
+          ? "Secured Chat Session"
+          : `In-Person • ${input.locationOrRoom || "Room 302"}`,
+      noteType: "Focus",
+      noteText:
+        input.focus?.trim() ||
+        (input.selectedTags.length > 0
+          ? input.selectedTags.join(", ")
+          : "General Consultation"),
+      status: "confirmed",
+    };
+
+    // Also add to calendarBookings
+    const newCalendarBooking: CalendarBooking = {
+      id: `cal-${Date.now()}`,
+      timeSlot: input.startTime,
+      studentId: input.studentId,
+      studentAnonId: input.studentAnonId,
+      displayName: input.displayName,
+      idMode: input.idMode,
+      subInfo: input.isAnonymous ? "Anonymous Profile" : "Intake Scheduled",
+      timeRange: `${input.startTime} - ${input.endTime}`,
+      modality: input.sessionType,
+      modalityLabel: `Consultation (${input.duration})`,
+      securityTag: "Encrypted",
+      roomOrDetail:
+        input.sessionType === "in-person"
+          ? input.locationOrRoom || "Room 302"
+          : undefined,
+      isJustAdded: true,
+      statusText: "Scheduled",
+    };
+
+    // Add notification alert
+    const newAlert: AlertItem = {
+      id: `alert-add-${Date.now()}`,
+      title: "New Session Scheduled",
+      description: `Appointment with ${input.displayName} confirmed for ${input.date} at ${input.startTime}.`,
+      timestamp: "Just now",
+      isUnread: true,
+      category: "session",
+      priority: "normal",
+      iconName: "calendar-outline",
+      actionLabel: "View Schedule",
+      badgeLabel: "Scheduled",
+    };
+
+    state = {
+      ...state,
+      sessions: isToday ? [newSession, ...state.sessions] : state.sessions,
+      calendarBookings: [...state.calendarBookings, newCalendarBooking],
+      alerts: [newAlert, ...state.alerts],
+      alertsUnread: state.alertsUnread + 1,
+    };
+
+    notifyListeners();
+    return newSession;
+  },
+
+  // Add / update clinical prep notes
+  addPrepNote(sessionIdOrAnonId: string, noteText: string) {
+    const updatedPrepNotes = {
+      ...state.prepNotes,
+      [sessionIdOrAnonId]: noteText,
+      "session-3": noteText,
+      "Student #8812": noteText,
+    };
+
+    const updatedSessions = state.sessions.map((s) =>
+      s.id === sessionIdOrAnonId || s.studentAnonId === sessionIdOrAnonId
+        ? { ...s, noteText }
+        : s
+    );
+
+    state = {
+      ...state,
+      prepNotes: updatedPrepNotes,
+      anonymousSession8812: {
+        ...state.anonymousSession8812,
+        prepNotes: noteText,
+        prepNoteUpdatedAt: "Just now",
+      },
+      sessions: updatedSessions,
+    };
+    notifyListeners();
+  },
+
+  // Toggle student check-in status
+  toggleCheckIn(sessionIdOrAnonId: string): boolean {
+    const current = !!state.checkedInSessions[sessionIdOrAnonId];
+    const next = !current;
+    state = {
+      ...state,
+      checkedInSessions: {
+        ...state.checkedInSessions,
+        [sessionIdOrAnonId]: next,
+        "session-3": next,
+        "Student #8812": next,
+      },
+      anonymousSession8812: {
+        ...state.anonymousSession8812,
+        isCheckedIn: next,
+      },
+    };
+    notifyListeners();
+    return next;
+  },
+
+  // Add clinical note entry
+  addClinicalNote(key: string, content: string, modality: string = "Chat") {
+    const existingNotes =
+      state.sessionNotes[key] ||
+      state.sessionNotes["std-maya"] ||
+      MOCK_SESSION_NOTES_MAYA;
+
+    const newNoteEntry: ClinicalNoteEntry = {
+      id: `note-${Date.now()}`,
+      date: "Today, Aug 18, 2026 • Follow-up",
+      modality,
+      status: "Completed",
+      content,
+      counselorName: "Dr. Anjali Perera",
+      signedStatus: "Signed & Synced",
+    };
+
+    const updatedNoteData: SessionNotesData = {
+      ...existingNotes,
+      notes: [newNoteEntry, ...existingNotes.notes],
+    };
+
+    // Update noteText preview on session card in Dashboard
+    const updatedSessions = state.sessions.map((s) =>
+      s.studentId === key ||
+      s.studentAnonId === key ||
+      s.displayName === existingNotes.displayName
+        ? {
+            ...s,
+            noteText:
+              content.slice(0, 80) + (content.length > 80 ? "..." : ""),
+          }
+        : s
+    );
+
+    state = {
+      ...state,
+      sessionNotes: {
+        ...state.sessionNotes,
+        [key]: updatedNoteData,
+        [existingNotes.studentId]: updatedNoteData,
+        [existingNotes.studentAnonId]: updatedNoteData,
+      },
+      sessions: updatedSessions,
+    };
+    notifyListeners();
+  },
+
+  // Cancel scheduled session
+  cancelSession(sessionIdOrAnonId: string, reason: string = "Canceled by counselor") {
+    const target = state.sessions.find(
+      (s) => s.id === sessionIdOrAnonId || s.studentAnonId === sessionIdOrAnonId
+    );
+    const studentLabel = target?.displayName || target?.studentAnonId || sessionIdOrAnonId;
+
+    const updatedSessions = state.sessions.filter(
+      (s) => s.id !== sessionIdOrAnonId && s.studentAnonId !== sessionIdOrAnonId
+    );
+
+    const cancelAlert: AlertItem = {
+      id: `alert-cancel-${Date.now()}`,
+      title: "Session Canceled",
+      description: `Session with ${studentLabel} canceled (${reason}). Notification logged.`,
+      timestamp: "Just now",
+      isUnread: true,
+      category: "session",
+      priority: "normal",
+      iconName: "close-circle-outline",
+      badgeLabel: "Canceled",
+    };
+
+    state = {
+      ...state,
+      sessions: updatedSessions,
+      alerts: [cancelAlert, ...state.alerts],
+      alertsUnread: state.alertsUnread + 1,
+    };
+    notifyListeners();
+  },
+
+  // Reschedule session
+  rescheduleSession(sessionIdOrAnonId: string, newTimeRange: string) {
+    const updatedSessions = state.sessions.map((s) =>
+      s.id === sessionIdOrAnonId || s.studentAnonId === sessionIdOrAnonId
+        ? { ...s, timeRange: newTimeRange }
+        : s
+    );
+    state = {
+      ...state,
+      sessions: updatedSessions,
+    };
+    notifyListeners();
+  },
+
+  // Set selected calendar day (shared across Day & Month views)
+  setSelectedCalendarDay(day: number) {
+    state = {
+      ...state,
+      selectedCalendarDay: day,
+    };
+    notifyListeners();
+  },
+
+  // Set selected calendar month
+  setSelectedCalendarMonth(month: string) {
+    state = {
+      ...state,
+      selectedCalendarMonth: month,
+    };
+    notifyListeners();
+  },
+
+  // Toggle hold/block for an open slot in Schedule
+  toggleHoldScheduleSlot(slotId: string): boolean {
+    const currentHeld = !!state.heldScheduleSlots[slotId];
+    const nextHeld = !currentHeld;
+    const updatedHeld = {
+      ...state.heldScheduleSlots,
+      [slotId]: nextHeld,
+    };
+    const updatedSlots = state.scheduleDaySlots.map((s) =>
+      s.id === slotId ? { ...s, isHeld: nextHeld } : s
+    );
+    state = {
+      ...state,
+      heldScheduleSlots: updatedHeld,
+      scheduleDaySlots: updatedSlots,
+    };
+    notifyListeners();
+    return nextHeld;
+  },
 };
 
 // ─── React Hook for Functional Components ───
@@ -596,5 +1044,14 @@ export function useCounsellorStore() {
     sendOpeningMessage: counsellorStore.sendOpeningMessage,
     clearAllConversations: counsellorStore.clearAllConversations,
     resetConversations: counsellorStore.resetConversations,
+    addSession: counsellorStore.addSession,
+    addPrepNote: counsellorStore.addPrepNote,
+    toggleCheckIn: counsellorStore.toggleCheckIn,
+    addClinicalNote: counsellorStore.addClinicalNote,
+    cancelSession: counsellorStore.cancelSession,
+    rescheduleSession: counsellorStore.rescheduleSession,
+    setSelectedCalendarDay: counsellorStore.setSelectedCalendarDay,
+    setSelectedCalendarMonth: counsellorStore.setSelectedCalendarMonth,
+    toggleHoldScheduleSlot: counsellorStore.toggleHoldScheduleSlot,
   };
 }

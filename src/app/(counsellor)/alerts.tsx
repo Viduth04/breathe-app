@@ -451,10 +451,14 @@ export default function CounsellorAlertsScreen() {
                           <Pressable
                             style={styles.actionBtnFilled}
                             onPress={() =>
-                              setModalData({
-                                title: "Connecting Encrypted Video Consultation",
-                                description:
-                                  "Launching verified consultation room with Alex Rivera. E2E Encryption verified.",
+                              router.navigate({
+                                pathname: "/(counsellor-detail)/ready-to-join",
+                                params: {
+                                  studentAnonId: "Alex Rivera",
+                                  sessionTitle: "Encrypted Video Consultation",
+                                  timeRange: "10:00 AM – 10:45 AM",
+                                  duration: "45 min session",
+                                },
                               })
                             }
                             accessibilityRole="button"

@@ -1,7 +1,7 @@
 // Counsellor Clinical Alerts & Preferences - Muaath (Member 4). Supports FR05, NFR01.
 // Settings panel for triage flags, advance reminders, quiet hours, and privacy-safe lockscreen previews.
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -22,6 +22,10 @@ export default function ClinicalAlertsPreferencesScreen() {
   const { alertPreferences, updateAlertPreferences } = useCounsellorStore();
   const [localPrefs, setLocalPrefs] = useState<ClinicalAlertPreferences>(alertPreferences);
   const [savedFeedback, setSavedFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLocalPrefs(alertPreferences);
+  }, [alertPreferences]);
 
   const toggleField = (field: keyof ClinicalAlertPreferences) => {
     setLocalPrefs((prev) => {

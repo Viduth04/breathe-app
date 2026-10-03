@@ -258,8 +258,11 @@ export default function PastSessionsHistoryScreen() {
 
         <Text style={styles.headerTitle}>Sessions</Text>
 
-        <View style={styles.avatarCircle}>
-          <Ionicons name="person" size={18} color={colors.white} />
+        <View style={styles.avatarWrapper}>
+          <View style={styles.avatarCircle}>
+            <Text style={styles.avatarText}>DR</Text>
+          </View>
+          <View style={styles.avatarOnlineBadge} />
         </View>
       </View>
 
@@ -493,13 +496,34 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.text,
   },
+  avatarWrapper: {
+    position: "relative",
+  },
   avatarCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: "#064E3B",
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 2,
+    borderColor: "rgba(6, 95, 70, 0.2)",
+  },
+  avatarText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: colors.white,
+  },
+  avatarOnlineBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#10B981",
+    borderWidth: 2,
+    borderColor: colors.white,
   },
   scrollContent: {
     paddingHorizontal: spacing.md,

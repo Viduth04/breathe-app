@@ -143,8 +143,9 @@ export default function PatientsListScreen() {
           hitSlop={8}
         >
           <View style={styles.counselorAvatarCircle}>
-            <Ionicons name="person" size={18} color={colors.white} />
+            <Text style={styles.counselorAvatarText}>DR</Text>
           </View>
+          <View style={styles.counselorOnlineDot} />
         </Pressable>
       </View>
 
@@ -193,6 +194,7 @@ export default function PatientsListScreen() {
             onPress={() => setActiveTab("all")}
             accessibilityRole="button"
             accessibilityLabel="All patients"
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
           >
             <Text
               style={[
@@ -209,6 +211,7 @@ export default function PatientsListScreen() {
             onPress={() => setActiveTab("active")}
             accessibilityRole="button"
             accessibilityLabel="Active patients"
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
           >
             <Text
               style={[
@@ -225,6 +228,7 @@ export default function PatientsListScreen() {
             onPress={() => setActiveTab("anonymous")}
             accessibilityRole="button"
             accessibilityLabel="Anonymous patients"
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
           >
             <Ionicons
               name="shield-checkmark-outline"
@@ -247,6 +251,7 @@ export default function PatientsListScreen() {
             onPress={() => setActiveTab("past")}
             accessibilityRole="button"
             accessibilityLabel="Past Cases"
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
           >
             <Text
               style={[
@@ -406,9 +411,27 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#1E293B",
+    backgroundColor: "#065F46",
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 2,
+    borderColor: "rgba(6, 95, 70, 0.2)",
+  },
+  counselorAvatarText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: colors.white,
+  },
+  counselorOnlineDot: {
+    position: "absolute",
+    bottom: 2,
+    right: 2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#10B981",
+    borderWidth: 2,
+    borderColor: colors.white,
   },
   searchSection: {
     paddingHorizontal: spacing.md,
