@@ -857,6 +857,7 @@ export default function CounsellorMessagesScreen() {
       {/* Message Input Bar */}
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
         <View style={styles.inputBar}>
           <Pressable

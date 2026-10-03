@@ -17,8 +17,10 @@ import { router } from "expo-router";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { MOCK_CONFIRMED_SESSION } from "@/services/mockDetailScreensData";
 import { ConfirmedSessionData } from "@/types/counsellorDetailScreens";
+import { useCounsellorStore } from "@/services/counsellorStore";
 
 export default function ConfirmedSessionScreen() {
+  const store = useCounsellorStore();
   const [data] = useState<ConfirmedSessionData>(MOCK_CONFIRMED_SESSION);
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -53,6 +55,7 @@ export default function ConfirmedSessionScreen() {
 
   const confirmCancel = () => {
     setCancelModalVisible(false);
+    store.cancelSession("session-1", "Canceled by counselor via Confirmed Session Screen");
     setFeedback("Session cancelled. Slot returned to availability calendar.");
   };
 

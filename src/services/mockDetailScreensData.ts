@@ -10,6 +10,9 @@ import {
   PreChatWaitingRoomData,
   ClinicalAlertPreferences,
   PatientItem,
+  AnonymousSessionDetailData,
+  SessionNotesData,
+  ClinicalNoteEntry,
 } from "@/types/counsellorDetailScreens";
 
 // ─── Request Detail: Student #5104 ───
@@ -371,3 +374,102 @@ export const MOCK_PATIENTS_LIST: PatientItem[] = [
     lastSessionDate: "Oct 04",
   },
 ];
+
+// ─── Anonymous Session Details: Student #8812 ───
+export const MOCK_ANONYMOUS_SESSION_8812: AnonymousSessionDetailData = {
+  id: "session-3",
+  studentId: "std-8812",
+  studentAnonId: "Student #8812",
+  displayName: "Student #8812",
+  idMode: "anonymous",
+  sessionType: "in-person",
+  sessionTypeLabel: "In-Person Consultation",
+  location: "Room 302, Counseling Wing",
+  locationSub: "Main Clinical Building, 3rd Floor",
+  timeRange: "02:30 PM – 03:15 PM",
+  duration: "45 min",
+  timeRelative: "In 5h 15m",
+  caseRef: "#ME-8812",
+  recurrence: "Bi-weekly Ongoing",
+  intakeType: "Single Intake",
+  concernTags: ["Academic Pressure", "Social Connection"],
+  bookingStatus: "Clinically Verified",
+  privacyNotice: "Anonymous — student ID withheld",
+  complianceNotice: "FERPA & HIPAA Encrypted Case Record",
+  prepNotes:
+    "Student indicated elevated tension regarding upcoming presentation schedules and social transition fatigue. Review somatic breathing grounding tools and evaluate routine balance from previous intake note.",
+  prepNoteUpdatedAt: "Updated 3h ago",
+  isCheckedIn: false,
+};
+
+// ─── Session Notes: Maya Senanayake ───
+export const MOCK_SESSION_NOTES_MAYA: SessionNotesData = {
+  studentId: "std-maya",
+  studentAnonId: "Student #3189",
+  displayName: "Maya Senanayake",
+  idMode: "standard",
+  sessionType: "chat",
+  sessionTypeLabel: "Secured Chat Session",
+  timeRelative: "In 2h 15m",
+  timeRange: "11:30 AM – 12:15 PM",
+  duration: "45 min",
+  caseRef: "#ME-4402",
+  sessionOrdinal: "3rd Follow-up Session",
+  followUpPriority: "Priority Review",
+  followUpAction:
+    "Sleep hygiene & journaling routine review. Evaluate adherence to morning sunlight exposure and thought-reframing worksheets.",
+  topics: [
+    { icon: "🌙", name: "Sleep Hygiene" },
+    { icon: "📓", name: "Journaling Routine" },
+    { icon: "⚡", name: "Academic Anxiety" },
+    { icon: "🧠", name: "Cognitive Reframing" },
+  ],
+  notes: [
+    {
+      id: "note-1",
+      date: "Aug 11, 2026 • Chat",
+      modality: "Chat",
+      status: "Completed",
+      content:
+        "Student reports average sleep latency improved from 75 mins to 35 mins following evening digital curfew. Still experiencing anticipatory panic during Sunday revision blocks. Introduced 4-7-8 breathing practice and structured journaling prompt.",
+      counselorName: "Dr. Anjali Perera",
+      signedStatus: "Signed & Synced",
+    },
+    {
+      id: "note-2",
+      date: "Aug 4, 2026 • Initial Follow-up",
+      modality: "Initial Follow-up",
+      status: "Completed",
+      content:
+        "Reviewed baseline sleep logs. Identified ruminative loop triggered around 11:30 PM. Recommended physical notebook rather than mobile notes app for worry dump. Patient receptivity high.",
+      counselorName: "Dr. Anjali Perera",
+      signedStatus: "Signed & Synced",
+    },
+  ],
+};
+
+// ─── Quick Select Students for Add Session ───
+export const MOCK_ADD_SESSION_STUDENTS = [
+  {
+    id: "std-5104",
+    studentAnonId: "Student #5104",
+    displayName: "Student #5104 (Anonymous)",
+    idMode: "anonymous" as const,
+    quickLabel: "#5104 (Anon)",
+  },
+  {
+    id: "std-sarah",
+    studentAnonId: "Student #4820",
+    displayName: "Sarah Jenkins",
+    idMode: "standard" as const,
+    quickLabel: "Sarah Jenkins",
+  },
+  {
+    id: "std-alex",
+    studentAnonId: "Student #6291",
+    displayName: "Alex Rivera",
+    idMode: "standard" as const,
+    quickLabel: "Alex Rivera",
+  },
+];
+
