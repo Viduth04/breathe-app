@@ -151,6 +151,25 @@ export async function updatePrivacySettings(
   await updateDoc(doc(db, "users", uid), settings);
 }
 
+// Profile screen - Ishara (Member 2). The owner rule already allows fullName
+// (it only blocks role, uid, anonId, isGuest and the staff request fields).
+export const FULL_NAME_MIN = 2;
+export const FULL_NAME_MAX = 60;
+
+// Plain-language problem with a name, or undefined when it's fine
+export function validateFullName(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return "Enter your full name.";
+  if (trimmed.length < FULL_NAME_MIN) return `Use at least ${FULL_NAME_MIN} characters.`;
+  if (trimmed.length > FULL_NAME_MAX) return `Keep it under ${FULL_NAME_MAX} characters.`;
+  return undefined;
+}
+
+// Changes fullName only; AuthContext's live profile picks it up everywhere
+export async function updateFullName(uid: string, fullName: string) {
+  await updateDoc(doc(db, "users", uid), { fullName: fullName.trim() });
+}
+
 // ---------- DELETE ----------
 
 // Firestore allows at most 500 writes per batch
