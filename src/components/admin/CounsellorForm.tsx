@@ -6,20 +6,24 @@ import { displayName } from "@/components/admin/RoleSheet";
 import ToggleRow from "@/components/admin/ToggleRow";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
+import CounsellorAvatar from "@/components/common/CounsellorAvatar";
 import Input from "@/components/common/Input";
 import { createCounsellor, updateCounsellor } from "@/services/adminService";
 import { getAuthErrorMessage, UserProfile } from "@/services/authService";
+import { getCounsellorPhoto } from "@/services/counsellorPhotoService";
 import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
 import {
   COUNSELLOR_BIO_MAX,
   CounsellorProfile,
   Language,
   LANGUAGES,
+  PhotoChange,
   SPECIALTIES,
   Specialty,
 } from "@/types/counsellor";
+import { pickCounsellorPhoto } from "@/utils/pickCounsellorPhoto";
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 type Field =
@@ -66,6 +70,36 @@ export default function CounsellorForm({
   const [errors, setErrors] = useState<Errors>({});
   const [saving, setSaving] = useState(false);
 
+  // Photo: the saved one (edit only), plus what this save will do with it
+  const [savedPhoto, setSavedPhoto] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<PhotoChange>(undefined);
+  const [picking, setPicking] = useState(false);
+  const [photoError, setPhotoError] = useState<string>();
+
+  useEffect(() => {
+    if (existing) getCounsellorPhoto(existing.uid).then(setSavedPhoto);
+  }, [existing]);
+
+  const shownPhoto = photo !== undefined ? photo : savedPhoto;
+
+  const choosePhoto = async () => {
+    setPhotoError(undefined);
+    setPicking(true);
+    try {
+      const result = await pickCounsellorPhoto();
+      if (result.kind === "picked") setPhoto(result.photo);
+      else if (result.kind === "error") setPhotoError(result.message);
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const removePhoto = () => {
+    setPhotoError(undefined);
+    // Nothing saved yet: just drop the pick. Saved: delete it on save.
+    setPhoto(savedPhoto ? null : undefined);
+  };
+
   const pickUser = (user: UserProfile) => {
     setUid(user.uid);
     if (!fullName.trim()) setFullName(user.fullName);
@@ -101,8 +135,8 @@ export default function CounsellorForm({
       isAvailable,
     };
     try {
-      if (existing) await updateCounsellor(existing.uid, data);
-      else await createCounsellor({ uid, ...data });
+      if (existing) await updateCounsellor(existing.uid, data, photo);
+      else await createCounsellor({ uid, ...data }, photo);
       onSaved(
         existing
           ? `${data.fullName}'s profile was updated.`
@@ -162,6 +196,41 @@ export default function CounsellorForm({
           )}
           {errors.uid ? <Text style={styles.error}>{errors.uid}</Text> : null}
         </View>
+      ) : null}
+
+      {/* Photo (counsellors only); saved together with the profile */}
+      <View style={styles.photoSection}>
+        <CounsellorAvatar name={fullName || "?"} photo={shownPhoto ?? null} size={96} />
+        <View style={styles.photoActions}>
+          <Button
+            title={shownPhoto ? "Change photo" : "Add photo"}
+            variant="secondary"
+            icon="image-outline"
+            onPress={choosePhoto}
+            loading={picking}
+            disabled={saving}
+          />
+          {shownPhoto ? (
+            <Button
+              title="Remove photo"
+              variant="danger"
+              onPress={removePhoto}
+              disabled={saving || picking}
+            />
+          ) : null}
+          <Text style={typography.caption}>
+            {photo === null
+              ? "The photo will be removed when you save."
+              : photo
+                ? "New photo will be saved with the profile."
+                : "Optional. Square, shown to students when booking."}
+          </Text>
+        </View>
+      </View>
+      {photoError ? (
+        <Text style={[styles.error, styles.photoError]} accessibilityRole="alert">
+          {photoError}
+        </Text>
       ) : null}
 
       <Input
@@ -245,6 +314,14 @@ export default function CounsellorForm({
 
 const styles = StyleSheet.create({
   section: { marginBottom: spacing.md, gap: spacing.sm },
+  photoSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  photoActions: { flex: 1, gap: spacing.sm },
+  photoError: { marginTop: -spacing.sm, marginBottom: spacing.md },
   label: { fontSize: 14, fontWeight: "500", color: colors.text },
   userOption: {
     flexDirection: "row",

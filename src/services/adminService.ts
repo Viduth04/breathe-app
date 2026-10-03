@@ -6,7 +6,8 @@
 
 import { db } from "@/firebase/config";
 import { isStaffRequest, Role, StaffRole, UserProfile } from "@/services/authService";
-import type { CounsellorInput, CounsellorProfile } from "@/types/counsellor";
+import { setCachedCounsellorPhoto } from "@/services/counsellorPhotoService";
+import type { CounsellorInput, CounsellorProfile, PhotoChange } from "@/types/counsellor";
 import type { Resource, ResourceInput } from "@/types/resource";
 import type { WeekStats } from "@/types/stats";
 import { recentWeeks } from "@/utils/week";
@@ -88,26 +89,48 @@ export async function listCounsellors(): Promise<CounsellorProfile[]> {
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
 }
 
+// Photo changes ride in the same batch as the profile, so both save or neither
+function addPhotoChange(batch: ReturnType<typeof writeBatch>, uid: string, photo: PhotoChange) {
+  if (photo === undefined) return;
+  const ref = doc(db, "counsellorPhotos", uid);
+  if (photo === null) batch.delete(ref);
+  else batch.set(ref, { photo, updatedAt: serverTimestamp() });
+}
+
 // Doc id = the counsellor's uid, which the security rules check
-export async function createCounsellor(input: CounsellorInput) {
-  await setDoc(doc(db, "counsellors", input.uid), {
+export async function createCounsellor(input: CounsellorInput, photo?: PhotoChange) {
+  const batch = writeBatch(db);
+  batch.set(doc(db, "counsellors", input.uid), {
     ...input,
     updatedAt: serverTimestamp(),
   });
+  addPhotoChange(batch, input.uid, photo);
+  await batch.commit();
+  if (photo !== undefined) setCachedCounsellorPhoto(input.uid, photo);
 }
 
 export async function updateCounsellor(
   uid: string,
   changes: Partial<Omit<CounsellorInput, "uid">>,
+  photo?: PhotoChange,
 ) {
-  await updateDoc(doc(db, "counsellors", uid), {
+  const batch = writeBatch(db);
+  batch.update(doc(db, "counsellors", uid), {
     ...changes,
     updatedAt: serverTimestamp(),
   });
+  addPhotoChange(batch, uid, photo);
+  await batch.commit();
+  if (photo !== undefined) setCachedCounsellorPhoto(uid, photo);
 }
 
+// Removes the profile and its photo together
 export async function deleteCounsellor(uid: string) {
-  await deleteDoc(doc(db, "counsellors", uid));
+  const batch = writeBatch(db);
+  batch.delete(doc(db, "counsellors", uid));
+  batch.delete(doc(db, "counsellorPhotos", uid)); // Fine if there was none
+  await batch.commit();
+  setCachedCounsellorPhoto(uid, null);
 }
 
 // ---------- RESOURCES ----------

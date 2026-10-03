@@ -45,6 +45,14 @@
 //                               specialties[], languages[], experienceYears,
 //                               bio, isAvailable, updatedAt
 //                               (type: src/types/counsellor.ts)
+//   counsellorPhotos/{counsellorId}
+//                               doc id = a counsellor's uid that HAS a
+//                               counsellors/{uid} profile
+//                               photo     ("data:image/jpeg;base64,...",
+//                                          under 200000 chars),
+//                               updatedAt (serverTimestamp())
+//                               Counsellors only: students, lecturers and
+//                               admins never get photos. Admins write.
 //   slots/{id}                  counsellorId
 //                               isBooked, bookingId (set by the counsellor
 //                               when confirming a booking for this slot)
@@ -348,6 +356,28 @@ service cloud.firestore {
         && request.resource.data.isAvailable == false;
 
       allow delete: if (isOwner(counsellorId) && isCounsellor()) || isAdmin();
+    }
+
+    // ---------- counsellorPhotos ----------
+    // Profile photos for counsellors ONLY (kept apart so the counsellors list
+    // stays light). Spark plan, so no Storage: a small JPEG data URL.
+    match /counsellorPhotos/{counsellorId} {
+      allow read: if isSignedIn();
+
+      // Admins only, exactly {photo, updatedAt}, for a counsellor who has a
+      // profile. existsAfter() so it can be saved in the same batch that
+      // creates the profile.
+      allow create, update: if isAdmin()
+        && existsAfter(/databases/$(database)/documents/counsellors/$(counsellorId))
+        && request.resource.data.keys().hasOnly(["photo", "updatedAt"])
+        && request.resource.data.keys().hasAll(["photo", "updatedAt"])
+        && request.resource.data.photo is string
+        && request.resource.data.photo.size() < 200000
+        && request.resource.data.photo.matches("^data:image/jpeg;base64,[A-Za-z0-9+/=]+$")
+        && request.resource.data.updatedAt == request.time;
+
+      // Admins remove it (also in the same batch that deletes the profile)
+      allow delete: if isAdmin();
     }
 
     // ---------- slots ----------

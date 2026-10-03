@@ -35,3 +35,20 @@ export type CounsellorProfile = {
 
 // What the admin form edits (updatedAt is set by the service)
 export type CounsellorInput = Omit<CounsellorProfile, "updatedAt">;
+
+// counsellorPhotos/{uid}: kept out of counsellors/ so lists stay light.
+// Counsellors only - students, lecturers and admins never have photos.
+// Spark plan has no Firebase Storage, so the photo is a small JPEG data URL.
+export type CounsellorPhoto = {
+  photo: string; // "data:image/jpeg;base64,..."
+  updatedAt: Timestamp | null;
+};
+
+export const PHOTO_SIZE = 256; // Square, in pixels
+export const PHOTO_QUALITY = 0.6; // JPEG compression
+export const PHOTO_MAX_BYTES = 150 * 1024; // Refused above this
+export const PHOTO_MAX_CHARS = 200000; // The rules' limit on the data URL
+
+// What a counsellor form save does with the photo
+//   undefined - leave it as it is, null - remove it, string - new data URL
+export type PhotoChange = string | null | undefined;
