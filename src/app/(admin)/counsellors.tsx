@@ -70,13 +70,15 @@ export default function Counsellors() {
     load().finally(() => setLoading(false));
   }, [load]);
 
-  // "Add counsellor profile" on Overview opens the form here
+  // "Add counsellor profile" (Overview, or after approving a counsellor in
+  // Users) opens the form here. Reload first: this tab stays mounted, so a
+  // just-approved counsellor wouldn't be in the list yet.
   useEffect(() => {
     if (params.new && !loading) {
-      setForm({ existing: null });
       router.setParams({ new: undefined });
+      load().then(() => setForm({ existing: null }));
     }
-  }, [params.new, loading]);
+  }, [params.new, loading, load]);
 
   const refresh = async () => {
     setRefreshing(true);

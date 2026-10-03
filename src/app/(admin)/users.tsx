@@ -3,6 +3,7 @@
 import AdminHeader from "@/components/admin/AdminHeader";
 import RoleBadge from "@/components/admin/RoleBadge";
 import RoleSheet, { displayName } from "@/components/admin/RoleSheet";
+import StaffRequests, { RequestDecision } from "@/components/admin/StaffRequests";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
 import Input from "@/components/common/Input";
@@ -12,8 +13,9 @@ import {
   AssignableRole,
   listCounsellors,
   listUsers,
+  pendingStaffRequests,
 } from "@/services/adminService";
-import { getAuthErrorMessage, UserProfile } from "@/services/authService";
+import { getAuthErrorMessage, isStaffRequest, UserProfile } from "@/services/authService";
 import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -78,9 +80,23 @@ export default function Users() {
   const handleRoleChanged = (uid: string, role: AssignableRole) =>
     setUsers((prev) => prev.map((u) => (u.uid === uid ? { ...u, role } : u)));
 
+  // Approved: becomes the requested role, request fields gone. Rejected: stays.
+  const handleDecision = (d: RequestDecision) =>
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.uid !== d.uid) return u;
+        if (!d.approved) return { ...u, approvalStatus: "rejected" };
+        const { requestedRole: _r, approvalStatus: _a, ...rest } = u;
+        return { ...rest, role: d.role };
+      }),
+    );
+
+  const requests = useMemo(() => pendingStaffRequests(users), [users]);
+
   const counts = useMemo(
     () => ({
-      student: users.filter((u) => u.role === "student").length,
+      // Staff sign-ups have role "student" until approved; they're not students
+      student: users.filter((u) => u.role === "student" && !isStaffRequest(u)).length,
       counsellor: users.filter((u) => u.role === "counsellor").length,
       lecturer: users.filter((u) => u.role === "lecturer").length,
     }),
@@ -103,6 +119,8 @@ export default function Users() {
   const header = (
     <View>
       <AdminHeader title="User Management" />
+
+      {loadError ? null : <StaffRequests requests={requests} onDecided={handleDecision} />}
 
       <View style={styles.summary}>
         {(
@@ -170,7 +188,14 @@ export default function Users() {
             {isSelf ? <Text style={typography.caption}>(You)</Text> : null}
           </View>
           <Text style={typography.caption}>{item.email ?? "No email"}</Text>
-          <Text style={typography.caption}>{item.anonId}</Text>
+          {isStaffRequest(item) ? (
+            <Text style={[typography.caption, styles.request]}>
+              Requested {item.requestedRole ?? "staff"} ·{" "}
+              {item.approvalStatus === "rejected" ? "rejected" : "waiting for approval"}
+            </Text>
+          ) : (
+            <Text style={typography.caption}>{item.anonId}</Text>
+          )}
         </View>
         <View style={styles.userSide}>
           <RoleBadge role={item.role} />
@@ -187,7 +212,9 @@ export default function Users() {
       </Card>
     );
 
-    const summary = `${name}, ${item.role}, ${item.email ?? "no email"}, ${item.anonId}`;
+    const summary = isStaffRequest(item)
+      ? `${name}, requested ${item.requestedRole ?? "staff"}, ${item.approvalStatus}, ${item.email ?? "no email"}`
+      : `${name}, ${item.role}, ${item.email ?? "no email"}, ${item.anonId}`;
     if (locked) {
       return (
         <View accessible accessibilityLabel={isSelf ? `${summary}, you` : summary}>
@@ -305,6 +332,7 @@ const styles = StyleSheet.create({
   userInfo: { flex: 1, gap: 2 },
   nameRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   userName: { ...typography.body, fontWeight: "600", flexShrink: 1 },
+  request: { color: colors.primary, fontWeight: "600" },
   userSide: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   pressed: { opacity: 0.7 },
   stateBox: { marginTop: spacing.xl },

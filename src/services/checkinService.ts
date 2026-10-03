@@ -216,6 +216,20 @@ export function moodByDay(list: CheckIn[], days: number, today = new Date()) {
   });
 }
 
+// Consecutive days with a check-in, ending today. If today has no check-in
+// yet, the streak still counts up to yesterday (the day isn't over).
+export function currentStreak(list: CheckIn[], today = new Date()) {
+  const days = new Set(list.map((c) => c.dateKey));
+  let key = dateKey(today);
+  if (!days.has(key)) key = dayKeyBefore(key, 1);
+  let streak = 0;
+  while (days.has(key)) {
+    streak += 1;
+    key = dayKeyBefore(key, 1);
+  }
+  return streak;
+}
+
 // No pattern is shown until there's enough to go on
 export const MIN_ENTRIES_FOR_PATTERNS = 5;
 // A difference smaller than this (on the 1-5 scale) isn't worth mentioning

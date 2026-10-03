@@ -5,7 +5,7 @@
 // add those here.
 
 import { db } from "@/firebase/config";
-import { Role, UserProfile } from "@/services/authService";
+import { isStaffRequest, Role, StaffRole, UserProfile } from "@/services/authService";
 import type { CounsellorInput, CounsellorProfile } from "@/types/counsellor";
 import type { Resource, ResourceInput } from "@/types/resource";
 import type { WeekStats } from "@/types/stats";
@@ -14,6 +14,7 @@ import {
   addDoc,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -51,6 +52,31 @@ export async function updateUserRole(
     });
   }
   await batch.commit();
+}
+
+// ---------- STAFF REQUESTS ----------
+
+// Staff sign-ups waiting for a decision, oldest first
+export const pendingStaffRequests = (users: UserProfile[]) =>
+  users
+    .filter((u) => isStaffRequest(u) && u.approvalStatus === "pending" && !!u.requestedRole)
+    .sort((a, b) => (a.createdAt?.toMillis() ?? 0) - (b.createdAt?.toMillis() ?? 0));
+
+// Approve: role becomes the requested role and both request fields go, in one
+// update (the rules accept nothing else). A new counsellor still needs a
+// counsellors/{uid} profile before students can book them.
+export async function approveStaffRequest(uid: string, requestedRole: StaffRole) {
+  await updateDoc(doc(db, "users", uid), {
+    role: requestedRole,
+    requestedRole: deleteField(),
+    approvalStatus: deleteField(),
+  });
+}
+
+// Reject: only approvalStatus changes; the role stays "student" and the
+// person sees a calm "not approved" screen
+export async function rejectStaffRequest(uid: string) {
+  await updateDoc(doc(db, "users", uid), { approvalStatus: "rejected" });
 }
 
 // ---------- COUNSELLORS ----------
@@ -251,7 +277,8 @@ export async function removeDemoStats() {
 // ---------- OVERVIEW ----------
 
 export type AdminStats = {
-  students: number; // Registered students (not guests)
+  students: number; // Registered students (not guests, not staff requests)
+  staffRequests: number; // Pending staff sign-ups waiting for approval
   guests: number;
   counsellors: number;
   lecturers: number;
@@ -269,7 +296,9 @@ export function computeStats(
   const profileIds = new Set(counsellors.map((c) => c.uid));
   const counsellorUsers = users.filter((u) => u.role === "counsellor");
   return {
-    students: users.filter((u) => u.role === "student" && !u.isGuest).length,
+    students: users.filter((u) => u.role === "student" && !u.isGuest && !isStaffRequest(u))
+      .length,
+    staffRequests: pendingStaffRequests(users).length,
     guests: users.filter((u) => u.isGuest).length,
     counsellors: counsellorUsers.length,
     lecturers: users.filter((u) => u.role === "lecturer").length,

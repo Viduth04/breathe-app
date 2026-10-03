@@ -13,6 +13,13 @@
 //       role                    "student" | "counsellor" | "lecturer" | "admin"
 //       uid, anonId, isGuest, fullName, email,
 //       anonymousMode, shareMoodWithCounsellor
+//       requestedRole           optional, "counsellor" | "lecturer": a staff
+//                               sign-up waiting for an admin. Role stays
+//                               "student" until approved.
+//       approvalStatus          optional, "pending" | "rejected"; only
+//                               present together with requestedRole.
+//                               Approving = admin sets role to requestedRole
+//                               and deletes both fields in one update.
 //   checkins/{id}               userId          (student's uid)
 //   bookings/{id}               EXACTLY these fields (type: src/types/booking.ts,
 //                               write only via src/services/bookingService.ts)
@@ -104,8 +111,12 @@ service cloud.firestore {
       return isSignedIn() && role() == "counsellor";
     }
 
+    // A real student: staff sign-ups waiting for (or refused) approval also
+    // have role "student", but must not act as one
     function isStudent() {
-      return isSignedIn() && role() == "student";
+      return isSignedIn()
+        && role() == "student"
+        && !("approvalStatus" in userDoc(request.auth.uid));
     }
 
     function isLecturer() {
@@ -127,16 +138,46 @@ service cloud.firestore {
       // Owner reads their own profile; admins can read and list everyone
       allow read: if isOwner(uid) || isAdmin();
 
+      // Staff sign-up: may only ASK for counsellor or lecturer, as "pending",
+      // never as a guest. Without a request neither field may be present.
+      function validStaffRequest(d) {
+        return (!("requestedRole" in d) && !("approvalStatus" in d))
+          || (d.requestedRole in ["counsellor", "lecturer"]
+              && d.approvalStatus == "pending"
+              && d.isGuest == false);
+      }
+
       // Sign-up and "Continue Anonymously" create your own profile, always as
-      // a student. Roles are never chosen at sign-up.
+      // a student. Roles are never chosen at sign-up; staff can only request one.
       allow create: if isOwner(uid)
         && request.resource.data.role == "student"
-        && request.resource.data.uid == uid;
+        && request.resource.data.uid == uid
+        && validStaffRequest(request.resource.data);
 
       // Owner edits their own profile (e.g. privacy settings) but can never
-      // change their role or identity fields
+      // change their role, identity fields or staff request
       allow update: if isOwner(uid)
-        && !changedKeys().hasAny(["role", "uid", "anonId", "isGuest"]);
+        && !changedKeys().hasAny(["role", "uid", "anonId", "isGuest",
+             "requestedRole", "approvalStatus"]);
+
+      // Admin approves a pending staff request: role becomes the requested
+      // role and both request fields are removed, all in one update
+      allow update: if isAdmin()
+        && !isOwner(uid)
+        && resource.data.role == "student"
+        && resource.data.get("approvalStatus", null) == "pending"
+        && resource.data.requestedRole in ["counsellor", "lecturer"]
+        && changedKeys().hasOnly(["role", "requestedRole", "approvalStatus"])
+        && request.resource.data.role == resource.data.requestedRole
+        && !("requestedRole" in request.resource.data)
+        && !("approvalStatus" in request.resource.data);
+
+      // Admin rejects a pending staff request (role stays "student")
+      allow update: if isAdmin()
+        && !isOwner(uid)
+        && resource.data.get("approvalStatus", null) == "pending"
+        && changedKeys().hasOnly(["approvalStatus"])
+        && request.resource.data.approvalStatus == "rejected";
 
       // Admins change the role field only: never their own, never to or from
       // admin (that's console-only), and guests can only be students

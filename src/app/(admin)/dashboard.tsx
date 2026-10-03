@@ -20,12 +20,12 @@ import {
   removeDemoStats,
 } from "@/services/adminService";
 import { getAuthErrorMessage } from "@/services/authService";
-import { colors, spacing, typography } from "@/theme";
+import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
 import { confirmAction } from "@/utils/confirm";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const today = () =>
   new Date().toLocaleDateString(undefined, {
@@ -159,6 +159,37 @@ export default function Dashboard() {
           />
         ) : (
           <>
+            {/* Staff sign-ups waiting for approval (FR01) */}
+            {stats.staffRequests > 0 ? (
+              <Pressable
+                onPress={() => router.navigate("/(admin)/users")}
+                accessibilityRole="button"
+                accessibilityLabel={`${stats.staffRequests} staff ${
+                  stats.staffRequests === 1 ? "request" : "requests"
+                } waiting for approval. Review in Users.`}
+                style={({ pressed }) => [pressed && styles.pressed]}
+              >
+                <Card style={styles.requests}>
+                  <View style={styles.requestBadge}>
+                    <Text style={styles.requestBadgeText}>{stats.staffRequests}</Text>
+                  </View>
+                  <View style={styles.userInfo}>
+                    <Text style={styles.userName}>
+                      Staff {stats.staffRequests === 1 ? "request" : "requests"} waiting
+                    </Text>
+                    <Text style={typography.caption}>Review and approve in Users</Text>
+                  </View>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={colors.textSecondary}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no"
+                  />
+                </Card>
+              </Pressable>
+            ) : null}
+
             <View style={styles.grid}>
               <StatCard label="Students" value={stats.students} icon="school-outline" />
               <StatCard label="Guests" value={stats.guests} icon="eye-off-outline" />
@@ -297,6 +328,24 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   statAttention: { backgroundColor: colors.dangerTint },
+  pressed: { opacity: 0.7 },
+  requests: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    minHeight: TOUCH_TARGET,
+    backgroundColor: colors.dangerTint,
+  },
+  requestBadge: {
+    minWidth: 32,
+    height: 32,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radius.full,
+    backgroundColor: colors.danger,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  requestBadgeText: { fontSize: 15, fontWeight: "700", color: colors.white },
   statValue: { ...typography.title, marginTop: spacing.xs },
   section: { marginTop: spacing.lg, marginBottom: spacing.sm },
   actions: { gap: spacing.sm },
