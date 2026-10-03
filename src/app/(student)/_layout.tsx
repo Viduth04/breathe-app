@@ -2,6 +2,7 @@ import { FloatingHelpButton } from "@/components/crisis/UrgentHelpLink";
 import LoadingScreen from "@/components/navigation/LoadingScreen";
 import { tabIcon, tabScreenOptions } from "@/components/navigation/tabs";
 import { useAuth } from "@/context/AuthContext";
+import { isStaffRequest } from "@/services/authService";
 import { router, Redirect } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
 import { Ionicons } from "@expo/vector-icons";
@@ -14,7 +15,8 @@ export default function StudentLayout() {
 
   if (!user) return <Redirect href="/(auth)/welcome" />;
   if (!profile) return <LoadingScreen offerLogout />;
-  if (profile.role !== "student") return <Redirect href="/" />;
+  // Other roles, and staff sign-ups awaiting approval, go back to index
+  if (profile.role !== "student" || isStaffRequest(profile)) return <Redirect href="/" />;
 
   return (
     <View style={styles.fill}>
