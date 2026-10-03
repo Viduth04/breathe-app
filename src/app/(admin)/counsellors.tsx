@@ -17,6 +17,7 @@ import {
 import ToggleRow from "@/components/admin/ToggleRow";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
+import CounsellorAvatar from "@/components/common/CounsellorAvatar";
 import Screen from "@/components/common/Screen";
 import {
   deleteCounsellor,
@@ -34,14 +35,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 type FormState = { existing: CounsellorProfile | null; initialUid?: string };
-
-const initials = (name: string) =>
-  name
-    .replace(/^(dr|mr|mrs|ms|prof)\.?\s+/i, "")
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
 
 export default function Counsellors() {
   const params = useLocalSearchParams<{ new?: string }>();
@@ -127,7 +120,7 @@ export default function Counsellors() {
     const ok = await confirmAction({
       title: `Delete ${profile.fullName}'s profile?`,
       message:
-        "Students will no longer see or book this counsellor. Their account and role stay the same, and you can create a new profile later.",
+        "Students will no longer see or book this counsellor, and their photo is removed. Their account and role stay the same, and you can create a new profile later.",
       confirmText: "Delete",
     });
     if (!ok) return;
@@ -203,13 +196,7 @@ export default function Counsellors() {
   const renderProfile = ({ item }: { item: CounsellorProfile }) => (
     <Card>
       <View style={styles.cardTop}>
-        <View
-          style={styles.avatar}
-          accessibilityElementsHidden
-          importantForAccessibility="no"
-        >
-          <Text style={styles.avatarText}>{initials(item.fullName)}</Text>
-        </View>
+        <CounsellorAvatar uid={item.uid} name={item.fullName} />
         <View style={styles.flex}>
           <Text style={styles.name}>{item.fullName}</Text>
           <Text style={typography.caption}>{item.title}</Text>
@@ -314,15 +301,6 @@ const styles = StyleSheet.create({
   bold: { ...typography.body, fontWeight: "600" },
   flex: { flex: 1 },
   cardTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.full,
-    backgroundColor: colors.selected,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: { fontSize: 16, fontWeight: "700", color: colors.primary },
   name: { ...typography.body, fontWeight: "600" },
   chips: {
     flexDirection: "row",
