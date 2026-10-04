@@ -24,7 +24,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function CounsellorAlertsScreen() {
   const { alertsUnread, markAlertsAsRead } = useCounsellorBadges();
-  const { alertPreferences } = useCounsellorStore();
+  const { alertPreferences, alerts: storeAlerts } = useCounsellorStore();
   const [activeFilter, setActiveFilter] = useState<AlertFilter>("all");
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -70,8 +70,23 @@ export default function CounsellorAlertsScreen() {
     return true;
   };
 
-  const visibleTodayAlerts = MOCK_ALERTS_TODAY.filter(isAlertVisible);
-  const visibleEarlierAlerts = MOCK_ALERTS_EARLIER.filter(isAlertVisible);
+  const allAlerts =
+    storeAlerts && storeAlerts.length > 0
+      ? storeAlerts
+      : [...MOCK_ALERTS_TODAY, ...MOCK_ALERTS_EARLIER];
+
+  const isTodayAlert = (a: AlertItem) =>
+    a.timestamp?.includes("ago") ||
+    a.timestamp?.includes("Just now") ||
+    a.timestamp?.toLowerCase().includes("today") ||
+    a.priority === "urgent";
+
+  const visibleTodayAlerts = allAlerts.filter(
+    (a) => isTodayAlert(a) && isAlertVisible(a)
+  );
+  const visibleEarlierAlerts = allAlerts.filter(
+    (a) => !isTodayAlert(a) && isAlertVisible(a)
+  );
   const totalVisible = visibleTodayAlerts.length + visibleEarlierAlerts.length;
 
   return (

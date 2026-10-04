@@ -74,7 +74,12 @@
 //                               NO uid, anonId or per-person timestamps.
 //                               (type: src/types/stats.ts; students write it
 //                               only via recordAnonymousMoodStat())
-//
+//   clinicalNotes/{noteId}      counselorId, patientId, content, signedStatus,
+//                               counselorName, modality, status, createdAt
+//                               (Confidential SOAP notes; author counsellor & admin only)
+//   counselorPreferences/{counselorId}
+//                               doc id = counselor uid; triage thresholds, quiet hours
+////
 // NOT IN FIRESTORE
 //   Reminders (FR05) are local notifications (expo-notifications); the
 //   counsellor Alerts tab reads pending bookings. There is no
@@ -555,6 +560,35 @@ service cloud.firestore {
 
       // Admins can remove demo weeks only; real stats are never deleted
       allow delete: if isAdmin() && resource.data.get("demo", false) == true;
+    }
+
+    // ---------- clinicalNotes ----------
+    // Confidential progress and SOAP notes written by attending counsellors.
+    // Read and written exclusively by the authoring counsellor or system admin (NFR01).
+    match /clinicalNotes/{noteId} {
+      allow read: if (isCounsellor() && resource.data.counselorId == request.auth.uid)
+        || isAdmin();
+
+      allow create: if isCounsellor()
+        && request.resource.data.counselorId == request.auth.uid;
+
+      allow update: if isCounsellor()
+        && isOwner(resource.data.counselorId)
+        && request.resource.data.counselorId == resource.data.counselorId;
+
+      allow delete: if (isCounsellor() && isOwner(resource.data.counselorId))
+        || isAdmin();
+    }
+
+    // ---------- counselorPreferences ----------
+    // Counsellor quiet hours, notification thresholds, and clinical triage rules.
+    // Scoped strictly to the counsellor whose uid matches the document id.
+    match /counselorPreferences/{counselorId} {
+      allow read: if isOwner(counselorId) || isAdmin();
+
+      allow create, update: if (isOwner(counselorId) && isCounsellor()) || isAdmin();
+
+      allow delete: if isOwner(counselorId) || isAdmin();
     }
   }
 }

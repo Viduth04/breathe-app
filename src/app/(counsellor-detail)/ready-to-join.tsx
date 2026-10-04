@@ -1,7 +1,7 @@
 // Counsellor Ready to Join (Pre-call Lobby) - Muaath (Member 4). Supports FR07, NFR01, NFR02.
 // Encrypted video consultation staging room with hardware toggles and connection telemetry.
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -15,6 +15,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { useCounsellorStore } from "@/services/counsellorStore";
+import {
+  initLobbySession,
+  runTelehealthDiagnostics,
+} from "@/services/telehealthVideoService";
 
 export default function ReadyToJoinScreen() {
   const params = useLocalSearchParams<{
@@ -22,6 +26,7 @@ export default function ReadyToJoinScreen() {
     sessionTitle?: string;
     timeRange?: string;
     duration?: string;
+    sessionId?: string;
   }>();
 
   const { callMediaState, toggleMic, toggleCam } = useCounsellorStore();
@@ -33,6 +38,12 @@ export default function ReadyToJoinScreen() {
 
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
 
+  useEffect(() => {
+    const roomId = `mnd-${studentAnonId.replace(/[^0-9]/g, "") || "4021"}-sec`;
+    const counselorUid = "coun_anjali_01";
+    initLobbySession(roomId, counselorUid, "Dr. Anjali Perera", callMediaState).catch(() => {});
+  }, [studentAnonId]);
+
   const handleJoinCall = () => {
     router.navigate({
       pathname: "/(counsellor-detail)/active-video-call",
@@ -40,14 +51,16 @@ export default function ReadyToJoinScreen() {
         studentAnonId,
         sessionTitle,
         timeRange,
+        sessionId: params.sessionId,
       },
     });
   };
 
-  const runHardwareDiagnostics = () => {
+  const runHardwareDiagnostics = async () => {
+    const res = await runTelehealthDiagnostics();
     Alert.alert(
       "Clinical AV Diagnostics",
-      "• Microphone: High-Definition Input (Pass)\n• Camera: 1080p Sanctuary Cam (Pass)\n• End-to-End Encryption: TLS 1.3 / SRTP active\n• SafeChannel™ Latency: 28ms (Optimal)",
+      res.summary,
       [{ text: "Done", style: "default" }]
     );
   };

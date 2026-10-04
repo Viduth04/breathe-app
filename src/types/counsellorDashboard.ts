@@ -14,6 +14,7 @@ export type SessionItem = {
   idMode: IdMode;
   timeRange: string;
   timeRelative: string;
+  date?: string;
   isNext: boolean;
   sessionType: SessionType;
   sessionTypeLabel: string;

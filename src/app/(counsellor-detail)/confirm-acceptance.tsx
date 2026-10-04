@@ -30,13 +30,17 @@ export default function ConfirmAcceptanceModal() {
   const sessionFormat = "Video Consultation (45 min)";
 
   const [note, setNote] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleConfirm = () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     confirmAcceptance(targetReq?.id || "req-1", note.trim());
     router.replace("/(counsellor-detail)/request-accepted");
   };
 
   const handleCancel = () => {
+    if (isSubmitting) return;
     router.back();
   };
 
@@ -131,7 +135,8 @@ export default function ConfirmAcceptanceModal() {
             <View style={styles.actionsContainer}>
               <Pressable
                 onPress={handleConfirm}
-                style={styles.confirmButton}
+                disabled={isSubmitting}
+                style={[styles.confirmButton, isSubmitting && { opacity: 0.6 }]}
                 accessibilityRole="button"
                 accessibilityLabel="Confirm & Accept Request"
               >

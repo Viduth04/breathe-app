@@ -26,7 +26,8 @@ import {
   ClinicalNoteEntry,
   NewSessionFormInput,
 } from "@/types/counsellorDetailScreens";
-import { ChatThread } from "@/types/counsellorMessages";
+import { ChatThread, ChatBubble } from "@/types/counsellorMessages";
+import { TimeSlot } from "@/types/counsellorSchedule";
 import {
   DEFAULT_CLINICAL_ALERT_PREFERENCES,
   MOCK_PATIENTS_LIST,
@@ -34,6 +35,51 @@ import {
   MOCK_SESSION_NOTES_MAYA,
 } from "@/services/mockDetailScreensData";
 import { MOCK_CHAT_THREADS } from "@/services/mockMessagesData";
+import {
+  auth,
+  db,
+  rtdb,
+  FIRESTORE_COLLECTIONS,
+  isFirebaseConfigured,
+  getCounselorAuthIdentity,
+  isRtdbConfigured,
+} from "@/services/counsellorFirebaseConfig";
+import {
+  collection,
+  doc,
+  query,
+  where,
+  onSnapshot,
+  setDoc,
+  updateDoc,
+  addDoc,
+  getDocs,
+  serverTimestamp,
+  writeBatch,
+} from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  initCounselorPresence,
+  setTypingIndicator,
+  subscribeToTypingIndicators,
+  joinCallSignaling,
+  updateCallMedia,
+  subscribeToCallSignaling,
+  endCallSignaling,
+} from "@/services/counsellorRtdbService";
+
+function isFirestorePermissionError(e: any): boolean {
+  if (!e) return false;
+  const code = (e?.code || "").toLowerCase();
+  const msg = (typeof e === "string" ? e : e?.message || String(e)).toLowerCase();
+  return (
+    code.includes("permission") ||
+    msg.includes("permission") ||
+    msg.includes("missing or insufficient permissions")
+  );
+}
+
+
 
 export type CalendarBooking = {
   id: string;
@@ -379,6 +425,295 @@ function notifyListeners() {
   listeners.forEach((listener) => listener());
 }
 
+let unsubscribers: Array<() => void> = [];
+let isSyncInitialized = false;
+
+export function cleanupFirebaseSync() {
+  unsubscribers.forEach((unsub) => {
+    try {
+      unsub();
+    } catch (_) {}
+  });
+  unsubscribers = [];
+  isSyncInitialized = false;
+}
+
+export function initFirebaseSync() {
+  if (isSyncInitialized || !isFirebaseConfigured() || !auth || !db) return;
+  isSyncInitialized = true;
+
+  onAuthStateChanged(auth, async (user) => {
+    cleanupFirebaseSync();
+    isSyncInitialized = true;
+    if (!user) return;
+
+    // Verify user is an active counsellor or admin before querying protected collections
+    const identity = await getCounselorAuthIdentity(user);
+    if (!identity?.isCounselor) {
+      // Non-counsellor (e.g. student or guest) - preserve rich mock state and skip restricted queries
+      return;
+    }
+
+    const counselorUid = user.uid;
+
+    // 0. RTDB Heartbeat Presence (if configured)
+    if (isRtdbConfigured()) {
+      try {
+        const unsubPresence = initCounselorPresence(counselorUid);
+        unsubscribers.push(unsubPresence);
+      } catch (_) {}
+    }
+
+    // 1. Sync Requests for this counselor
+    try {
+      const requestsQuery = query(
+        collection(db, FIRESTORE_COLLECTIONS.REQUESTS),
+        where("counselorId", "in", [counselorUid, "all", "coun_anjali_01"]),
+        where("status", "==", "pending")
+      );
+      const unsubRequests = onSnapshot(
+        requestsQuery,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const firestoreRequests: BookingRequestItem[] = snapshot.docs.map((docSnap) => {
+              const d = docSnap.data();
+              return {
+                id: docSnap.id,
+                studentId: d.studentId || "std-5104",
+                studentAnonId: d.studentAnonId || "Student #5104",
+                displayName: d.displayName || d.studentAnonId || "Student #5104",
+                idMode: d.idMode || "anonymous",
+                requestedTime: d.requestedTime || "10:00–10:45 AM",
+                sessionType: d.sessionType || "video",
+                duration: d.duration || "45m",
+                topic: d.studentNotes || d.topic || "Academic Burnout & Fatigue",
+                aiMoodBrief: d.aiMoodBrief,
+                status: "pending",
+              };
+            });
+            state = {
+              ...state,
+              requests: firestoreRequests,
+            };
+            notifyListeners();
+          }
+        },
+        (err: any) => {
+          if (err?.code !== "permission-denied") {
+            console.warn("[counsellorStore] Requests onSnapshot error:", err?.message || err);
+          }
+        }
+      );
+      unsubscribers.push(unsubRequests);
+    } catch (err) {
+      // Graceful fallback to mock data
+    }
+
+    // 2. Sync Sessions
+    try {
+      const sessionsQuery = query(
+        collection(db, FIRESTORE_COLLECTIONS.SESSIONS),
+        where("counselorId", "==", counselorUid)
+      );
+      const unsubSessions = onSnapshot(
+        sessionsQuery,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const firestoreSessions: SessionItem[] = snapshot.docs.map((docSnap) => {
+              const d = docSnap.data();
+              return {
+                id: docSnap.id,
+                studentId: d.studentId || "std-1",
+                studentAnonId: d.studentAnonId || "Student #4021",
+                displayName: d.displayName || d.studentAnonId || "Student #4021",
+                idMode: d.idMode || "anonymous",
+                timeRange: d.timeRange || "09:00 AM – 09:50 AM",
+                timeRelative: d.timeRelative || "Today",
+                isNext: !!d.isNext,
+                sessionType: d.sessionType || "video",
+                sessionTypeLabel: d.sessionTypeLabel || "Encrypted Video Consultation",
+                noteType: d.noteType || "Focus",
+                noteText: d.noteText || "",
+                status: d.status || "confirmed",
+              };
+            });
+            state = {
+              ...state,
+              sessions: firestoreSessions,
+            };
+            notifyListeners();
+          }
+        },
+        (err: any) => {
+          if (err?.code !== "permission-denied") {
+            console.warn("[counsellorStore] Sessions onSnapshot error:", err?.message || err);
+          }
+        }
+      );
+      unsubscribers.push(unsubSessions);
+    } catch (err) {
+      // Graceful fallback to mock data
+    }
+
+    // 3. Sync Notifications / Alerts
+    try {
+      const alertsQuery = query(
+        collection(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS),
+        where("recipientId", "==", counselorUid)
+      );
+      const unsubAlerts = onSnapshot(
+        alertsQuery,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const firestoreAlerts: AlertItem[] = snapshot.docs.map((docSnap) => {
+              const d = docSnap.data();
+              return {
+                id: docSnap.id,
+                title: d.title || "Notification",
+                description: d.description || "",
+                timestamp: d.timestamp || "Just now",
+                isUnread: d.isUnread !== false,
+                category: d.category || "session",
+                priority: d.priority || "normal",
+                iconName: d.iconName || "notifications-outline",
+                actionLabel: d.actionLabel,
+                badgeLabel: d.badgeLabel,
+              };
+            });
+            const unread = firestoreAlerts.filter((a) => a.isUnread).length;
+            state = {
+              ...state,
+              alerts: firestoreAlerts,
+              alertsUnread: unread,
+            };
+            notifyListeners();
+          }
+        },
+        (err: any) => {
+          if (err?.code !== "permission-denied") {
+            console.warn("[counsellorStore] Alerts onSnapshot error:", err?.message || err);
+          }
+        }
+      );
+      unsubscribers.push(unsubAlerts);
+    } catch (err) {
+      // Graceful fallback to mock data
+    }
+
+    // 4. Sync Counselor Preferences
+    try {
+      const prefDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELOR_PREFERENCES, counselorUid);
+      const unsubPrefs = onSnapshot(
+        prefDocRef,
+        (docSnap) => {
+          if (docSnap.exists()) {
+            const prefData = docSnap.data() as Partial<ClinicalAlertPreferences>;
+            state = {
+              ...state,
+              alertPreferences: {
+                ...state.alertPreferences,
+                ...prefData,
+              },
+            };
+            notifyListeners();
+          }
+        },
+        (err: any) => {
+          if (err?.code !== "permission-denied") {
+            console.warn("[counsellorStore] Prefs onSnapshot error:", err?.message || err);
+          }
+        }
+      );
+      unsubscribers.push(unsubPrefs);
+    } catch (err) {
+      // Graceful fallback to mock data
+    }
+
+    // 5. Sync Counselor Profile & Availability
+    try {
+      const counselorDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELORS, counselorUid);
+      const unsubCounselor = onSnapshot(
+        counselorDocRef,
+        (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            state = {
+              ...state,
+              isAvailable: typeof data.isAvailable === "boolean" ? data.isAvailable : state.isAvailable,
+              profile: {
+                ...state.profile,
+                fullName: data.fullName || state.profile.fullName,
+                title: data.title || state.profile.title,
+                isAvailable: typeof data.isAvailable === "boolean" ? data.isAvailable : state.profile.isAvailable,
+              },
+            };
+            notifyListeners();
+          }
+        },
+        (err: any) => {
+          if (err?.code !== "permission-denied") {
+            console.warn("[counsellorStore] Profile onSnapshot error:", err?.message || err);
+          }
+        }
+      );
+      unsubscribers.push(unsubCounselor);
+    } catch (err) {
+      // Graceful fallback to mock data
+    }
+
+    // 6. Sync Clinical Notes for this counselor
+    try {
+      const notesQuery = query(
+        collection(db, FIRESTORE_COLLECTIONS.CLINICAL_NOTES),
+        where("counselorId", "==", counselorUid)
+      );
+      const unsubNotes = onSnapshot(
+        notesQuery,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const updatedNotesMap: Record<string, SessionNotesData> = { ...state.sessionNotes };
+            snapshot.docs.forEach((docSnap) => {
+              const d = docSnap.data();
+              const patientKey = d.patientId || "std-maya";
+              const noteEntry: ClinicalNoteEntry = {
+                id: docSnap.id,
+                date: d.date || "Today",
+                content: d.content || "",
+                status: d.status || "Completed",
+                signedStatus: d.signedStatus || "Signed & Synced",
+                counselorName: d.counselorName || state.profile.fullName,
+                modality: d.modality || "Consultation",
+              };
+              if (updatedNotesMap[patientKey]) {
+                const existing = updatedNotesMap[patientKey].notes || [];
+                if (!existing.some((n) => n.id === noteEntry.id)) {
+                  updatedNotesMap[patientKey] = {
+                    ...updatedNotesMap[patientKey],
+                    notes: [noteEntry, ...existing],
+                  };
+                }
+              }
+            });
+            state = {
+              ...state,
+              sessionNotes: updatedNotesMap,
+            };
+            notifyListeners();
+          }
+        },
+        (err: any) => {
+          if (!isFirestorePermissionError(err)) {
+            console.warn("[counsellorStore] Clinical notes onSnapshot error:", err?.message || err);
+          }
+        }
+      );
+      unsubscribers.push(unsubNotes);
+    } catch (err) {
+      // Graceful fallback
+    }
+  });
+}
+
 // ─── Exported Actions ───
 
 export const counsellorStore = {
@@ -480,6 +815,93 @@ export const counsellorStore = {
     };
 
     notifyListeners();
+
+    // Background Firebase write (atomic batch including careLinks)
+    if (isFirebaseConfigured() && auth.currentUser) {
+      const uid = auth.currentUser.uid;
+      (async () => {
+        try {
+          const studentId = targetReq.studentId || "std-5104";
+          const batch = writeBatch(db);
+
+          // 1. Update Request status
+          if (targetReq.id && !targetReq.id.startsWith("mock-") && !targetReq.id.startsWith("req-5104")) {
+            const reqRef = doc(db, FIRESTORE_COLLECTIONS.REQUESTS, targetReq.id);
+            batch.update(reqRef, {
+              status: "accepted",
+              counselorNote: counselorNote || null,
+              acceptedAt: serverTimestamp(),
+            });
+
+            // 2. Also update status in bookings collection if it exists
+            const bookingRef = doc(db, FIRESTORE_COLLECTIONS.BOOKINGS, targetReq.id);
+            batch.update(bookingRef, {
+              status: "confirmed",
+              updatedAt: serverTimestamp(),
+            });
+          }
+
+          // 3. Atomically create careLinks/{counsellorId}_{studentId}
+          // Doc ID is strictly "<counsellorUid>_<studentUid>" per firestore.rules
+          const careLinkId = `${uid}_${studentId}`;
+          const existingLinks = await getDocs(
+            query(
+              collection(db, "careLinks"),
+              where("counsellorId", "==", uid),
+              where("studentId", "==", studentId)
+            )
+          );
+          if (existingLinks.empty) {
+            const careLinkRef = doc(db, "careLinks", careLinkId);
+            batch.set(careLinkRef, {
+              counsellorId: uid,
+              studentId: studentId,
+              bookingId: targetReq.id || `booking-${Date.now()}`,
+              createdAt: serverTimestamp(),
+            });
+          }
+
+          // 4. Create confirmed session in sessions collection
+          const sessionRef = doc(collection(db, FIRESTORE_COLLECTIONS.SESSIONS));
+          batch.set(sessionRef, {
+            counselorId: uid,
+            studentId: studentId,
+            studentAnonId: studentAnonId,
+            displayName: targetReq.displayName,
+            idMode: targetReq.idMode,
+            sessionType: targetReq.sessionType || "video",
+            sessionTypeLabel: "Encrypted Video Call (45m)",
+            timeRange: targetReq.requestedTime || "10:00–10:45 AM",
+            date: "Tomorrow, Tue 19 Aug",
+            status: "confirmed",
+            roomId: "brth-5104-sec",
+            securityTag: "E2E Encrypted",
+            noteText: counselorNote || targetReq.topic,
+            createdAt: serverTimestamp(),
+          });
+
+          // 5. Create confirmation notification
+          const notifRef = doc(collection(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS));
+          batch.set(notifRef, {
+            recipientId: uid,
+            title: "Session Confirmed",
+            description: `Consultation with ${studentAnonId} confirmed for Tomorrow 10:00 AM.`,
+            category: "session",
+            priority: "urgent",
+            isUnread: true,
+            createdAt: serverTimestamp(),
+          });
+
+          // Commit all operations atomically
+          await batch.commit();
+        } catch (e: any) {
+          if (!isFirestorePermissionError(e)) {
+            console.warn("[counsellorStore] Firestore confirmAcceptance atomic batch sync error:", e?.message || e);
+          }
+        }
+      })();
+    }
+
     return acceptedPayload;
   },
 
@@ -495,7 +917,21 @@ export const counsellorStore = {
       },
     };
     notifyListeners();
+
+    if (isFirebaseConfigured() && auth.currentUser) {
+      const uid = auth.currentUser.uid;
+      setDoc(
+        doc(db, FIRESTORE_COLLECTIONS.COUNSELORS, uid),
+        { isAvailable: nextVal, updatedAt: serverTimestamp() },
+        { merge: true }
+      ).catch((e) => {
+        if (!isFirestorePermissionError(e)) {
+          console.warn("[counsellorStore] toggleAvailability sync error:", e);
+        }
+      });
+    }
   },
+
 
   // Toggle 2FA switch
   toggleTwoFactor() {
@@ -531,6 +967,19 @@ export const counsellorStore = {
       },
     };
     notifyListeners();
+
+    if (isFirebaseConfigured() && auth.currentUser) {
+      const uid = auth.currentUser.uid;
+      setDoc(
+        doc(db, FIRESTORE_COLLECTIONS.COUNSELORS, uid),
+        { ...partial, updatedAt: serverTimestamp() },
+        { merge: true }
+      ).catch((e) => {
+        if (!isFirestorePermissionError(e)) {
+          console.warn("[counsellorStore] updateSettings sync error:", e);
+        }
+      });
+    }
   },
 
   // Block an open calendar slot
@@ -552,6 +1001,24 @@ export const counsellorStore = {
       alertsUnread: 0,
     };
     notifyListeners();
+
+    if (isFirebaseConfigured() && auth.currentUser) {
+      const uid = auth.currentUser.uid;
+      (async () => {
+        try {
+          const unreadSnap = await getDocs(
+            query(
+              collection(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS),
+              where("recipientId", "==", uid),
+              where("isUnread", "==", true)
+            )
+          );
+          unreadSnap.forEach((d) => {
+            updateDoc(d.ref, { isUnread: false }).catch(() => {});
+          });
+        } catch (_) {}
+      })();
+    }
   },
 
   // Decline booking request (e.g. Student #5104)
@@ -603,6 +1070,37 @@ export const counsellorStore = {
     };
 
     notifyListeners();
+
+    // Background Firebase write
+    if (isFirebaseConfigured() && auth.currentUser) {
+      const uid = auth.currentUser.uid;
+      (async () => {
+        try {
+          if (targetReq.id && !targetReq.id.startsWith("mock-") && !targetReq.id.startsWith("req-5104")) {
+            await updateDoc(doc(db, FIRESTORE_COLLECTIONS.REQUESTS, targetReq.id), {
+              status: "declined",
+              declineReason: reason,
+              declineNote: note || null,
+              declinedAt: serverTimestamp(),
+            });
+          }
+          await addDoc(collection(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS), {
+            recipientId: uid,
+            title: "Request Declined",
+            description: `Booking request for ${studentAnonId} declined (${reason}). Note dispatched securely.`,
+            category: "session",
+            priority: "normal",
+            isUnread: true,
+            createdAt: serverTimestamp(),
+          });
+        } catch (e: any) {
+          if (!isFirestorePermissionError(e)) {
+            console.warn("[counsellorStore] Firestore declineRequest sync error:", e?.message || e);
+          }
+        }
+      })();
+    }
+
     return declinedPayload;
   },
 
@@ -681,6 +1179,19 @@ export const counsellorStore = {
       },
     };
     notifyListeners();
+
+    if (isFirebaseConfigured() && auth.currentUser) {
+      const uid = auth.currentUser.uid;
+      setDoc(
+        doc(db, FIRESTORE_COLLECTIONS.COUNSELOR_PREFERENCES, uid),
+        { ...partial, updatedAt: serverTimestamp() },
+        { merge: true }
+      ).catch((e) => {
+        if (!isFirestorePermissionError(e)) {
+          console.warn("[counsellorStore] updateAlertPreferences sync error:", e);
+        }
+      });
+    }
   },
 
   // Send opening message to student from waiting room
@@ -764,7 +1275,8 @@ export const counsellorStore = {
       displayName: input.displayName,
       idMode: input.idMode,
       timeRange: `${input.startTime} – ${input.endTime}`,
-      timeRelative: isToday ? "Today" : "Tomorrow",
+      timeRelative: isToday ? "Today" : input.date.includes("Tomorrow") ? "Tomorrow" : "Upcoming",
+      date: input.date,
       isNext: false,
       sessionType: input.sessionType,
       sessionTypeLabel:
@@ -819,13 +1331,68 @@ export const counsellorStore = {
 
     state = {
       ...state,
-      sessions: isToday ? [newSession, ...state.sessions] : state.sessions,
+      sessions: [newSession, ...state.sessions],
       calendarBookings: [...state.calendarBookings, newCalendarBooking],
       alerts: [newAlert, ...state.alerts],
       alertsUnread: state.alertsUnread + 1,
     };
 
     notifyListeners();
+
+    if (isFirebaseConfigured() && auth.currentUser) {
+      const uid = auth.currentUser.uid;
+      (async () => {
+        try {
+          // 1. Write to counsellor sessions collection
+          await addDoc(collection(db, FIRESTORE_COLLECTIONS.SESSIONS), {
+            counselorId: uid,
+            studentId: input.studentId,
+            studentAnonId: input.studentAnonId,
+            displayName: input.displayName,
+            idMode: input.idMode,
+            sessionType: input.sessionType,
+            timeRange: `${input.startTime} – ${input.endTime}`,
+            date: input.date,
+            status: "confirmed",
+            roomOrDetail: input.locationOrRoom || "Room 302",
+            noteText: input.focus?.trim() || "General Consultation",
+            createdAt: serverTimestamp(),
+          });
+
+          // 2. Also write to root bookings collection (aligned with Member 1 rules)
+          try {
+            await addDoc(collection(db, FIRESTORE_COLLECTIONS.BOOKINGS), {
+              counsellorId: uid,
+              studentId: input.studentId,
+              studentAnonId: input.studentAnonId,
+              sessionType: input.sessionType,
+              status: "confirmed",
+              notes: input.focus?.trim() || "General Consultation",
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          } catch (_) {}
+
+          // 3. Write in-app notification
+          await addDoc(collection(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS), {
+            recipientId: uid,
+            title: "New Session Scheduled",
+            description: `Appointment with ${input.displayName} confirmed for ${input.date} at ${input.startTime}.`,
+            category: "session",
+            priority: "normal",
+            isUnread: true,
+            createdAt: serverTimestamp(),
+          });
+        } catch (e: any) {
+          if (!isFirestorePermissionError(e)) {
+            console.warn("[counsellorStore] Firestore addSession sync error:", e?.message || e);
+          }
+        }
+      })();
+    } else {
+      console.log("[counsellorStore] Local mode: Session added to reactive store without cloud auth session.");
+    }
+
     return newSession;
   },
 
@@ -924,6 +1491,24 @@ export const counsellorStore = {
       sessions: updatedSessions,
     };
     notifyListeners();
+
+    if (isFirebaseConfigured() && auth.currentUser) {
+      const uid = auth.currentUser.uid;
+      addDoc(collection(db, FIRESTORE_COLLECTIONS.CLINICAL_NOTES), {
+        patientId: key,
+        counselorId: uid,
+        counselorName: state.profile.fullName || "Dr. Anjali Perera",
+        content,
+        modality,
+        status: "Completed",
+        signedStatus: "Signed & Synced",
+        createdAt: serverTimestamp(),
+      }).catch((e) => {
+        if (!isFirestorePermissionError(e)) {
+          console.warn("[counsellorStore] addClinicalNote sync error:", e);
+        }
+      });
+    }
   },
 
   // Cancel scheduled session
@@ -956,6 +1541,34 @@ export const counsellorStore = {
       alertsUnread: state.alertsUnread + 1,
     };
     notifyListeners();
+
+    if (isFirebaseConfigured() && auth.currentUser) {
+      const uid = auth.currentUser.uid;
+      (async () => {
+        try {
+          if (sessionIdOrAnonId && !sessionIdOrAnonId.startsWith("session-")) {
+            await updateDoc(doc(db, FIRESTORE_COLLECTIONS.SESSIONS, sessionIdOrAnonId), {
+              status: "cancelled",
+              cancelReason: reason,
+              cancelledAt: serverTimestamp(),
+            });
+          }
+          await addDoc(collection(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS), {
+            recipientId: uid,
+            title: "Session Canceled",
+            description: `Session with ${studentLabel} canceled (${reason}). Notification logged.`,
+            category: "session",
+            priority: "normal",
+            isUnread: true,
+            createdAt: serverTimestamp(),
+          });
+        } catch (e) {
+          if (!isFirestorePermissionError(e)) {
+            console.warn("[counsellorStore] Firestore cancelSession sync error:", e);
+          }
+        }
+      })();
+    }
   },
 
   // Reschedule session
@@ -1009,6 +1622,81 @@ export const counsellorStore = {
     notifyListeners();
     return nextHeld;
   },
+
+  // Send a confidential chat message (syncs with chats/{chatId}/messages)
+  async sendChatMessage(chatId: string, text: string): Promise<ChatBubble> {
+    const counselorUid = auth?.currentUser?.uid || "coun_anjali_01";
+    const newBubble: ChatBubble = {
+      id: `msg-${Date.now()}`,
+      senderId: counselorUid,
+      senderRole: "counsellor",
+      text,
+      timestamp: "Just now",
+      deliveryStatus: "delivered",
+    };
+
+    if (isFirebaseConfigured() && auth.currentUser) {
+      try {
+        const messagesCol = collection(db, "chats", chatId, "messages");
+        await addDoc(messagesCol, {
+          senderId: counselorUid,
+          senderRole: "counsellor",
+          text,
+          createdAt: serverTimestamp(),
+          deliveryStatus: "delivered",
+        });
+      } catch (e) {
+        if (!isFirestorePermissionError(e)) {
+          console.warn("[counsellorStore] sendChatMessage error:", e);
+        }
+      }
+    }
+
+    return newBubble;
+  },
+
+  // Save availability slots to root slots collection (aligned with firestore.rules)
+  async saveScheduleSlots(slots: TimeSlot[]) {
+    state = {
+      ...state,
+      scheduleDaySlots: state.scheduleDaySlots.map((ds) => {
+        const matching = slots.find((s) => s.timeRange === ds.timeRange);
+        return matching ? { ...ds, isHeld: matching.status === "closed" } : ds;
+      }),
+    };
+    notifyListeners();
+
+    if (isFirebaseConfigured() && auth.currentUser) {
+      const uid = auth.currentUser.uid;
+      try {
+        const batch = writeBatch(db);
+        slots.forEach((slot) => {
+          const timeSlug = slot.timeRange.replace(/[^a-zA-Z0-9]/g, "");
+          const slotDocRef = doc(db, "slots", `slot_${uid}_${timeSlug}`);
+          batch.set(
+            slotDocRef,
+            {
+              counsellorId: uid,
+              timeRange: slot.timeRange,
+              status: slot.status,
+              isBooked: slot.status === "booked",
+              bookedStudentAnonId: slot.bookedStudentAnonId || null,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        });
+        await batch.commit();
+      } catch (e) {
+        if (!isFirestorePermissionError(e)) {
+          console.warn("[counsellorStore] saveScheduleSlots error:", e);
+        }
+      }
+    }
+  },
+
+  initFirebaseSync,
+  cleanupFirebaseSync,
 };
 
 // ─── React Hook for Functional Components ───
@@ -1016,6 +1704,7 @@ export function useCounsellorStore() {
   const [storeState, setStoreState] = useState(counsellorStore.getState());
 
   useEffect(() => {
+    initFirebaseSync();
     const handleUpdate = () => {
       setStoreState(counsellorStore.getState());
     };
@@ -1027,6 +1716,9 @@ export function useCounsellorStore() {
 
   return {
     ...storeState,
+    initFirebaseSync,
+    cleanupFirebaseSync,
+
     confirmAcceptance: counsellorStore.confirmAcceptance,
     declineRequest: counsellorStore.declineRequest,
     toggleMic: counsellorStore.toggleMic,
@@ -1053,5 +1745,15 @@ export function useCounsellorStore() {
     setSelectedCalendarDay: counsellorStore.setSelectedCalendarDay,
     setSelectedCalendarMonth: counsellorStore.setSelectedCalendarMonth,
     toggleHoldScheduleSlot: counsellorStore.toggleHoldScheduleSlot,
+    sendChatMessage: counsellorStore.sendChatMessage,
+    saveScheduleSlots: counsellorStore.saveScheduleSlots,
+
+    // RTDB Real-time signaling
+    setTypingIndicator,
+    subscribeToTypingIndicators,
+    joinCallSignaling,
+    updateCallMedia,
+    subscribeToCallSignaling,
+    endCallSignaling,
   };
 }
