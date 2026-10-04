@@ -2,7 +2,8 @@
 
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useId } from "react";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 type Props<T extends string> = {
   label: string;
@@ -24,6 +25,7 @@ export default function ChipSelect<T extends string>({
   error,
   optionLabel = (o) => o,
 }: Props<T>) {
+  const errorId = `chips-error-${useId()}`;
   const toggle = (option: T) => {
     if (!multiple) return onChange([option]);
     onChange(
@@ -46,6 +48,12 @@ export default function ChipSelect<T extends string>({
               accessibilityRole={multiple ? "checkbox" : "radio"}
               accessibilityLabel={`${label}: ${optionLabel(option)}`}
               accessibilityState={{ checked: active }}
+              // The error is read with each chip: hint on iOS/Android,
+              // aria-describedby on web (RN's types lack it)
+              accessibilityHint={error ? `Error: ${error}` : undefined}
+              {...(error && Platform.OS === "web"
+                ? { "aria-describedby": errorId }
+                : null)}
               style={[
                 styles.chip,
                 active && styles.chipActive,
@@ -68,7 +76,11 @@ export default function ChipSelect<T extends string>({
           );
         })}
       </View>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <Text style={styles.error} nativeID={errorId}>
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }

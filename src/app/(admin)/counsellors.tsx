@@ -23,6 +23,7 @@ import {
   deleteCounsellor,
   listCounsellors,
   listUsers,
+  pendingStaffRequests,
   updateCounsellor,
 } from "@/services/adminService";
 import { getAuthErrorMessage, UserProfile } from "@/services/authService";
@@ -84,6 +85,13 @@ export default function Counsellors() {
     const ids = new Set(profiles.map((p) => p.uid));
     return users.filter((u) => u.role === "counsellor" && !ids.has(u.uid));
   }, [profiles, users]);
+
+  // Counsellor sign-ups not approved yet: the form points to them, but they
+  // can't get a profile until they really have the counsellor role
+  const pendingCounsellors = useMemo(
+    () => pendingStaffRequests(users).filter((u) => u.requestedRole === "counsellor"),
+    [users],
+  );
 
   const hideNotice = useCallback(() => setNotice(null), []);
 
@@ -149,7 +157,9 @@ export default function Counsellors() {
         <Button
           title="Add Counsellor Profile"
           icon="person-add-outline"
-          onPress={() => setForm({ existing: null })}
+          // Reload first: this tab stays mounted, so someone approved as a
+          // counsellor since it loaded wouldn't be in the account list yet
+          onPress={() => load().then(() => setForm({ existing: null }))}
           style={styles.addButton}
         />
       </AdminHeader>
@@ -280,6 +290,11 @@ export default function Counsellors() {
           existing={form.existing}
           candidates={missing}
           initialUid={form.initialUid}
+          pendingRequests={pendingCounsellors}
+          onReviewRequests={() => {
+            setForm(null);
+            router.navigate({ pathname: "/(admin)/users", params: { requests: "1" } });
+          }}
           onClose={() => setForm(null)}
           onSaved={handleSaved}
         />

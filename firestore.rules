@@ -44,6 +44,8 @@
 //                               uid (same as doc id), fullName, title,
 //                               specialties[], languages[], experienceYears,
 //                               bio, isAvailable, updatedAt
+//                               EXACTLY these fields, checked by
+//                               validCounsellorProfile() below
 //                               (type: src/types/counsellor.ts)
 //   counsellorPhotos/{counsellorId}
 //                               doc id = a counsellor's uid that HAS a
@@ -340,13 +342,41 @@ service cloud.firestore {
     match /counsellors/{counsellorId} {
       allow read: if isSignedIn();
 
+      // The whole profile as it will be saved. Same checks (and numbers) as
+      // src/utils/validateCounsellor.ts and the limits in
+      // src/types/counsellor.ts - change them together.
+      function validCounsellorProfile(d) {
+        return d.keys().hasAll(["uid", "fullName", "title", "specialties", "languages",
+            "experienceYears", "bio", "isAvailable", "updatedAt"])
+          && d.keys().hasOnly(["uid", "fullName", "title", "specialties", "languages",
+            "experienceYears", "bio", "isAvailable", "updatedAt"])
+          && d.fullName is string
+          && d.fullName.trim().size() >= 2 && d.fullName.trim().size() <= 80
+          && d.title is string
+          && d.title.trim().size() >= 1 && d.title.trim().size() <= 100
+          && d.specialties is list
+          && d.specialties.size() >= 1 && d.specialties.size() <= 6
+          && d.specialties.hasOnly(["Anxiety", "Stress", "Depression",
+            "Academic Pressure", "Sleep", "Relationships"])
+          && d.languages is list
+          && d.languages.size() >= 1 && d.languages.size() <= 3
+          && d.languages.hasOnly(["English", "Sinhala", "Tamil"])
+          && d.experienceYears is int
+          && d.experienceYears >= 0 && d.experienceYears <= 60
+          && d.bio is string
+          && d.bio.trim().size() >= 1 && d.bio.trim().size() <= 300
+          && d.isAvailable is bool
+          && d.updatedAt == request.time;
+      }
+
       // A counsellor edits only their own profile; admins can create or edit any.
       // Bookings and chats treat "a counsellors doc exists" as "this is a
       // counsellor", so the profile must belong to a user whose role really is
       // counsellor, and its uid field must match the doc id.
       allow create, update: if ((isOwner(counsellorId) && isCounsellor()) || isAdmin())
         && request.resource.data.uid == counsellorId
-        && userDoc(counsellorId).role == "counsellor";
+        && userDoc(counsellorId).role == "counsellor"
+        && validCounsellorProfile(request.resource.data);
 
       // Admins can always switch a profile OFF (nothing else), even after the
       // person stops being a counsellor. The Users tab does this in the same
