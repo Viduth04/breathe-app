@@ -39,6 +39,7 @@ export default function AddSessionScreen() {
   const [sendReminder, setSendReminder] = useState(true);
   const [showStudentDropdown, setShowStudentDropdown] = useState(false);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Auto-calculated end time
   const calculatedEndTime = useMemo(() => {
@@ -65,19 +66,28 @@ export default function AddSessionScreen() {
     return "Wednesday, Aug 20, 2026";
   }, [selectedDateQuick]);
 
-  // Validation: Check for required fields and overlapping sessions
+  // Validation: Check for required fields and overlapping sessions across all days
   const validationError = useMemo(() => {
     if (!selectedStudent) {
       return "Student selection is required.";
     }
 
-    // Check overlap with existing confirmed sessions on that time/date
-    const isToday = selectedDateQuick === "Today";
-    if (isToday) {
-      const overlap = store.sessions.find((s) => s.timeRange.includes(startTime));
-      if (overlap) {
-        return `Conflict: ${overlap.displayName} is already scheduled at ${startTime}.`;
+    // Check overlap with existing confirmed sessions on the selected day and time
+    const targetDayText = selectedDateQuick;
+    const overlap = store.sessions.find((s) => {
+      const timeMatches = s.timeRange?.includes(startTime);
+      if (!timeMatches) return false;
+      if (targetDayText === "Today") {
+        return s.timeRelative?.toLowerCase().includes("today") || s.date?.toLowerCase().includes("today");
       }
+      if (targetDayText === "Tomorrow") {
+        return s.timeRelative?.toLowerCase().includes("tomorrow") || s.date?.toLowerCase().includes("tomorrow") || s.date?.toLowerCase().includes("aug 19");
+      }
+      return s.date?.toLowerCase().includes("aug 20");
+    });
+
+    if (overlap) {
+      return `Conflict: ${overlap.displayName} is already scheduled at ${startTime} on ${targetDayText}.`;
     }
 
     return null;
@@ -94,7 +104,8 @@ export default function AddSessionScreen() {
   };
 
   const handleAddSessionSubmit = () => {
-    if (!isValid) return;
+    if (!isValid || isSubmitting) return;
+    setIsSubmitting(true);
 
     store.addSession({
       studentId: selectedStudent.id,
@@ -620,14 +631,14 @@ export default function AddSessionScreen() {
 
           <Pressable
             onPress={handleAddSessionSubmit}
-            disabled={!isValid}
+            disabled={!isValid || isSubmitting}
             accessibilityRole="button"
             accessibilityLabel="Submit and Add Session"
-            accessibilityState={{ disabled: !isValid }}
+            accessibilityState={{ disabled: !isValid || isSubmitting }}
             style={({ pressed }) => [
               styles.submitButton,
-              !isValid && styles.submitButtonDisabled,
-              pressed && isValid && styles.pressedState,
+              (!isValid || isSubmitting) && styles.submitButtonDisabled,
+              pressed && isValid && !isSubmitting && styles.pressedState,
             ]}
           >
             <Text style={styles.submitButtonText}>Add Session</Text>

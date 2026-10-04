@@ -142,6 +142,7 @@ export default function CounsellorScheduleScreen() {
   };
 
   const handleSave = () => {
+    store.saveScheduleSlots(slots);
     showToast("Availability saved. Changes reflected instantly.");
   };
 

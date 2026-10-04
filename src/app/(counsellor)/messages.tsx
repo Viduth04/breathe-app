@@ -17,6 +17,12 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { useCounsellorStore } from "@/services/counsellorStore";
 import {
+  auth,
+  db,
+  isFirebaseConfigured,
+} from "@/services/counsellorFirebaseConfig";
+import { collection, onSnapshot } from "firebase/firestore";
+import {
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -37,6 +43,7 @@ export default function CounsellorMessagesScreen() {
     threads: storeThreads,
     clearAllConversations,
     resetConversations,
+    sendChatMessage,
   } = useCounsellorStore();
 
   const params = useLocalSearchParams<{ studentAnonId?: string; fromAcceptance?: string }>();
@@ -89,6 +96,37 @@ export default function CounsellorMessagesScreen() {
     }
   }, [params?.studentAnonId, params?.fromAcceptance]);
 
+  // Sync live messages for active chat thread
+  useEffect(() => {
+    if (!activeChatId || !isFirebaseConfigured() || !db) return;
+    try {
+      const messagesCol = collection(db, "chats", activeChatId, "messages");
+      const unsub = onSnapshot(
+        messagesCol,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const loaded: ChatBubble[] = snapshot.docs.map((docSnap) => {
+              const d = docSnap.data();
+              return {
+                id: docSnap.id,
+                senderId: d.senderId,
+                senderRole: d.senderRole || (d.senderId === auth?.currentUser?.uid ? "counsellor" : "student"),
+                text: d.text || "",
+                timestamp: "Just now",
+                deliveryStatus: d.deliveryStatus || "delivered",
+              };
+            });
+            setMessages(loaded);
+          }
+        },
+        () => {
+          // Graceful fallback to mock bubbles on permission error
+        }
+      );
+      return () => unsub();
+    } catch (_) {}
+  }, [activeChatId]);
+
   // Open a conversation thread
   const handleOpenThread = (thread: ChatThread) => {
     setActiveChatId(thread.id);
@@ -103,16 +141,22 @@ export default function CounsellorMessagesScreen() {
   // Send a new confidential message
   const handleSend = () => {
     if (!chatInput.trim()) return;
+    const text = chatInput.trim();
+    setChatInput("");
+
+    const chatId = activeChatId || activeThread?.id || "chat-maya-01";
+    const counselorUid = auth?.currentUser?.uid || "coun_anjali_01";
     const newBubble: ChatBubble = {
       id: `msg-${Date.now()}`,
-      senderId: "counsellor-1",
+      senderId: counselorUid,
       senderRole: "counsellor",
-      text: chatInput.trim(),
+      text,
       timestamp: "Just now",
       deliveryStatus: "delivered",
     };
     setMessages((prev) => [...prev, newBubble]);
-    setChatInput("");
+
+    sendChatMessage(chatId, text).catch(() => {});
   };
 
   // Filter threads based on active filter chip and search query

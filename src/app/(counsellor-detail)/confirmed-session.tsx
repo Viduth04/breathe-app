@@ -13,15 +13,36 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { MOCK_CONFIRMED_SESSION } from "@/services/mockDetailScreensData";
 import { ConfirmedSessionData } from "@/types/counsellorDetailScreens";
 import { useCounsellorStore } from "@/services/counsellorStore";
 
 export default function ConfirmedSessionScreen() {
+  const params = useLocalSearchParams<{ sessionId?: string; studentAnonId?: string }>();
   const store = useCounsellorStore();
-  const [data] = useState<ConfirmedSessionData>(MOCK_CONFIRMED_SESSION);
+
+  const matchedSession = store.sessions.find(
+    (s) => s.id === params.sessionId || s.studentAnonId === params.studentAnonId
+  );
+
+  const [data] = useState<ConfirmedSessionData>(() => {
+    if (matchedSession) {
+      return {
+        ...MOCK_CONFIRMED_SESSION,
+        id: matchedSession.id,
+        studentAnonId: matchedSession.studentAnonId,
+        displayName: matchedSession.displayName,
+        idMode: matchedSession.idMode,
+        sessionType: matchedSession.sessionType,
+        sessionTypeLabel: matchedSession.sessionTypeLabel,
+        timeRange: matchedSession.timeRange,
+      };
+    }
+    return MOCK_CONFIRMED_SESSION;
+  });
+
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -31,8 +52,9 @@ export default function ConfirmedSessionScreen() {
       params: {
         studentAnonId: data.studentAnonId,
         sessionTitle: data.sessionTypeLabel || "Encrypted Video Consultation",
-        timeRange: "02:00 PM – 02:45 PM",
+        timeRange: data.time || "02:00 PM – 02:45 PM",
         duration: "45 min session",
+        sessionId: data.id,
       },
     });
   };
@@ -55,7 +77,7 @@ export default function ConfirmedSessionScreen() {
 
   const confirmCancel = () => {
     setCancelModalVisible(false);
-    store.cancelSession("session-1", "Canceled by counselor via Confirmed Session Screen");
+    store.cancelSession(data.id || "session-1", "Canceled by counselor via Confirmed Session Screen");
     setFeedback("Session cancelled. Slot returned to availability calendar.");
   };
 

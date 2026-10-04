@@ -12,13 +12,33 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { MOCK_NOTIFICATION_DETAIL } from "@/services/mockDetailScreensData";
 import { NotificationDetailData } from "@/types/counsellorDetailScreens";
+import { useCounsellorStore } from "@/services/counsellorStore";
 
 export default function NotificationDetailScreen() {
-  const [data] = useState<NotificationDetailData>(MOCK_NOTIFICATION_DETAIL);
+  const params = useLocalSearchParams<{ notificationId?: string; id?: string }>();
+  const store = useCounsellorStore();
+
+  const matchedAlert = store.alerts.find(
+    (a) => a.id === params.notificationId || a.id === params.id
+  );
+
+  const [data] = useState<NotificationDetailData>(() => {
+    if (matchedAlert) {
+      return {
+        ...MOCK_NOTIFICATION_DETAIL,
+        id: matchedAlert.id,
+        title: matchedAlert.title,
+        timestamp: matchedAlert.timestamp,
+        clinicalSummary: matchedAlert.description,
+        primaryConcernTopic: matchedAlert.title,
+      };
+    }
+    return MOCK_NOTIFICATION_DETAIL;
+  });
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const handleReviewAndAccept = () => {

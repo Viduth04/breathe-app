@@ -53,8 +53,12 @@ export default function DeclineRequestScreen() {
 
   const [selectedReason, setSelectedReason] = useState<string>("Schedule conflict");
   const [supportiveNote, setSupportiveNote] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleConfirmDecline = () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
     declineRequest(
       targetRequest?.id || params.requestId || "req-1",
       selectedReason,
@@ -226,8 +230,9 @@ export default function DeclineRequestScreen() {
 
           {/* ─── Bottom Action Buttons ─── */}
           <Pressable
-            style={styles.confirmDeclineBtn}
+            style={[styles.confirmDeclineBtn, isSubmitting && { opacity: 0.6 }]}
             onPress={handleConfirmDecline}
+            disabled={isSubmitting}
             accessibilityRole="button"
             accessibilityLabel="Confirm Decline"
           >

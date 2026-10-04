@@ -13,13 +13,41 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { MOCK_REQUEST_DETAIL } from "@/services/mockDetailScreensData";
 import { RequestDetailData } from "@/types/counsellorDetailScreens";
+import { useCounsellorStore } from "@/services/counsellorStore";
 
 export default function RequestDetailScreen() {
-  const [data, setData] = useState<RequestDetailData>(MOCK_REQUEST_DETAIL);
+  const params = useLocalSearchParams<{ requestId?: string; studentAnonId?: string }>();
+  const store = useCounsellorStore();
+
+  const matchedReq = store.requests.find(
+    (r) => r.id === params.requestId || r.studentAnonId === params.studentAnonId
+  );
+
+  const [data, setData] = useState<RequestDetailData>(() => {
+    if (matchedReq) {
+      return {
+        ...MOCK_REQUEST_DETAIL,
+        id: matchedReq.id,
+        studentAnonId: matchedReq.studentAnonId,
+        displayName: matchedReq.displayName,
+        idMode: matchedReq.idMode,
+        sessionType: matchedReq.sessionType,
+        sessionTypeLabel:
+          matchedReq.sessionType === "video"
+            ? "Encrypted Video Call (45m)"
+            : matchedReq.sessionType === "chat"
+            ? "Secured Chat Session"
+            : "In-Person Consultation",
+        proposedTime: matchedReq.requestedTime || "10:00–10:45 AM",
+        primaryConcernTopic: matchedReq.topic || "Academic Burnout & Fatigue",
+      };
+    }
+    return MOCK_REQUEST_DETAIL;
+  });
   const [feedback, setFeedback] = useState<string | null>(null);
   const [rescheduleModalVisible, setRescheduleModalVisible] = useState(false);
 

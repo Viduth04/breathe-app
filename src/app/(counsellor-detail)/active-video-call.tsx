@@ -16,11 +16,17 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { useCounsellorStore } from "@/services/counsellorStore";
+import {
+  joinCallSignaling,
+  updateCallMedia,
+  endConsultationCall,
+} from "@/services/telehealthVideoService";
 
 export default function ActiveVideoCallScreen() {
   const params = useLocalSearchParams<{
     studentAnonId?: string;
     sessionTitle?: string;
+    sessionId?: string;
   }>();
 
   const studentAnonId = params.studentAnonId || "Student #4021";
@@ -32,6 +38,15 @@ export default function ActiveVideoCallScreen() {
     completeSession,
   } = useCounsellorStore();
 
+  const roomId = `mnd-${studentAnonId.replace(/[^0-9]/g, "") || "4021"}-sec`;
+
+  useEffect(() => {
+    joinCallSignaling(roomId, "counselor", callMediaState).catch(() => {});
+    return () => {
+      endConsultationCall(roomId).catch(() => {});
+    };
+  }, [roomId]);
+
   // Call timer: starting at 12:34 (754 seconds) as in Figma mockup, counting up
   const [seconds, setSeconds] = useState(754);
   const [isCallActive, setIsCallActive] = useState(true);
@@ -40,6 +55,17 @@ export default function ActiveVideoCallScreen() {
   const [clinicalNotes, setClinicalNotes] = useState(
     "Student reports academic deadline anxiety. Practicing 4-7-8 breathing technique."
   );
+
+  const handleToggleMic = () => {
+    toggleMic();
+    updateCallMedia(roomId, "counselor", { micOn: !callMediaState.micOn, camOn: callMediaState.camOn }).catch(() => {});
+  };
+
+  const handleToggleCam = () => {
+    toggleCam();
+    updateCallMedia(roomId, "counselor", { micOn: callMediaState.micOn, camOn: !callMediaState.camOn }).catch(() => {});
+  };
+
 
   useEffect(() => {
     if (!isCallActive) return;
@@ -87,12 +113,15 @@ export default function ActiveVideoCallScreen() {
           text: "End Session",
           style: "destructive",
           onPress: () => {
-            completeSession("session-1");
+            endConsultationCall(roomId).catch(() => {});
+            const targetSessionId = params.sessionId || "session-1";
+            completeSession(targetSessionId);
             router.replace({
               pathname: "/(counsellor-detail)/past-sessions",
               params: {
                 studentAnonId,
                 displayName: studentAnonId,
+                sessionId: targetSessionId,
               },
             });
           },
@@ -237,7 +266,7 @@ export default function ActiveVideoCallScreen() {
               styles.dockBtn,
               !callMediaState.micOn && styles.dockBtnMuted,
             ]}
-            onPress={toggleMic}
+            onPress={handleToggleMic}
             accessibilityRole="button"
             accessibilityLabel={callMediaState.micOn ? "Mute" : "Unmute"}
           >
@@ -259,7 +288,7 @@ export default function ActiveVideoCallScreen() {
               styles.dockBtn,
               !callMediaState.camOn && styles.dockBtnMuted,
             ]}
-            onPress={toggleCam}
+            onPress={handleToggleCam}
             accessibilityRole="button"
             accessibilityLabel={callMediaState.camOn ? "Turn Video Off" : "Turn Video On"}
           >
