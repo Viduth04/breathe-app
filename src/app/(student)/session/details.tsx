@@ -1,17 +1,45 @@
 import { colors, radius, spacing, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import { useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
+import { getBooking } from "@/services/bookingService";
+import { Booking } from "@/types/booking";
+import { ActivityIndicator } from "react-native";
 import { router } from "expo-router";
 import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Card from "@/components/common/Card";
 
 export default function SessionDetailsScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [session, setSession] = useState<Booking | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (id) {
+      getBooking(id).then(data => {
+        setSession(data);
+        setLoading(false);
+      });
+    } else {
+      setLoading(false);
+    }
+  }, [id]);
+
+  if (loading) {
+    return <SafeAreaView style={styles.container}><ActivityIndicator style={{marginTop: 100}} /></SafeAreaView>;
+  }
+
+  if (!session) {
+    return <SafeAreaView style={styles.container}><Text style={{textAlign: 'center', marginTop: 100}}>Session not found</Text></SafeAreaView>;
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
+        <Pressable onPress={() => { if (router.canGoBack()) { router.back(); } else { router.push("/(student)/session/dashboard"); } }} style={styles.backButton}>
           <Ionicons name="chevron-back" size={24} color={colors.primary} />
         </Pressable>
         <Text style={styles.headerTitle}>Counselor Booking</Text>
@@ -67,7 +95,7 @@ export default function SessionDetailsScreen() {
             </View>
             <View style={styles.doctorDetails}>
               <View style={styles.doctorNameRow}>
-                <Text style={styles.doctorName}>Dr. Anjali Perera</Text>
+                <Text style={styles.doctorName}>{"Counselor"}</Text>
                 <View style={styles.verifiedTextBadge}>
                   <Text style={styles.verifiedTextBadgeLabel}>VERIFIED</Text>
                 </View>
@@ -193,9 +221,9 @@ export default function SessionDetailsScreen() {
 
         {/* Bottom Actions Area */}
         <View style={styles.bottomActionsArea}>
-          <Pressable style={styles.joinDisabledBtn}>
-            <Ionicons name="videocam-outline" size={20} color={colors.textSecondary} />
-            <Text style={styles.joinDisabledText}>Join Video Waiting Room (Opens 9:55 AM)</Text>
+          <Pressable style={[styles.joinDisabledBtn, { backgroundColor: colors.primary, borderColor: colors.primary }]} onPress={() => router.push({ pathname: session.sessionType === 'chat' ? '/(student)/session/chat' : '/(student)/session/video-call', params: { id: session.id } })}>
+            <Ionicons name={session.sessionType === 'chat' ? 'chatbubbles-outline' : 'videocam-outline'} size={20} color="#FFF" />
+            <Text style={[styles.joinDisabledText, { color: '#FFF' }]}>Join {session.sessionType === 'chat' ? 'Chat' : 'Video'} Session</Text>
           </Pressable>
 
           <View style={styles.splitBtnRow}>

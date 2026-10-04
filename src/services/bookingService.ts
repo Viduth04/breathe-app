@@ -56,7 +56,10 @@ export async function createBooking(profile: UserProfile, input: BookingInput) {
   if (input.endAt.getTime() <= input.startAt.getTime()) {
     throw new BookingError("The session must end after it starts.");
   }
-  const notes = input.notes?.trim();
+  let notes = input.notes?.trim();
+  if (input.isAnonymous) {
+    notes = notes ? "ANONYMOUS: " + notes : "ANONYMOUS_BOOKING";
+  }
   if (notes && notes.length > BOOKING_NOTES_MAX) {
     throw new BookingError(`Keep your note under ${BOOKING_NOTES_MAX} characters.`);
   }
@@ -68,6 +71,7 @@ export async function createBooking(profile: UserProfile, input: BookingInput) {
     startAt: Timestamp.fromDate(input.startAt),
     endAt: Timestamp.fromDate(input.endAt),
     sessionType: input.sessionType,
+    
     status: "pending",
     // Optional fields are left out entirely rather than written as null
     ...(input.slotId ? { slotId: input.slotId } : {}),
@@ -200,4 +204,10 @@ export async function updateBookingStatus(
   }
 
   await batch.commit();
+}
+
+export async function getBooking(id: string): Promise<Booking | null> {
+  const snap = await getDoc(doc(db, "bookings", id));
+  if (!snap.exists()) return null;
+  return toBooking(snap.id, snap.data());
 }

@@ -1,11 +1,27 @@
 import { colors, radius, spacing, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import { useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
+import { getBooking } from "@/services/bookingService";
+import { Booking } from "@/types/booking";
+import { ActivityIndicator } from "react-native";
 import { router } from "expo-router";
 import { StyleSheet, Text, View, Pressable, StatusBar } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function VideoCallScreen() {
+    const { id } = useLocalSearchParams<{ id: string }>();
+    const [session, setSession] = useState<Booking | null>(null);
+  
+    useEffect(() => {
+      if (id) {
+        getBooking(id).then(data => {
+          setSession(data);
+        });
+      }
+    }, [id]);
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <StatusBar barStyle="dark-content" />
@@ -17,7 +33,7 @@ export default function VideoCallScreen() {
             <Ionicons name="arrow-back" size={24} color={colors.text} />
           </Pressable>
           <View>
-            <Text style={styles.headerTitle}>Dr. Anjali Perera</Text>
+            <Text style={styles.headerTitle}>{session?.counsellorName || "Doctor"}</Text>
             <Text style={styles.headerSubtitle}>Counselor Video Call</Text>
           </View>
         </View>
@@ -40,7 +56,7 @@ export default function VideoCallScreen() {
         <View style={styles.overlayTop}>
           <View style={styles.overlayPillDark}>
             <View style={styles.greenDot} />
-            <Text style={styles.overlayText}>Dr. Anjali Perera • Clinical Psychologist</Text>
+            <Text style={styles.overlayText}>{session?.counsellorName || "Doctor"} • Clinical Psychologist</Text>
           </View>
           <View style={styles.overlayPillDark}>
             <Ionicons name="lock-closed-outline" size={14} color="#FFF" />

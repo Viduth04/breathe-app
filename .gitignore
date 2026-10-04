@@ -37,3 +37,6 @@ example
 
 # IDE files
 .idea/
+
+# Temporary agent script folder
+scratch/
