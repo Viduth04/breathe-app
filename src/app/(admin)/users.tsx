@@ -18,7 +18,8 @@ import {
 import { getAuthErrorMessage, isStaffRequest, UserProfile } from "@/services/authService";
 import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { router, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -45,6 +46,8 @@ const byName = (a: UserProfile, b: UserProfile) =>
 
 export default function Users() {
   const { user: me } = useAuth();
+  const params = useLocalSearchParams<{ requests?: string }>();
+  const listRef = useRef<FlatList<UserProfile>>(null);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -69,6 +72,17 @@ export default function Users() {
   useEffect(() => {
     load().finally(() => setLoading(false));
   }, [load]);
+
+  // "Review request" (Counsellors form) opens Requests, which sit at the top
+  // of the list. Reload first: this tab stays mounted, so a new sign-up
+  // wouldn't be listed yet.
+  useEffect(() => {
+    if (params.requests && !loading) {
+      router.setParams({ requests: undefined });
+      listRef.current?.scrollToOffset({ offset: 0, animated: true });
+      load();
+    }
+  }, [params.requests, loading, load]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -273,6 +287,7 @@ export default function Users() {
   return (
     <Screen scroll={false}>
       <FlatList
+        ref={listRef}
         data={loadError ? [] : visible}
         keyExtractor={(u) => u.uid}
         renderItem={renderUser}

@@ -18,6 +18,12 @@ export type Specialty = (typeof SPECIALTIES)[number];
 export const LANGUAGES = ["English", "Sinhala", "Tamil"] as const;
 export type Language = (typeof LANGUAGES)[number];
 
+// Field limits. firestore.rules (validCounsellorProfile) checks the same
+// numbers - change both together. Checked by src/utils/validateCounsellor.ts.
+export const COUNSELLOR_NAME_MIN = 2;
+export const COUNSELLOR_NAME_MAX = 80;
+export const COUNSELLOR_TITLE_MAX = 100;
+export const COUNSELLOR_EXPERIENCE_MAX = 60;
 export const COUNSELLOR_BIO_MAX = 300;
 
 // Doc id is the counsellor's Firebase Auth uid (the security rules rely on it)

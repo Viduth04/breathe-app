@@ -6,7 +6,9 @@ import { displayName } from "@/components/admin/RoleSheet";
 import ToggleRow from "@/components/admin/ToggleRow";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
-import CounsellorAvatar from "@/components/common/CounsellorAvatar";
+import CounsellorAvatar, {
+  counsellorInitials,
+} from "@/components/common/CounsellorAvatar";
 import Input from "@/components/common/Input";
 import { createCounsellor, updateCounsellor } from "@/services/adminService";
 import { getAuthErrorMessage, UserProfile } from "@/services/authService";
@@ -14,6 +16,8 @@ import { getCounsellorPhoto } from "@/services/counsellorPhotoService";
 import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
 import {
   COUNSELLOR_BIO_MAX,
+  COUNSELLOR_NAME_MAX,
+  COUNSELLOR_TITLE_MAX,
   CounsellorProfile,
   Language,
   LANGUAGES,
@@ -22,25 +26,52 @@ import {
   Specialty,
 } from "@/types/counsellor";
 import { pickCounsellorPhoto } from "@/utils/pickCounsellorPhoto";
+import {
+  COUNSELLOR_FIELDS,
+  CounsellorField,
+  counsellorFieldError,
+  CounsellorFormValues,
+  validateCounsellorForm,
+} from "@/utils/validateCounsellor";
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import {
+  AccessibilityInfo,
+  LayoutChangeEvent,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
-type Field =
-  | "uid"
-  | "fullName"
-  | "title"
-  | "specialties"
-  | "languages"
-  | "experienceYears"
-  | "bio";
-type Errors = Partial<Record<Field | "form", string>>;
+type Errors = Partial<Record<CounsellorField | "form", string>>;
+
+// Names used when announcing the first error to screen readers
+const FIELD_LABELS: Record<CounsellorField, string> = {
+  uid: "Counsellor account",
+  fullName: "Full name",
+  title: "Title",
+  specialties: "Specialties",
+  languages: "Languages",
+  experienceYears: "Years of experience",
+  bio: "Short bio",
+};
+
+const fixFieldsMessage = (count: number) =>
+  `Please fix ${count} ${count === 1 ? "field" : "fields"} above.`;
 
 // Render this only while the form is open; it starts from `existing`/`initialUid`
 type Props = {
   existing: CounsellorProfile | null; // null = create a new profile
   candidates: UserProfile[]; // Counsellor users without a profile (create only)
   initialUid?: string; // Pre-select a candidate (from the warning card)
+  // Counsellor sign-ups still waiting for approval. Shown as a pointer to
+  // Users > Requests, never as selectable accounts (role is still "student",
+  // so the rules would refuse a profile for them).
+  pendingRequests?: UserProfile[];
+  onReviewRequests?: () => void;
   onClose: () => void;
   onSaved: (message: string) => void;
 };
@@ -49,6 +80,8 @@ export default function CounsellorForm({
   existing,
   candidates,
   initialUid,
+  pendingRequests = [],
+  onReviewRequests,
   onClose,
   onSaved,
 }: Props) {
@@ -57,11 +90,19 @@ export default function CounsellorForm({
   const [fullName, setFullName] = useState(
     existing?.fullName ?? preset?.fullName ?? "",
   );
+  // The name last copied from a picked account. While the field still holds
+  // exactly that, picking another account replaces it; once the admin edits
+  // it, it's theirs and is never overwritten.
+  const [prefilledName, setPrefilledName] = useState(
+    existing ? "" : (preset?.fullName ?? ""),
+  );
   const [title, setTitle] = useState(existing?.title ?? "");
   const [specialties, setSpecialties] = useState<Specialty[]>(
     existing?.specialties ?? [],
   );
-  const [languages, setLanguages] = useState<Language[]>(existing?.languages ?? []);
+  const [languages, setLanguages] = useState<Language[]>(
+    existing?.languages ?? [],
+  );
   const [experience, setExperience] = useState(
     existing ? String(existing.experienceYears) : "",
   );
@@ -100,30 +141,111 @@ export default function CounsellorForm({
     setPhoto(savedPhoto ? null : undefined);
   };
 
-  const pickUser = (user: UserProfile) => {
-    setUid(user.uid);
-    if (!fullName.trim()) setFullName(user.fullName);
+  // Validation (the same checks as firestore.rules) runs when Save is
+  // pressed. After that, a field showing an error is re-checked as it
+  // changes, so the error goes as soon as it's fixed.
+  const values: CounsellorFormValues = {
+    uid,
+    fullName,
+    title,
+    specialties,
+    languages,
+    experience,
+    bio,
+  };
+  // Only matters when there's nobody to pick
+  const showPending =
+    !existing && candidates.length === 0 && pendingRequests.length > 0;
+  const context = {
+    creating: !existing,
+    hasCandidates: candidates.length > 0,
+    hasPendingRequests: showPending,
   };
 
-  const validate = () => {
-    const next: Errors = {};
-    const years = Number(experience);
-    if (!existing && !uid) next.uid = "Choose which counsellor this profile is for.";
-    if (fullName.trim().length < 2) next.fullName = "Enter the counsellor's full name.";
-    if (!title.trim()) next.title = "Enter a title, e.g. Licensed Clinical Psychologist.";
-    if (!specialties.length) next.specialties = "Choose at least one specialty.";
-    if (!languages.length) next.languages = "Choose at least one language.";
-    if (!/^\d+$/.test(experience.trim()) || years > 60)
-      next.experienceYears = "Enter whole years between 0 and 60.";
-    if (!bio.trim()) next.bio = "Write a short bio for students.";
-    else if (bio.length > COUNSELLOR_BIO_MAX)
-      next.bio = `Keep the bio under ${COUNSELLOR_BIO_MAX} characters.`;
-    setErrors(next);
-    return Object.keys(next).length === 0;
+  const recheck = (
+    changed: Partial<CounsellorFormValues>,
+    fields: CounsellorField[],
+  ) =>
+    setErrors((prev) => {
+      if (!fields.some((f) => prev[f])) return prev;
+      const next = { ...prev };
+      for (const field of fields) {
+        if (!next[field]) continue;
+        const error = counsellorFieldError(
+          field,
+          { ...values, ...changed },
+          context,
+        );
+        if (error) next[field] = error;
+        else delete next[field];
+      }
+      return next;
+    });
+
+  const changeFullName = (text: string) => {
+    setFullName(text);
+    recheck({ fullName: text }, ["fullName"]);
   };
+  const changeTitle = (text: string) => {
+    setTitle(text);
+    recheck({ title: text }, ["title"]);
+  };
+  const changeSpecialties = (next: Specialty[]) => {
+    setSpecialties(next);
+    recheck({ specialties: next }, ["specialties"]);
+  };
+  const changeLanguages = (next: Language[]) => {
+    setLanguages(next);
+    recheck({ languages: next }, ["languages"]);
+  };
+  // Kept as typed (not stripped to digits), so "2.5" or "-1" shows an error
+  // instead of quietly saving 25 or 1
+  const changeExperience = (text: string) => {
+    setExperience(text);
+    recheck({ experience: text }, ["experienceYears"]);
+  };
+  const changeBio = (text: string) => {
+    setBio(text);
+    recheck({ bio: text }, ["bio"]);
+  };
+
+  const pickUser = (user: UserProfile) => {
+    const untouched = !fullName.trim() || fullName === prefilledName;
+    const name =
+      untouched && user.fullName?.trim() ? user.fullName.trim() : fullName;
+    setUid(user.uid);
+    setFullName(name);
+    if (name !== fullName) setPrefilledName(name);
+    recheck({ uid: user.uid, fullName: name }, ["uid", "fullName"]);
+  };
+
+  // Where each field sits in the scroll view, to scroll to the first error
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldY = useRef<Partial<Record<CounsellorField, number>>>({});
+  const trackY = (field: CounsellorField) => (e: LayoutChangeEvent) => {
+    fieldY.current[field] = e.nativeEvent.layout.y;
+  };
+
+  const fieldErrorCount = COUNSELLOR_FIELDS.filter((f) => errors[f]).length;
 
   const handleSave = async () => {
-    if (!validate()) return;
+    const next = validateCounsellorForm(values, context);
+    setErrors(next);
+    const invalid = COUNSELLOR_FIELDS.filter((f) => next[f]);
+    if (invalid.length) {
+      const first = invalid[0];
+      scrollRef.current?.scrollTo({
+        y: Math.max(0, (fieldY.current[first] ?? 0) - spacing.md),
+        animated: true,
+      });
+      // Web reads the summary through its live region instead
+      if (Platform.OS !== "web") {
+        AccessibilityInfo.announceForAccessibility(
+          `${fixFieldsMessage(invalid.length)} ${FIELD_LABELS[first]}: ${next[first]}`,
+        );
+      }
+      return;
+    }
     setSaving(true);
     const data = {
       fullName: fullName.trim(),
@@ -154,11 +276,90 @@ export default function CounsellorForm({
       title={existing ? "Edit counsellor profile" : "Add counsellor profile"}
       onClose={onClose}
       closeDisabled={saving}
+      scrollRef={scrollRef}
+      footer={
+        <>
+          {fieldErrorCount ? (
+            <Text
+              style={[styles.error, styles.formError]}
+              accessibilityRole="alert"
+              {...(Platform.OS === "web"
+                ? { "aria-live": "polite" as const }
+                : null)}
+            >
+              {fixFieldsMessage(fieldErrorCount)}
+            </Text>
+          ) : null}
+          {errors.form ? (
+            <Text
+              style={[styles.error, styles.formError]}
+              accessibilityRole="alert"
+            >
+              {errors.form}
+            </Text>
+          ) : null}
+          {/* Never disabled (except while saving): pressing it explains what's missing */}
+          <Button
+            title={existing ? "Save Changes" : "Create Profile"}
+            onPress={handleSave}
+            loading={saving}
+          />
+        </>
+      }
     >
       {!existing ? (
-        <View style={styles.section}>
+        <View style={styles.section} onLayout={trackY("uid")}>
           <Text style={styles.label}>Counsellor account</Text>
-          {candidates.length === 0 ? (
+          {showPending ? (
+            <Card style={styles.pendingCard}>
+              <View style={styles.pendingTitle}>
+                <Ionicons
+                  name="time-outline"
+                  size={20}
+                  color={colors.primary}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                />
+                <Text
+                  style={[typography.body, styles.bold, styles.flex]}
+                  accessibilityRole="header"
+                >
+                  {pendingRequests.length === 1
+                    ? "1 counsellor sign-up is waiting for approval"
+                    : `${pendingRequests.length} counsellor sign-ups are waiting for approval`}
+                </Text>
+              </View>
+              {pendingRequests.map((user) => (
+                <View
+                  key={user.uid}
+                  accessible
+                  accessibilityLabel={`${displayName(user)}, ${user.email ?? "no email"}`}
+                >
+                  <Text style={styles.userName}>{displayName(user)}</Text>
+                  <Text style={typography.caption}>
+                    {user.email ?? "No email"}
+                  </Text>
+                </View>
+              ))}
+              <Text style={typography.caption}>
+                Approve {pendingRequests.length === 1 ? "it" : "them"} in Users
+                first, then come back to create the profile.
+              </Text>
+              {onReviewRequests ? (
+                <Button
+                  title={
+                    pendingRequests.length === 1
+                      ? "Review request"
+                      : "Review requests"
+                  }
+                  variant="secondary"
+                  icon="arrow-forward"
+                  onPress={onReviewRequests}
+                  disabled={saving}
+                />
+              ) : null}
+            </Card>
+          ) : candidates.length === 0 ? (
             <Card variant="success">
               <Text style={typography.body}>
                 Every counsellor already has a profile. To add someone new, give
@@ -175,6 +376,9 @@ export default function CounsellorForm({
                   accessibilityRole="radio"
                   accessibilityState={{ checked: selected }}
                   accessibilityLabel={`${displayName(user)}, ${user.email ?? "no email"}`}
+                  accessibilityHint={
+                    errors.uid ? `Error: ${errors.uid}` : undefined
+                  }
                   style={[
                     styles.userOption,
                     selected && styles.userOptionSelected,
@@ -188,7 +392,9 @@ export default function CounsellorForm({
                   />
                   <View style={styles.flex}>
                     <Text style={styles.userName}>{displayName(user)}</Text>
-                    <Text style={typography.caption}>{user.email ?? "No email"}</Text>
+                    <Text style={typography.caption}>
+                      {user.email ?? "No email"}
+                    </Text>
                   </View>
                 </Pressable>
               );
@@ -200,7 +406,11 @@ export default function CounsellorForm({
 
       {/* Photo (counsellors only); saved together with the profile */}
       <View style={styles.photoSection}>
-        <CounsellorAvatar name={fullName || "?"} photo={shownPhoto ?? null} size={96} />
+        <CounsellorAvatar
+          name={counsellorInitials(fullName) ? fullName : "?"}
+          photo={shownPhoto ?? null}
+          size={96}
+        />
         <View style={styles.photoActions}>
           <Button
             title={shownPhoto ? "Change photo" : "Add photo"}
@@ -228,62 +438,79 @@ export default function CounsellorForm({
         </View>
       </View>
       {photoError ? (
-        <Text style={[styles.error, styles.photoError]} accessibilityRole="alert">
+        <Text
+          style={[styles.error, styles.photoError]}
+          accessibilityRole="alert"
+        >
           {photoError}
         </Text>
       ) : null}
 
-      <Input
-        label="Full name"
-        icon="person-outline"
-        placeholder="Dr. Nimali Perera"
-        value={fullName}
-        onChangeText={setFullName}
-        error={errors.fullName}
-        autoCapitalize="words"
-      />
-      <Input
-        label="Title"
-        icon="ribbon-outline"
-        placeholder="Licensed Clinical Psychologist"
-        value={title}
-        onChangeText={setTitle}
-        error={errors.title}
-      />
-      <ChipSelect
-        label="Specialties"
-        options={SPECIALTIES}
-        selected={specialties}
-        onChange={setSpecialties}
-        error={errors.specialties}
-      />
-      <ChipSelect
-        label="Languages"
-        options={LANGUAGES}
-        selected={languages}
-        onChange={setLanguages}
-        error={errors.languages}
-      />
-      <Input
-        label="Years of experience"
-        icon="time-outline"
-        placeholder="5"
-        value={experience}
-        onChangeText={(text) => setExperience(text.replace(/[^0-9]/g, ""))}
-        error={errors.experienceYears}
-        keyboardType="number-pad"
-        maxLength={2}
-      />
-      <Input
-        label="Short bio"
-        placeholder="What students can expect from a session with you"
-        value={bio}
-        onChangeText={setBio}
-        error={errors.bio}
-        multiline
-        maxLength={COUNSELLOR_BIO_MAX}
-        textAlignVertical="top"
-      />
+      <View onLayout={trackY("fullName")}>
+        <Input
+          label="Full name"
+          icon="person-outline"
+          placeholder="e.g. Dr. Jane Silva"
+          value={fullName}
+          onChangeText={changeFullName}
+          error={errors.fullName}
+          autoCapitalize="words"
+          maxLength={COUNSELLOR_NAME_MAX}
+        />
+      </View>
+      <View onLayout={trackY("title")}>
+        <Input
+          label="Title"
+          icon="ribbon-outline"
+          placeholder="e.g. Counselling psychologist"
+          value={title}
+          onChangeText={changeTitle}
+          error={errors.title}
+          maxLength={COUNSELLOR_TITLE_MAX}
+        />
+      </View>
+      <View onLayout={trackY("specialties")}>
+        <ChipSelect
+          label="Specialties"
+          options={SPECIALTIES}
+          selected={specialties}
+          onChange={changeSpecialties}
+          error={errors.specialties}
+        />
+      </View>
+      <View onLayout={trackY("languages")}>
+        <ChipSelect
+          label="Languages"
+          options={LANGUAGES}
+          selected={languages}
+          onChange={changeLanguages}
+          error={errors.languages}
+        />
+      </View>
+      <View onLayout={trackY("experienceYears")}>
+        <Input
+          label="Years of experience"
+          icon="time-outline"
+          placeholder="e.g. 5"
+          value={experience}
+          onChangeText={changeExperience}
+          error={errors.experienceYears}
+          keyboardType="number-pad"
+          maxLength={3} // Room for "2.5" to show (and fail) in full
+        />
+      </View>
+      <View onLayout={trackY("bio")}>
+        <Input
+          label="Short bio"
+          placeholder="What students can expect from a session with you"
+          value={bio}
+          onChangeText={changeBio}
+          error={errors.bio}
+          multiline
+          maxLength={COUNSELLOR_BIO_MAX}
+          textAlignVertical="top"
+        />
+      </View>
       <Text
         style={[typography.caption, styles.counter]}
         accessibilityLabel={`${bio.length} of ${COUNSELLOR_BIO_MAX} characters used`}
@@ -295,18 +522,6 @@ export default function CounsellorForm({
         description="Students can only book counsellors who are available"
         value={isAvailable}
         onValueChange={setIsAvailable}
-      />
-
-      {errors.form ? (
-        <Text style={[styles.error, styles.formError]} accessibilityRole="alert">
-          {errors.form}
-        </Text>
-      ) : null}
-      <Button
-        title={existing ? "Save Changes" : "Create Profile"}
-        onPress={handleSave}
-        loading={saving}
-        disabled={!existing && candidates.length === 0}
       />
     </FormModal>
   );
@@ -334,11 +549,21 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
-  userOptionSelected: { borderColor: colors.primary, backgroundColor: colors.success },
+  userOptionSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.success,
+  },
   userOptionError: { borderColor: colors.danger },
   userName: { ...typography.body, fontWeight: "600" },
+  pendingCard: { gap: spacing.sm, borderWidth: 1, borderColor: colors.primary },
+  pendingTitle: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  bold: { fontWeight: "600" },
   flex: { flex: 1 },
-  counter: { textAlign: "right", marginTop: -spacing.sm, marginBottom: spacing.md },
+  counter: {
+    textAlign: "right",
+    marginTop: -spacing.sm,
+    marginBottom: spacing.md,
+  },
   error: { fontSize: 13, color: colors.danger },
-  formError: { fontSize: 14, textAlign: "center", marginBottom: spacing.md },
+  formError: { fontSize: 14, textAlign: "center", marginBottom: spacing.sm },
 });

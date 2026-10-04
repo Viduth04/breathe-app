@@ -1,7 +1,8 @@
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
+    Platform,
     Pressable,
     StyleSheet,
     Text,
@@ -25,6 +26,7 @@ export default function Input({
   ...rest
 }: Props) {
   const [hidden, setHidden] = useState(isPassword);
+  const errorId = `input-error-${useId()}`;
 
   return (
     <View style={styles.wrapper}>
@@ -38,6 +40,12 @@ export default function Input({
           placeholderTextColor={colors.textSecondary}
           secureTextEntry={hidden}
           accessibilityLabel={label}
+          // Screen readers read the error with the field: as the hint on
+          // iOS/Android, via aria-describedby on web (RN's types lack it)
+          accessibilityHint={error ? `Error: ${error}` : undefined}
+          {...(error && Platform.OS === "web"
+            ? { "aria-describedby": errorId, "aria-invalid": true }
+            : null)}
           {...rest}
         />
         {isPassword && (
@@ -55,7 +63,11 @@ export default function Input({
           </Pressable>
         )}
       </View>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <Text style={styles.error} nativeID={errorId}>
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }
