@@ -1,17 +1,92 @@
 import { colors, radius, spacing, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import CounsellorAvatar from "@/components/common/CounsellorAvatar";
+import { useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/firebase/config";
+import { ActivityIndicator } from "react-native";
 import { router } from "expo-router";
 import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Card from "@/components/common/Card";
 
 export default function CounselorProfileScreen() {
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [selectedDate, setSelectedDate] = useState("15");
+
+  const getMockData = (cId: string) => {
+    const charCode = cId.charCodeAt(0) || 0;
+    return {
+      rating: ((charCode % 5) * 0.1 + 4.5).toFixed(1),
+      reviews: (charCode % 50) + 80,
+      avatar: `https://i.pravatar.cc/150?u=${cId}`,
+    };
+  };
+
+
+
+  // Helper for calendar days
+  const renderDay = (day: string, state: "empty" | "available" | "selected" | "unavailable") => {
+    let boxStyle: any = styles.dayBox;
+    let textStyle: any = styles.dayText;
+
+    let actualState = state;
+    if (state === "available" && day === selectedDate) {
+      actualState = "selected";
+    } else if (state === "selected" && day !== selectedDate) {
+      actualState = "available";
+    }
+
+    if (actualState === "available") {
+      boxStyle = [styles.dayBox, styles.dayAvailable];
+    } else if (actualState === "selected") {
+      boxStyle = [styles.dayBox, styles.daySelected];
+      textStyle = [styles.dayText, styles.dayTextSelected];
+    } else if (actualState === "unavailable") {
+      boxStyle = [styles.dayBox, styles.dayUnavailable];
+      textStyle = [styles.dayText, styles.dayTextUnavailable];
+    } else if (actualState === "empty") {
+      textStyle = [styles.dayText, styles.dayTextEmpty];
+    }
+
+    return (
+      <View key={day + actualState} style={styles.dayWrapper}>
+        <Pressable style={boxStyle} onPress={() => { if (actualState === 'available' || actualState === 'selected') setSelectedDate(day); }}>
+          <Text style={textStyle}>{day}</Text>
+        </Pressable>
+      </View>
+    );
+  };
+
+  const { uid } = useLocalSearchParams<{ uid: string }>();
+  const mockData = uid ? getMockData(uid as string) : null;
+  const [counsellor, setCounsellor] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (uid) {
+      getDoc(doc(db, "counsellors", uid)).then((snap) => {
+        if (snap.exists()) {
+          setCounsellor({ id: snap.id, ...snap.data() });
+        }
+        setLoading(false);
+      });
+    } else {
+      setLoading(false);
+    }
+  }, [uid]);
+
+  if (loading) {
+    return <SafeAreaView style={styles.container}><ActivityIndicator style={{marginTop: 100}} /></SafeAreaView>;
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
+        <Pressable onPress={() => { if (router.canGoBack()) { router.back(); } else { router.push("/(student)/session/dashboard"); } }} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.primary} />
         </Pressable>
         <Text style={styles.headerTitle}>Counselor Booking</Text>
@@ -25,38 +100,33 @@ export default function CounselorProfileScreen() {
         {/* Profile Info (Centered) */}
         <View style={styles.profileHeader}>
           <View style={styles.avatarContainer}>
-            <Image
-              source={{ uri: "https://i.pravatar.cc/150?img=5" }}
-              style={styles.avatar}
-            />
+            <CounsellorAvatar uid={counsellor.uid} name={counsellor.fullName} size={100} />
             <View style={styles.verifiedBadge}>
               <Ionicons name="checkmark" size={12} color="#FFF" />
             </View>
           </View>
           
-          <Text style={styles.counselorName}>Dr. Anjali Perera</Text>
-          <Text style={styles.counselorTitle}>Licensed Clinical Psychologist</Text>
+          {counsellor?.fullName && <Text style={styles.counselorName}>{counsellor.fullName}</Text>}
+          {counsellor?.title ? <Text style={styles.counselorTitle}>{counsellor.title}</Text> : null}
           
           <View style={styles.ratingBadge}>
-            <Ionicons name="star" size={14} color="#F59E0B" />
-            <Text style={styles.ratingText}>
-              4.8 <Text style={styles.ratingCount}>(124 reviews)</Text>
-            </Text>
-          </View>
+    <Ionicons name="briefcase" size={14} color="#F59E0B" />
+    <Text style={styles.ratingText}>{counsellor?.experienceYears || 0} Years Exp</Text>
+  </View>
 
           <View style={styles.tagsRow}>
-            <View style={[styles.tagPill, { backgroundColor: "#E5F8E4" }]}>
-              <Ionicons name="chatbubbles-outline" size={14} color={colors.primary} />
-              <Text style={styles.tagTextPrimary}>English</Text>
-            </View>
-            <View style={[styles.tagPill, { backgroundColor: "#E5F8E4" }]}>
-              <Ionicons name="language-outline" size={14} color={colors.primary} />
-              <Text style={styles.tagTextPrimary}>Sinhala</Text>
-            </View>
-            <View style={[styles.tagPill, { backgroundColor: "#F3F0E6" }]}>
-              <Ionicons name="school-outline" size={14} color={colors.textSecondary} />
-              <Text style={styles.tagTextSecondary}>10+ Years</Text>
-            </View>
+            {counsellor?.languages?.map((lang: string) => (
+              <View key={lang} style={[styles.tagPill, { backgroundColor: "#E5F8E4" }]}>
+                <Ionicons name="language-outline" size={14} color={colors.primary} />
+                <Text style={styles.tagTextPrimary}>{lang}</Text>
+              </View>
+            ))}
+            {counsellor?.experienceYears && (
+              <View style={[styles.tagPill, { backgroundColor: "#F3F0E6" }]}>
+                <Ionicons name="school-outline" size={14} color={colors.textSecondary} />
+                <Text style={styles.tagTextSecondary}>{counsellor.experienceYears}+ Years</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -67,7 +137,7 @@ export default function CounselorProfileScreen() {
             <Text style={styles.sectionTitle}>About</Text>
           </View>
           <Text style={styles.bodyText}>
-            Dr. Perera specializes in anxiety, academic stress, and young adult mental health with over a decade of campus counseling experience.
+            {counsellor?.bio || "No biography provided."}
           </Text>
         </Card>
 
@@ -78,53 +148,139 @@ export default function CounselorProfileScreen() {
             <Text style={styles.sectionTitle}>Specialties</Text>
           </View>
           <View style={styles.specialtiesGrid}>
-            <View style={styles.specialtyPill}>
-              <Text style={styles.specialtyText}>Anxiety</Text>
-            </View>
-            <View style={styles.specialtyPill}>
-              <Text style={styles.specialtyText}>Stress</Text>
-            </View>
-            <View style={styles.specialtyPill}>
-              <Text style={styles.specialtyText}>Depression</Text>
-            </View>
-            <View style={styles.specialtyPill}>
-              <Text style={styles.specialtyText}>Academic Pressure</Text>
-            </View>
+            {counsellor?.specialties?.map((spec: string) => (
+              <View key={spec} style={styles.specialtyPill}>
+                <Text style={styles.specialtyText}>{spec}</Text>
+              </View>
+            ))}
           </View>
         </Card>
 
         {/* Next Available Card */}
-        <Card style={styles.sectionCard}>
-          <View style={styles.sectionHeaderBetween}>
-            <View style={styles.sectionTitleRow}>
-              <View style={styles.titleLine} />
-              <Text style={styles.sectionTitle}>Next Available</Text>
+          <Card style={styles.sectionCard}>
+            <View style={styles.sectionHeaderBetween}>
+              <View style={styles.sectionTitleRow}>
+                <View style={styles.titleLine} />
+                <Text style={styles.sectionTitle}>Next Available</Text>
+              </View>
+              <Pressable style={styles.viewCalendarLink} onPress={() => setShowCalendar(!showCalendar)}>
+                <Text style={styles.viewCalendarText}>{showCalendar ? "Hide Calendar" : "View Calendar"}</Text>
+                <Ionicons name={showCalendar ? "chevron-up" : "arrow-forward"} size={12} color={colors.primary} />
+              </Pressable>
             </View>
-            <Pressable style={styles.viewCalendarLink}>
-              <Text style={styles.viewCalendarText}>View Calendar</Text>
-              <Ionicons name="arrow-forward" size={12} color={colors.primary} />
-            </Pressable>
-          </View>
 
-          <View style={styles.slotsGrid}>
-            <View style={[styles.slotBox, styles.slotBoxActive]}>
-              <Ionicons name="calendar-outline" size={16} color="#FFF" />
-              <Text style={[styles.slotText, styles.slotTextActive]}>Mon, 15 Aug</Text>
+            {showCalendar && (
+              <View style={{ marginTop: 16 }}>
+                {/* Calendar Header */}
+                <View style={styles.calendarHeader}>
+                  <View>
+                    <Text style={styles.monthTitle}>Octust 2026</Text>
+                    <Text style={styles.monthSubtitle}>Select your consultation day</Text>
+                  </View>
+                  <View style={styles.monthNav}>
+                    <Pressable style={styles.navBtn}>
+                      <Ionicons name="chevron-back" size={16} color={colors.text} />
+                    </Pressable>
+                    <Pressable style={styles.navBtn}>
+                      <Ionicons name="chevron-forward" size={16} color={colors.text} />
+                    </Pressable>
+                  </View>
+                </View>
+
+                {/* Days of week */}
+                <View style={styles.weekDaysRow}>
+                  {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
+                    <Text key={i} style={styles.weekDayText}>{d}</Text>
+                  ))}
+                </View>
+
+                {/* Calendar Grid */}
+                <View style={styles.calendarGrid}>
+                  {/* Row 1 */}
+                  {renderDay("27", "empty")}
+                  {renderDay("28", "empty")}
+                  {renderDay("29", "empty")}
+                  {renderDay("30", "empty")}
+                  {renderDay("01", "unavailable")}
+                  {renderDay("02", "unavailable")}
+                  {renderDay("03", "unavailable")}
+                  {/* Row 2 */}
+                  {renderDay("04", "unavailable")}
+                  {renderDay("05", "unavailable")}
+                  {renderDay("06", "unavailable")}
+                  {renderDay("07", "unavailable")}
+                  {renderDay("08", "unavailable")}
+                  {renderDay("09", "unavailable")}
+                  {renderDay("10", "unavailable")}
+                  {/* Row 3 */}
+                  {renderDay("11", "unavailable")}
+                  {renderDay("12", "unavailable")}
+                  {renderDay("13", "unavailable")}
+                  {renderDay("14", "unavailable")}
+                  {renderDay("15", "available")}
+                  {renderDay("16", "unavailable")}
+                  {renderDay("17", "unavailable")}
+                  {/* Row 4 */}
+                  {renderDay("18", "available")}
+                  {renderDay("19", "unavailable")}
+                  {renderDay("20", "unavailable")}
+                  {renderDay("21", "unavailable")}
+                  {renderDay("22", "available")}
+                  {renderDay("23", "unavailable")}
+                  {renderDay("24", "unavailable")}
+                </View>
+
+                
+              </View>
+            )}
+
+            <View style={[styles.slotsGrid, { marginTop: showCalendar ? 0 : 0 }]}>
+              <View style={[styles.slotBox, styles.slotBoxActive]}>
+                <Ionicons name="calendar-outline" size={16} color="#FFF" />
+                <Text style={[styles.slotText, styles.slotTextActive]}>Mon, {selectedDate} Oct</Text>
+              </View>
+              {selectedDate === "15" ? (
+                <>
+                  <View style={styles.slotBox}>
+                    <Ionicons name="time-outline" size={16} color={colors.primary} />
+                    <Text style={styles.slotText}>10:00 AM</Text>
+                  </View>
+                  <View style={styles.slotBox}>
+                    <Ionicons name="time-outline" size={16} color={colors.primary} />
+                    <Text style={styles.slotText}>2:00 PM</Text>
+                  </View>
+                  <View style={styles.slotBox}>
+                    <Ionicons name="time-outline" size={16} color={colors.primary} />
+                    <Text style={styles.slotText}>4:00 PM</Text>
+                  </View>
+                </>
+              ) : selectedDate === "18" ? (
+                <>
+                  <View style={styles.slotBox}>
+                    <Ionicons name="time-outline" size={16} color={colors.primary} />
+                    <Text style={styles.slotText}>09:30 AM</Text>
+                  </View>
+                  <View style={styles.slotBox}>
+                    <Ionicons name="time-outline" size={16} color={colors.primary} />
+                    <Text style={styles.slotText}>11:00 AM</Text>
+                  </View>
+                </>
+              ) : selectedDate === "22" ? (
+                <>
+                  <View style={styles.slotBox}>
+                    <Ionicons name="time-outline" size={16} color={colors.primary} />
+                    <Text style={styles.slotText}>1:00 PM</Text>
+                  </View>
+                  <View style={styles.slotBox}>
+                    <Ionicons name="time-outline" size={16} color={colors.primary} />
+                    <Text style={styles.slotText}>3:30 PM</Text>
+                  </View>
+                </>
+              ) : (
+                <Text style={{color: colors.textSecondary, alignSelf: 'center', marginVertical: 10}}>No slots available</Text>
+              )}
             </View>
-            <View style={styles.slotBox}>
-              <Ionicons name="time-outline" size={16} color={colors.primary} />
-              <Text style={styles.slotText}>10:00 AM</Text>
-            </View>
-            <View style={styles.slotBox}>
-              <Ionicons name="time-outline" size={16} color={colors.primary} />
-              <Text style={styles.slotText}>2:00 PM</Text>
-            </View>
-            <View style={styles.slotBox}>
-              <Ionicons name="time-outline" size={16} color={colors.primary} />
-              <Text style={styles.slotText}>4:00 PM</Text>
-            </View>
-          </View>
-        </Card>
+          </Card>
 
         {/* Reviews Card */}
         <Card style={styles.sectionCard}>
@@ -175,7 +331,7 @@ export default function CounselorProfileScreen() {
           <Ionicons name="chatbubble-outline" size={20} color={colors.primary} />
           <Text style={styles.chatFirstText}>Chat First</Text>
         </Pressable>
-        <Pressable style={styles.bookSessionBtn} onPress={() => router.push("/(student)/session/book")}>
+        <Pressable style={styles.bookSessionBtn} onPress={() => router.push({ pathname: "/(student)/session/book", params: { uid: counsellor?.id } })}>
           <Ionicons name="calendar-outline" size={20} color="#FFF" />
           <Text style={styles.bookSessionText}>Book Session</Text>
         </Pressable>
@@ -474,8 +630,111 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   bookSessionText: {
-    fontSize: 15,
     fontWeight: "600",
+    fontSize: 16,
     color: "#FFF",
+  },
+  calendarHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing.md,
+  },
+  monthTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  monthSubtitle: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  monthNav: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  navBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F3F0E6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  weekDaysRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
+  },
+  weekDayText: {
+    width: `${100 / 7}%`,
+    textAlign: "center",
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.textSecondary,
+  },
+  calendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    rowGap: 12,
+  },
+  dayWrapper: {
+    width: `${100 / 7}%`,
+    alignItems: "center",
+  },
+  dayBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dayAvailable: {
+    backgroundColor: "#F3F0E6",
+  },
+  daySelected: {
+    backgroundColor: colors.primary,
+  },
+  dayUnavailable: {
+    backgroundColor: "#F3F3F3",
+  },
+  dayText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.text,
+  },
+  dayTextEmpty: {
+    color: "#E0E0E0",
+  },
+  dayTextSelected: {
+    color: "#FFF",
+  },
+  dayTextUnavailable: {
+    color: "#B4B4B4",
+  },
+  legendRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: spacing.lg,
+    marginTop: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  legendText: {
+    fontSize: 12,
+    color: colors.textSecondary,
   },
 });

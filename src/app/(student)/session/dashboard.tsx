@@ -2,24 +2,91 @@ import { colors, radius, spacing, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { useState } from "react";
-import { ScrollView, StyleSheet, Text, TextInput, View, Pressable, Switch } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { ScrollView, StyleSheet, Text, TextInput, View, Pressable, Switch, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Button from "@/components/common/Button";
+import CounsellorAvatar from "@/components/common/CounsellorAvatar";
 import Card from "@/components/common/Card";
+import { listCounsellors } from "@/services/adminService";
+import { listMyBookings } from "@/services/bookingService";
+import { Booking } from "@/types/booking";
+import { useAuth } from "@/context/AuthContext";
+import { CounsellorProfile } from "@/types/counsellor";
 
 export default function SessionsScreen() {
   const [filter, setFilter] = useState<"upcoming" | "past" | "cancelled">("upcoming");
   const [mainTab, setMainTab] = useState<"my-sessions" | "find-counselor">("find-counselor");
   const [availableNow, setAvailableNow] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [counsellors, setCounsellors] = useState<CounsellorProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const [sessions, setSessions] = useState<Booking[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCounsellors = async () => {
+      setLoading(true);
+      try {
+        const data = await listCounsellors();
+        setCounsellors(data);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchCounsellors();
+    if (user) {
+      setSessionsLoading(true);
+      listMyBookings(user.uid).then(data => {
+        setSessions(data);
+        setSessionsLoading(false);
+      }).catch(e => {
+        console.error(e);
+        setSessionsLoading(false);
+      });
+    }
+  }, []);
+
+  const filteredCounsellors = useMemo(() => {
+    return counsellors.filter((c) => {
+      if (searchQuery.trim() !== "") {
+        const query = searchQuery.toLowerCase();
+        const matchName = c.fullName.toLowerCase().includes(query);
+        const matchSpecialty = c.specialties.some(s => s.toLowerCase().includes(query));
+        if (!matchName && !matchSpecialty) return false;
+      }
+      if (selectedCategory !== "All") {
+        if (!c.specialties.includes(selectedCategory as any)) return false;
+      }
+      if (availableNow && !c.isAvailable) return false;
+      return true;
+    });
+  }, [counsellors, searchQuery, selectedCategory, availableNow]);
+
+  const upcomingSessions = useMemo(() => sessions.filter(s => s.status === "confirmed"), [sessions]);
+  const pastSessions = useMemo(() => sessions.filter(s => s.status === "completed"), [sessions]);
+  const cancelledSessions = useMemo(() => sessions.filter(s => s.status === "cancelled"), [sessions]);
+
+  const getMockData = (uid: string) => {
+    const charCode = uid.charCodeAt(0) || 0;
+    return {
+      rating: ((charCode % 5) * 0.1 + 4.5).toFixed(1),
+      reviews: (charCode % 50) + 80,
+      avatar: `https://i.pravatar.cc/150?u=${uid}`,
+      nextTime: charCode % 2 === 0 ? "2:00 PM" : "9:30 AM",
+      availabilityStr: charCode % 2 === 0 ? "Available Today" : "Available Tomorrow",
+    };
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={24} color={colors.text} />
-        </Pressable>
+        
         <Text style={styles.headerTitle}>Counselor Booking</Text>
         <View>
           <Image
@@ -38,19 +105,32 @@ export default function SessionsScreen() {
             style={styles.searchInput}
             placeholder="Search counselors by name or specialty..."
             placeholderTextColor={colors.textSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
           />
-          <Ionicons name="close-circle-outline" size={20} color={colors.textSecondary} />
+          {searchQuery !== "" && (
+            <Pressable onPress={() => setSearchQuery("")}>
+              <Ionicons name="close-circle-outline" size={20} color={colors.textSecondary} />
+            </Pressable>
+          )}
         </View>
 
         {/* Categories */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categories} contentContainerStyle={styles.categoriesContent}>
-          <View style={[styles.categoryPill, styles.categoryPillActive]}>
-            <Text style={[styles.categoryText, styles.categoryTextActive]}>All</Text>
-          </View>
-          {["Anxiety", "Stress", "Depression", "Academic"].map((cat) => (
-            <View key={cat} style={styles.categoryPill}>
-              <Text style={styles.categoryText}>{cat}</Text>
-            </View>
+          <Pressable 
+            style={[styles.categoryPill, selectedCategory === "All" && styles.categoryPillActive]}
+            onPress={() => setSelectedCategory("All")}
+          >
+            <Text style={[styles.categoryText, selectedCategory === "All" && styles.categoryTextActive]}>All</Text>
+          </Pressable>
+          {["Anxiety", "Stress", "Depression", "Academic Pressure", "Sleep", "Relationships"].map((cat) => (
+            <Pressable 
+              key={cat} 
+              style={[styles.categoryPill, selectedCategory === cat && styles.categoryPillActive]}
+              onPress={() => setSelectedCategory(cat)}
+            >
+              <Text style={[styles.categoryText, selectedCategory === cat && styles.categoryTextActive]}>{cat}</Text>
+            </Pressable>
           ))}
         </ScrollView>
 
@@ -60,7 +140,7 @@ export default function SessionsScreen() {
             style={[styles.tab, mainTab === "my-sessions" && styles.tabActive]}
             onPress={() => setMainTab("my-sessions")}
           >
-            <Text style={[styles.tabText, mainTab === "my-sessions" && styles.tabTextActive]}>My Sessions (2)</Text>
+            <Text style={[styles.tabText, mainTab === "my-sessions" && styles.tabTextActive]}>My Sessions ({upcomingSessions.length + pastSessions.length + cancelledSessions.length})</Text>
           </Pressable>
           <Pressable 
             style={[styles.tab, mainTab === "find-counselor" && styles.tabActive]}
@@ -78,19 +158,19 @@ export default function SessionsScreen() {
             style={[styles.subFilterPill, filter === "upcoming" && styles.subFilterPillActive]}
             onPress={() => setFilter("upcoming")}
           >
-            <Text style={[styles.subFilterText, filter === "upcoming" && styles.subFilterTextActive]}>Upcoming (2)</Text>
+            <Text style={[styles.subFilterText, filter === "upcoming" && styles.subFilterTextActive]}>Upcoming ({upcomingSessions.length})</Text>
           </Pressable>
           <Pressable 
             style={[styles.subFilterPill, filter === "past" && styles.subFilterPillActive]}
             onPress={() => setFilter("past")}
           >
-            <Text style={[styles.subFilterText, filter === "past" && styles.subFilterTextActive]}>Past (4)</Text>
+            <Text style={[styles.subFilterText, filter === "past" && styles.subFilterTextActive]}>Past ({pastSessions.length})</Text>
           </Pressable>
           <Pressable 
             style={[styles.subFilterPill, filter === "cancelled" && styles.subFilterPillActive]}
             onPress={() => setFilter("cancelled")}
           >
-            <Text style={[styles.subFilterText, filter === "cancelled" && styles.subFilterTextActive]}>Cancelled (1)</Text>
+            <Text style={[styles.subFilterText, filter === "cancelled" && styles.subFilterTextActive]}>Cancelled ({cancelledSessions.length})</Text>
           </Pressable>
         </View>
 
@@ -102,107 +182,51 @@ export default function SessionsScreen() {
               <Text style={typography.caption}>Manage your scheduled & completed bookings</Text>
             </View>
 
-            {/* Session Card 1 */}
-            <Pressable onPress={() => router.push("/(student)/session/details")}>
-              <Card style={styles.sessionCard}>
-                <View style={styles.cardTopRow}>
-                <View style={styles.statusPill}>
-                  <View style={styles.statusDot} />
-                  <Text style={styles.statusText}>Confirmed • In 3 Days</Text>
-                </View>
-                <Text style={styles.refText}>Ref: #ME-8041</Text>
-              </View>
-
-              <View style={styles.doctorInfo}>
-                <Image source={{ uri: "https://i.pravatar.cc/150?img=5" }} style={styles.doctorAvatar} />
-                <View style={styles.doctorDetails}>
-                  <View style={styles.doctorNameRow}>
-                    <Text style={styles.doctorName}>Dr. Anjali Perera</Text>
-                    <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
+            {sessionsLoading ? <ActivityIndicator style={{marginTop: 40}} /> : upcomingSessions.length === 0 ? <Text style={{textAlign: 'center', marginTop: 40}}>No upcoming sessions</Text> : upcomingSessions.map(session => (
+              <Pressable key={session.id} onPress={() => router.push({ pathname: "/(student)/session/details", params: { id: session.id }})}>
+                <Card style={styles.sessionCard}>
+                  <View style={styles.cardTopRow}>
+                    <View style={styles.statusPill}>
+                      <View style={styles.statusDot} />
+                      <Text style={styles.statusText}>Confirmed • Upcoming</Text>
+                    </View>
+                    <Text style={styles.refText}>Ref: {`#${session.id.substring(0, 5).toUpperCase()}`}</Text>
                   </View>
-                  <Text style={styles.doctorSpecialty}>Specialty: Stress & Academic Anxiety</Text>
-                </View>
-              </View>
 
-              <View style={styles.sessionDetailsBox}>
-                <View style={styles.detailRow}>
-                  <Ionicons name="time-outline" size={16} color={colors.text} />
-                  <Text style={styles.detailTextBold}>Mon, 15 Aug 2026 • 10:00 AM </Text>
-                  <Text style={styles.detailTextLight}>(45 min)</Text>
-                </View>
-                <View style={styles.badgesRow}>
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="videocam-outline" size={14} color={colors.primary} />
-                    <Text style={styles.infoBadgeText}>Video Call</Text>
+                  <View style={styles.doctorInfo}>
+                    <Image source={{ uri: "https://i.pravatar.cc/150?u=" + session.counsellorId }} style={styles.doctorAvatar} />
+                    <View style={styles.doctorDetails}>
+                      <View style={styles.doctorNameRow}>
+                        <Text style={styles.doctorName}>{(counsellors.find(c => c.uid === session.counsellorId)?.fullName || "Counselor")}</Text>
+                        <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
+                      </View>
+                    </View>
                   </View>
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="shield-checkmark-outline" size={14} color={colors.textSecondary} />
-                    <Text style={styles.infoBadgeTextDark}>Anonymous Mode</Text>
+
+                  <View style={styles.sessionDetailsBox}>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="time-outline" size={16} color={colors.text} />
+                      <Text style={styles.detailTextBold}>{session.startAt.toDate().toDateString()} • {session.startAt.toDate().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
+                    </View>
+                    <View style={styles.badgesRow}>
+                      <View style={styles.infoBadge}>
+                        <Ionicons name="videocam-outline" size={14} color={colors.primary} />
+                        <Text style={styles.infoBadgeText}>{session.sessionType}</Text>
+                      </View>
+                    </View>
                   </View>
-                </View>
-              </View>
-
-              <Button title="Join Session" icon="videocam-outline" onPress={() => router.push("/(student)/session/video-call")} style={styles.joinButton} />
-              
-              <View style={styles.actionButtonsRow}>
-                <Pressable style={styles.rescheduleButton}>
-                  <Text style={styles.rescheduleText}>Reschedule</Text>
-                </Pressable>
-                <Pressable style={styles.cancelButton} onPress={() => router.push("/(student)/session/cancel")}>
-                  <Text style={styles.cancelText}>Cancel Booking</Text>
-                </Pressable>
-              </View>
-            </Card>
-          </Pressable>
-
-          {/* Session Card 2 */}
-            <Card style={styles.sessionCard}>
-              <View style={styles.cardTopRow}>
-                <View style={[styles.statusPill, { backgroundColor: colors.success }]}>
-                  <View style={[styles.statusDot, { backgroundColor: colors.primary }]} />
-                  <Text style={[styles.statusText, { color: colors.primary }]}>Confirmed</Text>
-                </View>
-                <Text style={styles.refText}>Ref: #ME-9218</Text>
-              </View>
-
-              <View style={styles.doctorInfo}>
-                <Image source={{ uri: "https://i.pravatar.cc/150?img=11" }} style={styles.doctorAvatar} />
-                <View style={styles.doctorDetails}>
-                  <View style={styles.doctorNameRow}>
-                    <Text style={styles.doctorName}>Dr. Rohan Silva</Text>
-                    <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
+                  
+                  <View style={styles.actionButtonsRow}>
+                    <Pressable style={styles.rescheduleButton}>
+                      <Text style={styles.rescheduleText}>Reschedule</Text>
+                    </Pressable>
+                    <Pressable style={styles.cancelButton} onPress={() => router.push({ pathname: '/(student)/session/cancel', params: { id: session.id }})}>
+                      <Text style={styles.cancelText}>Cancel Booking</Text>
+                    </Pressable>
                   </View>
-                  <Text style={styles.doctorSpecialty}>Specialty: Depression & Mindfulness</Text>
-                </View>
-              </View>
-
-              <View style={styles.sessionDetailsBox}>
-                <View style={styles.detailRow}>
-                  <Ionicons name="time-outline" size={16} color={colors.text} />
-                  <Text style={styles.detailTextBold}>Fri, 26 Aug 2026 • 02:00 PM </Text>
-                  <Text style={styles.detailTextLight}>(45 min)</Text>
-                </View>
-                <View style={styles.badgesRow}>
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="chatbubble-outline" size={14} color={colors.primary} />
-                    <Text style={styles.infoBadgeText}>Chat Session</Text>
-                  </View>
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="person-outline" size={14} color={colors.textSecondary} />
-                    <Text style={styles.infoBadgeTextDark}>Standard ID</Text>
-                  </View>
-                </View>
-              </View>
-
-              <Button title="Join Chat Session" icon="chatbubbles-outline" onPress={() => router.push("/(student)/session/chat")} style={styles.joinButton} />
-              
-              <View style={styles.actionButtonsRow}>
-                <Pressable style={styles.rescheduleButton}>
-                  <Text style={styles.rescheduleText}>Reschedule</Text>
-                </Pressable>
-                <Pressable style={styles.cancelButton} onPress={() => router.push('/(student)/session/cancel')}><Text style={styles.cancelText}>Cancel Booking</Text></Pressable>
-              </View>
-            </Card>
+                </Card>
+              </Pressable>
+            ))}
           </>
         )}
 
@@ -213,150 +237,49 @@ export default function SessionsScreen() {
               <Text style={typography.caption}>Auto-archived</Text>
             </View>
 
-            {/* Past Card 1 */}
-            <Card style={styles.sessionCard}>
-              <View style={styles.cardTopRow}>
-                <View style={styles.statusPill}>
-                  <View style={styles.statusDot} />
-                  <Text style={styles.statusText}>Completed • 12 Jul 2026</Text>
+                        {sessionsLoading ? <ActivityIndicator style={{marginTop: 40}} /> : pastSessions.length === 0 ? <Text style={{textAlign: 'center', marginTop: 40}}>No past sessions</Text> : pastSessions.map(session => (
+              <Card key={session.id} style={styles.sessionCard}>
+                <View style={styles.cardTopRow}>
+                  <View style={styles.statusPill}>
+                    <View style={styles.statusDot} />
+                    <Text style={styles.statusText}>Completed</Text>
+                  </View>
+                  <Text style={styles.refText}>Ref: {`#${session.id.substring(0, 5).toUpperCase()}`}</Text>
                 </View>
-                <Text style={styles.refText}>Ref: #ME-7420</Text>
-              </View>
 
-              <View style={styles.doctorInfo}>
-                <Image source={{ uri: "https://i.pravatar.cc/150?img=5" }} style={styles.doctorAvatar} />
-                <View style={styles.doctorDetails}>
-                  <View style={styles.doctorNameRow}>
-                    <Text style={styles.doctorName}>Dr. Anjali Perera</Text>
-                    <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
+                <View style={styles.doctorInfo}>
+                  <Image source={{ uri: "https://i.pravatar.cc/150?u=" + session.counsellorId }} style={styles.doctorAvatar} />
+                  <View style={styles.doctorDetails}>
+                    <View style={styles.doctorNameRow}>
+                      <Text style={styles.doctorName}>{(counsellors.find(c => c.uid === session.counsellorId)?.fullName || "Counselor")}</Text>
+                      <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
+                    </View>
                   </View>
-                  <Text style={styles.doctorSpecialty}>Specialty: Stress & Academic Anxiety</Text>
                 </View>
-              </View>
 
-              <View style={styles.sessionDetailsBox}>
-                <View style={styles.detailRow}>
-                  <Ionicons name="time-outline" size={16} color={colors.text} />
-                  <Text style={styles.detailTextBold}>Wed, 12 Jul 2026 • 10:00 AM </Text>
-                  <Text style={styles.detailTextLight}>(45 min)</Text>
-                </View>
-                <View style={styles.badgesRow}>
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="videocam-outline" size={14} color={colors.primary} />
-                    <Text style={styles.infoBadgeText}>Video Call</Text>
+                <View style={styles.sessionDetailsBox}>
+                  <View style={styles.detailRow}>
+                    <Ionicons name="time-outline" size={16} color={colors.text} />
+                    <Text style={styles.detailTextBold}>{session.startAt.toDate().toDateString()} • {session.startAt.toDate().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
                   </View>
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="shield-checkmark-outline" size={14} color={colors.textSecondary} />
-                    <Text style={styles.infoBadgeTextDark}>Anonymous Mode</Text>
+                  <View style={styles.badgesRow}>
+                    <View style={styles.infoBadge}>
+                      <Ionicons name="videocam-outline" size={14} color={colors.primary} />
+                      <Text style={styles.infoBadgeText}>{session.sessionType}</Text>
+                    </View>
                   </View>
                 </View>
-              </View>
-              
-              <Pressable style={styles.viewNotesButtonFull} onPress={() => router.push("/(student)/session/summary")}>
-                <Ionicons name="document-text-outline" size={16} color={colors.primary} />
-                <Text style={styles.rescheduleText}>View Summary Notes</Text>
-              </Pressable>
-            </Card>
-
-            {/* Past Card 2 */}
-            <Card style={styles.sessionCard}>
-              <View style={styles.cardTopRow}>
-                <View style={styles.statusPill}>
-                  <View style={styles.statusDot} />
-                  <Text style={styles.statusText}>Completed • 28 Jun 2026</Text>
-                </View>
-                <Text style={styles.refText}>Ref: #ME-6914</Text>
-              </View>
-
-              <View style={styles.doctorInfo}>
-                <Image source={{ uri: "https://i.pravatar.cc/150?img=9" }} style={styles.doctorAvatar} />
-                <View style={styles.doctorDetails}>
-                  <View style={styles.doctorNameRow}>
-                    <Text style={styles.doctorName}>Ms. Nimali Fernando</Text>
-                    <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
-                  </View>
-                  <Text style={styles.doctorSpecialty}>Specialty: Relationships & Family</Text>
-                </View>
-              </View>
-
-              <View style={styles.sessionDetailsBox}>
-                <View style={styles.detailRow}>
-                  <Ionicons name="time-outline" size={16} color={colors.text} />
-                  <Text style={styles.detailTextBold}>Thu, 28 Jun 2026 • 04:00 PM </Text>
-                  <Text style={styles.detailTextLight}>(45 min)</Text>
-                </View>
-                <View style={styles.badgesRow}>
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="chatbubble-outline" size={14} color={colors.primary} />
-                    <Text style={styles.infoBadgeText}>Chat Session</Text>
-                  </View>
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="person-outline" size={14} color={colors.textSecondary} />
-                    <Text style={styles.infoBadgeTextDark}>Standard ID</Text>
-                  </View>
-                </View>
-              </View>
-              
-              <View style={styles.actionButtonsRow}>
-                <Pressable style={styles.viewNotesButtonHalf}>
+                
+                <Pressable style={styles.viewNotesButtonFull} onPress={() => router.push("/(student)/session/summary")}>
                   <Ionicons name="document-text-outline" size={16} color={colors.primary} />
-                  <Text style={styles.rescheduleText}>View Notes</Text>
+                  <Text style={styles.rescheduleText}>View Summary Notes</Text>
                 </Pressable>
-                <Button title="Book Again" icon="calendar-outline" onPress={() => router.push("/(student)/session/book")} style={styles.bookAgainButton} />
-              </View>
-            </Card>
-
-            {/* Past Card 3 */}
-            <Card style={styles.sessionCard}>
-              <View style={styles.cardTopRow}>
-                <View style={styles.statusPill}>
-                  <View style={styles.statusDot} />
-                  <Text style={styles.statusText}>Completed • 10 Jun 2026</Text>
-                </View>
-                <Text style={styles.refText}>Ref: #ME-6105</Text>
-              </View>
-
-              <View style={styles.doctorInfo}>
-                <Image source={{ uri: "https://i.pravatar.cc/150?img=11" }} style={styles.doctorAvatar} />
-                <View style={styles.doctorDetails}>
-                  <View style={styles.doctorNameRow}>
-                    <Text style={styles.doctorName}>Dr. Rohan Silva</Text>
-                    <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
-                  </View>
-                  <Text style={styles.doctorSpecialty}>Specialty: Depression & Mindfulness</Text>
-                </View>
-              </View>
-
-              <View style={styles.sessionDetailsBox}>
-                <View style={styles.detailRow}>
-                  <Ionicons name="time-outline" size={16} color={colors.text} />
-                  <Text style={styles.detailTextBold}>Tue, 10 Jun 2026 • 02:00 PM </Text>
-                  <Text style={styles.detailTextLight}>(45 min)</Text>
-                </View>
-                <View style={styles.badgesRow}>
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="videocam-outline" size={14} color={colors.primary} />
-                    <Text style={styles.infoBadgeText}>Video Call</Text>
-                  </View>
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="person-outline" size={14} color={colors.textSecondary} />
-                    <Text style={styles.infoBadgeTextDark}>Standard ID</Text>
-                  </View>
-                </View>
-              </View>
-              
-              <View style={styles.actionButtonsRow}>
-                <Pressable style={styles.viewNotesButtonHalf}>
-                  <Ionicons name="document-text-outline" size={16} color={colors.primary} />
-                  <Text style={styles.rescheduleText}>View Notes</Text>
-                </Pressable>
-                <Button title="Book Again" icon="calendar-outline" onPress={() => router.push("/(student)/session/book")} style={styles.bookAgainButton} />
-              </View>
-            </Card>
+              </Card>
+            ))}
           </>
         )}
-
-        {filter === "cancelled" && (
+        
+{filter === "cancelled" && (
           <>
             {/* Notice Card */}
             <View style={styles.noticeCard}>
@@ -371,71 +294,47 @@ export default function SessionsScreen() {
               </View>
             </View>
 
-            {/* Cancelled Card */}
-            <Card style={styles.sessionCard}>
-              <View style={styles.cardTopRow}>
-                <View style={styles.cancelledPill}>
-                  <View style={styles.cancelledDot} />
-                  <Text style={styles.cancelledStatusText}>Cancelled by You • 02 Aug 2026</Text>
+            {sessionsLoading ? <ActivityIndicator style={{marginTop: 40}} /> : cancelledSessions.length === 0 ? <Text style={{textAlign: 'center', marginTop: 40}}>No cancelled sessions</Text> : cancelledSessions.map(session => (
+              <Card key={session.id} style={styles.sessionCard}>
+                <View style={styles.cardTopRow}>
+                  <View style={styles.cancelledPill}>
+                    <View style={styles.cancelledDot} />
+                    <Text style={styles.cancelledStatusText}>Cancelled • {session.startAt.toDate().toDateString()}</Text>
+                  </View>
+                  <Text style={styles.refText}>Ref: {`#${session.id.substring(0, 5).toUpperCase()}`}</Text>
                 </View>
-                <Text style={styles.refText}>Ref: #ME-7890</Text>
-              </View>
 
-              <View style={styles.doctorInfo}>
-                <Image source={{ uri: "https://i.pravatar.cc/150?img=5" }} style={styles.doctorAvatar} />
-                <View style={styles.doctorDetails}>
-                  <View style={styles.doctorNameRowSpace}>
-                    <View style={styles.doctorNameRow}>
-                      <Text style={styles.doctorName}>Dr. Anjali Perera</Text>
-                      <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
-                    </View>
-                    <View style={styles.ratingRow}>
-                      <Ionicons name="star" size={14} color="#F59E0B" />
-                      <Text style={styles.ratingText}>4.9</Text>
+                <View style={styles.doctorInfo}>
+                  <Image source={{ uri: "https://i.pravatar.cc/150?u=" + session.counsellorId }} style={styles.doctorAvatar} />
+                  <View style={styles.doctorDetails}>
+                    <View style={styles.doctorNameRowSpace}>
+                      <View style={styles.doctorNameRow}>
+                        <Text style={styles.doctorName}>{(counsellors.find(c => c.uid === session.counsellorId)?.fullName || "Counselor")}</Text>
+                        <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
+                      </View>
                     </View>
                   </View>
-                  <Text style={[styles.doctorSpecialty, { color: colors.primary }]}>Specialty: Stress & Academic Anxiety</Text>
-                  <Text style={styles.doctorSubSpecialty}>Senior University Counselor • Psy.D.</Text>
                 </View>
-              </View>
 
-              <View style={styles.originalSlotBox}>
-                <View style={styles.originalSlotHeaderRow}>
-                  <View style={styles.calendarIconBox}>
-                    <Ionicons name="calendar-outline" size={16} color={colors.primary} />
+                <View style={styles.originalSlotBox}>
+                  <View style={styles.originalSlotHeaderRow}>
+                    <View style={styles.calendarIconBox}>
+                      <Ionicons name="calendar-outline" size={16} color={colors.primary} />
+                    </View>
+                    <View>
+                      <Text style={styles.originalSlotLabel}>Original Slot</Text>
+                      <Text style={styles.originalSlotTime}>{session.startAt.toDate().toDateString()} • {session.startAt.toDate().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
+                    </View>
                   </View>
-                  <View>
-                    <Text style={styles.originalSlotLabel}>Original Slot</Text>
-                    <Text style={styles.originalSlotTime}>Sun, 04 Aug 2026 • 11:00 AM (45 min)</Text>
-                  </View>
-                </View>
-                <View style={styles.badgesRow}>
-                  <View style={styles.infoBadge}>
-                    <Ionicons name="videocam-outline" size={14} color={colors.primary} />
-                    <Text style={styles.infoBadgeText}>Video Call</Text>
-                  </View>
-                  <View style={[styles.infoBadge, { backgroundColor: colors.selected, borderColor: colors.selected }]}>
-                    <Ionicons name="shield-checkmark-outline" size={14} color={colors.primary} />
-                    <Text style={styles.infoBadgeText}>Anonymous Mode</Text>
+                  <View style={styles.reasonRow}>
+                    <Text style={styles.reasonLabel}>Reason: </Text>
+                    <Text style={styles.reasonText}>{session.cancelReason || "User Cancellation"}</Text>
                   </View>
                 </View>
-                <View style={styles.reasonRow}>
-                  <Text style={styles.reasonLabel}>Reason: </Text>
-                  <Text style={styles.reasonText}>Schedule Conflict / Academic Exam</Text>
-                </View>
-              </View>
 
-              <Button title="Rebook with Dr. Anjali" icon="calendar-outline" onPress={() => router.push("/(student)/session/book")} style={styles.rebookButton} />
-            </Card>
-
-            {/* Empty State */}
-            <View style={styles.emptyStateContainer}>
-              <View style={styles.emptyStateIconBox}>
-                <Ionicons name="checkbox-outline" size={24} color={colors.textSecondary} />
-              </View>
-              <Text style={styles.emptyStateText}>No other cancelled appointments in your history.</Text>
-              <Text style={styles.emptyStateSubtext}>Need urgent support? 24/7 Peer Warmline is active.</Text>
-            </View>
+                <Button title={"Rebook with " + (counsellors.find(c => c.uid === session.counsellorId)?.fullName || "Counselor").split(" ")[0]} icon="calendar-outline" onPress={() => router.push({ pathname: "/(student)/session/book", params: { uid: session.counsellorId }})} style={styles.rebookButton} />
+              </Card>
+            ))}
           </>
         )}
         </>
@@ -454,120 +353,53 @@ export default function SessionsScreen() {
 
             {/* Sort Row */}
             <View style={styles.sortRow}>
-              <Text style={styles.showingText}>Showing <Text style={{fontWeight: '700'}}>4 matching counselors</Text></Text>
+              <Text style={styles.showingText}>Showing <Text style={{fontWeight: '700'}}>{filteredCounsellors.length} matching counselor{filteredCounsellors.length !== 1 ? 's' : ''}</Text></Text>
               <View style={styles.sortRight}>
                 <Text style={styles.sortText}>Sort: Highest Rated</Text>
                 <Ionicons name="chevron-down" size={14} color={colors.text} />
               </View>
             </View>
 
-            {/* Card 1 */}
-            <Card style={styles.findCard}>
-              <View style={styles.findCardTop}>
-                <Image source={{ uri: "https://i.pravatar.cc/150?img=5" }} style={styles.findAvatar} />
-                <View style={styles.findDetails}>
-                  <Text style={styles.findName}>Dr. Anjali Perera</Text>
-                  <Text style={styles.findSpecialty}>Specialty: Anxiety & Stress</Text>
-                  <View style={styles.findRatingRow}>
-                    <Ionicons name="star" size={12} color="#F59E0B" />
-                    <Text style={styles.findRating}>4.8 <Text style={styles.findRatingCount}>(124)</Text></Text>
-                    <Text style={styles.findAvailability}>Available Today</Text>
-                  </View>
-                </View>
-                <Ionicons name="bookmark-outline" size={20} color={colors.textSecondary} style={styles.bookmarkIcon} />
+            {loading ? (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color={colors.primary} />
               </View>
-              <View style={styles.findCardBottom}>
-                <View style={styles.nextTimeRow}>
-                  <Ionicons name="time-outline" size={16} color={colors.text} />
-                  <Text style={styles.nextTimeText}>Next: <Text style={{fontWeight: '700'}}>2:00 PM</Text></Text>
-                </View>
-                <Pressable style={styles.viewProfileBtn} onPress={() => router.push("/(student)/session/counselor")}>
-                  <Text style={styles.viewProfileText}>View Profile</Text>
-                  <Ionicons name="arrow-forward" size={16} color="#FFF" />
-                </Pressable>
+            ) : filteredCounsellors.length === 0 ? (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <Ionicons name="search-outline" size={40} color={colors.textSecondary} />
+                <Text style={{ marginTop: 10, color: colors.textSecondary }}>No counselors found</Text>
               </View>
-            </Card>
-
-            {/* Card 2 */}
-            <Card style={styles.findCard}>
-              <View style={styles.findCardTop}>
-                <Image source={{ uri: "https://i.pravatar.cc/150?img=11" }} style={styles.findAvatar} />
-                <View style={styles.findDetails}>
-                  <Text style={styles.findName}>Mr. Kasun Silva</Text>
-                  <Text style={styles.findSpecialty}>Specialty: Academic Pressure</Text>
-                  <View style={styles.findRatingRow}>
-                    <Ionicons name="star" size={12} color="#F59E0B" />
-                    <Text style={styles.findRating}>4.6 <Text style={styles.findRatingCount}>(89)</Text></Text>
-                    <Text style={styles.findAvailability}>Available Tomorrow</Text>
-                  </View>
-                </View>
-                <Ionicons name="bookmark-outline" size={20} color={colors.textSecondary} style={styles.bookmarkIcon} />
-              </View>
-              <View style={styles.findCardBottom}>
-                <View style={styles.nextTimeRow}>
-                  <Ionicons name="time-outline" size={16} color={colors.text} />
-                  <Text style={styles.nextTimeText}>Next: <Text style={{fontWeight: '700'}}>9:30 AM</Text></Text>
-                </View>
-                <Pressable style={styles.viewProfileBtn} onPress={() => router.push("/(student)/session/counselor")}>
-                  <Text style={styles.viewProfileText}>View Profile</Text>
-                  <Ionicons name="arrow-forward" size={16} color="#FFF" />
-                </Pressable>
-              </View>
-            </Card>
-
-            {/* Card 3 */}
-            <Card style={styles.findCard}>
-              <View style={styles.findCardTop}>
-                <Image source={{ uri: "https://i.pravatar.cc/150?img=9" }} style={styles.findAvatar} />
-                <View style={styles.findDetails}>
-                  <Text style={styles.findName}>Ms. Nimali Fernando</Text>
-                  <Text style={styles.findSpecialty}>Specialty: Relationships & Family</Text>
-                  <View style={styles.findRatingRow}>
-                    <Ionicons name="star" size={12} color="#F59E0B" />
-                    <Text style={styles.findRating}>4.9 <Text style={styles.findRatingCount}>(210)</Text></Text>
-                    <Text style={styles.findAvailability}>Available Today</Text>
-                  </View>
-                </View>
-                <Ionicons name="bookmark-outline" size={20} color={colors.textSecondary} style={styles.bookmarkIcon} />
-              </View>
-              <View style={styles.findCardBottom}>
-                <View style={styles.nextTimeRow}>
-                  <Ionicons name="time-outline" size={16} color={colors.text} />
-                  <Text style={styles.nextTimeText}>Next: <Text style={{fontWeight: '700'}}>4:15 PM</Text></Text>
-                </View>
-                <Pressable style={styles.viewProfileBtn} onPress={() => router.push("/(student)/session/counselor")}>
-                  <Text style={styles.viewProfileText}>View Profile</Text>
-                  <Ionicons name="arrow-forward" size={16} color="#FFF" />
-                </Pressable>
-              </View>
-            </Card>
-
-            {/* Card 4 */}
-            <Card style={styles.findCard}>
-              <View style={styles.findCardTop}>
-                <Image source={{ uri: "https://i.pravatar.cc/150?img=8" }} style={styles.findAvatar} />
-                <View style={styles.findDetails}>
-                  <Text style={styles.findName}>Dr. Rohan Silva</Text>
-                  <Text style={styles.findSpecialty}>Specialty: Depression & Mindfulness</Text>
-                  <View style={styles.findRatingRow}>
-                    <Ionicons name="star" size={12} color="#F59E0B" />
-                    <Text style={styles.findRating}>4.7 <Text style={styles.findRatingCount}>(78)</Text></Text>
-                    <Text style={styles.findAvailability}>Available Fri</Text>
-                  </View>
-                </View>
-                <Ionicons name="bookmark-outline" size={20} color={colors.textSecondary} style={styles.bookmarkIcon} />
-              </View>
-              <View style={styles.findCardBottom}>
-                <View style={styles.nextTimeRow}>
-                  <Ionicons name="time-outline" size={16} color={colors.text} />
-                  <Text style={styles.nextTimeText}>Next: <Text style={{fontWeight: '700'}}>11:00 AM</Text></Text>
-                </View>
-                <Pressable style={styles.viewProfileBtn} onPress={() => router.push("/(student)/session/counselor")}>
-                  <Text style={styles.viewProfileText}>View Profile</Text>
-                  <Ionicons name="arrow-forward" size={16} color="#FFF" />
-                </Pressable>
-              </View>
-            </Card>
+            ) : (
+              filteredCounsellors.map((counselor) => {
+                const mockData = getMockData(counselor.uid);
+                return (
+                  <Card key={counselor.uid} style={styles.findCard}>
+                    <View style={styles.findCardTop}>
+                      <View style={styles.findAvatar}><CounsellorAvatar uid={counselor.uid} name={counselor.fullName} size={64} /></View>
+                      <View style={styles.findDetails}>
+                        <Text style={styles.findName}>{counselor.fullName}</Text>
+                        <Text style={styles.findSpecialty}>Specialty: {counselor.specialties.join(' & ')}</Text>
+                        <View style={styles.findRatingRow}>
+    <Text style={styles.findRating}>{counselor.experienceYears} years experience</Text>
+    <Text style={styles.findAvailability}>{counselor.isAvailable ? 'Available' : 'Currently Unavailable'}</Text>
+  </View>
+                      </View>
+                      <Ionicons name="bookmark-outline" size={20} color={colors.textSecondary} style={styles.bookmarkIcon} />
+                    </View>
+                    <View style={styles.findCardBottom}>
+                      <View style={styles.nextTimeRow}>
+                        <Ionicons name="time-outline" size={16} color={colors.text} />
+                        <Text style={styles.nextTimeText}>Next: <Text style={{fontWeight: '700'}}>9:30 AM</Text></Text>
+                      </View>
+                      <Pressable style={styles.viewProfileBtn} onPress={() => router.push({ pathname: "/(student)/session/counselor", params: { uid: counselor.uid } })}>
+                        <Text style={styles.viewProfileText}>View Profile</Text>
+                        <Ionicons name="arrow-forward" size={16} color="#FFF" />
+                      </Pressable>
+                    </View>
+                  </Card>
+                );
+              })
+            )}
 
             {/* Urgent Support */}
             <View style={styles.urgentSupportBox}>

@@ -1,15 +1,36 @@
 import { colors, radius, spacing, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
+import { cancelBooking, getBooking } from "@/services/bookingService";
+import { Booking } from "@/types/booking";
+import { ActivityIndicator } from "react-native";
 import { ScrollView, StyleSheet, Text, TextInput, View, Pressable, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Card from "@/components/common/Card";
 
 export default function CancelBookingScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
   const [selectedReason, setSelectedReason] = useState("conflict");
   const [modalVisible, setModalVisible] = useState(false);
   const [modalStep, setModalStep] = useState<"confirm" | "success">("confirm");
+  const [cancelLoading, setCancelLoading] = useState(false);
+
+  const handleCancel = async () => {
+    if (!id) return;
+    setCancelLoading(true);
+    try {
+      await cancelBooking(id, selectedReason);
+      setModalStep("success");
+    } catch(e) {
+      console.error(e);
+      alert("Failed to cancel session");
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+
 
   const reasons = [
     { id: "conflict", label: "Schedule conflict / Class clash" },
@@ -182,7 +203,7 @@ export default function CancelBookingScreen() {
 
                 <Pressable 
                   style={styles.modalConfirmBtn} 
-                  onPress={() => setModalStep("success")}
+                  onPress={handleCancel}
                 >
                   <Ionicons name="close" size={18} color="#FFF" />
                   <Text style={styles.modalConfirmText}>Yes, Cancel Booking</Text>

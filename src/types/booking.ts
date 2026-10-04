@@ -50,6 +50,7 @@ export type Booking = {
   startAt: Timestamp;
   endAt: Timestamp; // After startAt
   sessionType: SessionType;
+  isAnonymous: boolean;
   status: BookingStatus;
   cancelReason?: string; // Max CANCEL_REASON_MAX; only on cancelled/declined
   notes?: string; // Student's note when booking, max BOOKING_NOTES_MAX
@@ -66,6 +67,7 @@ export type BookingInput = {
   startAt: Date;
   endAt: Date;
   sessionType: SessionType;
+  isAnonymous: boolean;
   slotId?: string;
   notes?: string;
 };
