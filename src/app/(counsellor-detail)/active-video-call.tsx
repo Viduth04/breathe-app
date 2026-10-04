@@ -34,6 +34,7 @@ export default function ActiveVideoCallScreen() {
 
   // Call timer: starting at 12:34 (754 seconds) as in Figma mockup, counting up
   const [seconds, setSeconds] = useState(754);
+  const [isCallActive, setIsCallActive] = useState(true);
   const [waveformHeights, setWaveformHeights] = useState([8, 14, 22, 16, 24, 18, 10]);
   const [notesModalVisible, setNotesModalVisible] = useState(false);
   const [clinicalNotes, setClinicalNotes] = useState(
@@ -41,14 +42,16 @@ export default function ActiveVideoCallScreen() {
   );
 
   useEffect(() => {
+    if (!isCallActive) return;
     const timer = setInterval(() => {
       setSeconds((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isCallActive]);
 
   // Animate audio waveform bars gently to simulate live student speech
   useEffect(() => {
+    if (!isCallActive) return;
     const waveInterval = setInterval(() => {
       setWaveformHeights([
         6 + Math.floor(Math.random() * 8),
@@ -61,7 +64,7 @@ export default function ActiveVideoCallScreen() {
       ]);
     }, 300);
     return () => clearInterval(waveInterval);
-  }, []);
+  }, [isCallActive]);
 
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
@@ -70,19 +73,27 @@ export default function ActiveVideoCallScreen() {
   };
 
   const handleEndCall = () => {
+    setIsCallActive(false);
     Alert.alert(
       "End Consultation",
       `Are you sure you want to end this encrypted session with ${studentAnonId}?`,
       [
-        { text: "Cancel", style: "cancel" },
+        {
+          text: "Cancel",
+          style: "cancel",
+          onPress: () => setIsCallActive(true),
+        },
         {
           text: "End Session",
           style: "destructive",
           onPress: () => {
             completeSession("session-1");
-            router.navigate({
-              pathname: "/(counsellor)/dashboard",
-              params: { sessionCompleted: "true" },
+            router.replace({
+              pathname: "/(counsellor-detail)/past-sessions",
+              params: {
+                studentAnonId,
+                displayName: studentAnonId,
+              },
             });
           },
         },

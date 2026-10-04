@@ -3,6 +3,7 @@ import Card from "@/components/common/Card";
 import Screen from "@/components/common/Screen";
 import LoadingScreen from "@/components/navigation/LoadingScreen";
 import { useAuth } from "@/context/AuthContext";
+import { isStaffRequest } from "@/services/authService";
 import { spacing, typography } from "@/theme";
 import { Redirect } from "expo-router";
 import { StyleSheet, Text } from "react-native";
@@ -15,6 +16,9 @@ export default function Index() {
 
   // Right after sign-up the profile document is still being written
   if (!profile) return <LoadingScreen offerLogout />;
+
+  // Staff sign-ups waiting for (or refused) approval never see the student tabs
+  if (isStaffRequest(profile)) return <Redirect href="/pending-approval" />;
 
   switch (profile.role) {
     case "student":

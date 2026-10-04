@@ -13,19 +13,49 @@
 //       role                    "student" | "counsellor" | "lecturer" | "admin"
 //       uid, anonId, isGuest, fullName, email,
 //       anonymousMode, shareMoodWithCounsellor
+//       requestedRole           optional, "counsellor" | "lecturer": a staff
+//                               sign-up waiting for an admin. Role stays
+//                               "student" until approved.
+//       approvalStatus          optional, "pending" | "rejected"; only
+//                               present together with requestedRole.
+//                               Approving = admin sets role to requestedRole
+//                               and deletes both fields in one update.
 //   checkins/{id}               userId          (student's uid)
-//   bookings/{id}               studentId, counsellorId, status,
-//                               studentAnonId   (copy of the student's anonId,
-//                                                so counsellors never need to
-//                                                read the users collection)
+//   bookings/{id}               EXACTLY these fields (type: src/types/booking.ts,
+//                               write only via src/services/bookingService.ts)
+//       studentId, counsellorId
+//       studentAnonId           copy of the student's anonId, so counsellors
+//                               never need to read the users collection
+//       startAt, endAt          timestamps; startAt in the future on create,
+//                               endAt after startAt
+//       sessionType             "in-person" | "video" | "phone" | "chat"
 //       status                  "pending" | "confirmed" | "declined"
 //                               | "cancelled" | "completed"
+//       createdAt, updatedAt    serverTimestamp()
+//       slotId                  optional, a slot of the same counsellor
+//       notes                   optional, string up to 500
+//       cancelReason            optional, string up to 200, only when
+//                               cancelling or declining
+//     Status changes:
+//       student     pending|confirmed -> cancelled
+//       counsellor  pending -> confirmed|declined,
+//                   confirmed -> cancelled, confirmed -> completed (after startAt)
 //   counsellors/{counsellorId}  doc id = the counsellor's uid
 //                               uid (same as doc id), fullName, title,
 //                               specialties[], languages[], experienceYears,
 //                               bio, isAvailable, updatedAt
 //                               (type: src/types/counsellor.ts)
+//   counsellorPhotos/{counsellorId}
+//                               doc id = a counsellor's uid that HAS a
+//                               counsellors/{uid} profile
+//                               photo     ("data:image/jpeg;base64,...",
+//                                          under 200000 chars),
+//                               updatedAt (serverTimestamp())
+//                               Counsellors only: students, lecturers and
+//                               admins never get photos. Admins write.
 //   slots/{id}                  counsellorId
+//                               isBooked, bookingId (set by the counsellor
+//                               when confirming a booking for this slot)
 //   resources/{id}              title, type ("article" | "exercise"),
 //                               categories[], durationMinutes, summary,
 //                               content, isPublished, createdAt, updatedAt
@@ -89,8 +119,12 @@ service cloud.firestore {
       return isSignedIn() && role() == "counsellor";
     }
 
+    // A real student: staff sign-ups waiting for (or refused) approval also
+    // have role "student", but must not act as one
     function isStudent() {
-      return isSignedIn() && role() == "student";
+      return isSignedIn()
+        && role() == "student"
+        && !("approvalStatus" in userDoc(request.auth.uid));
     }
 
     function isLecturer() {
@@ -112,16 +146,46 @@ service cloud.firestore {
       // Owner reads their own profile; admins can read and list everyone
       allow read: if isOwner(uid) || isAdmin();
 
+      // Staff sign-up: may only ASK for counsellor or lecturer, as "pending",
+      // never as a guest. Without a request neither field may be present.
+      function validStaffRequest(d) {
+        return (!("requestedRole" in d) && !("approvalStatus" in d))
+          || (d.requestedRole in ["counsellor", "lecturer"]
+              && d.approvalStatus == "pending"
+              && d.isGuest == false);
+      }
+
       // Sign-up and "Continue Anonymously" create your own profile, always as
-      // a student. Roles are never chosen at sign-up.
+      // a student. Roles are never chosen at sign-up; staff can only request one.
       allow create: if isOwner(uid)
         && request.resource.data.role == "student"
-        && request.resource.data.uid == uid;
+        && request.resource.data.uid == uid
+        && validStaffRequest(request.resource.data);
 
       // Owner edits their own profile (e.g. privacy settings) but can never
-      // change their role or identity fields
+      // change their role, identity fields or staff request
       allow update: if isOwner(uid)
-        && !changedKeys().hasAny(["role", "uid", "anonId", "isGuest"]);
+        && !changedKeys().hasAny(["role", "uid", "anonId", "isGuest",
+             "requestedRole", "approvalStatus"]);
+
+      // Admin approves a pending staff request: role becomes the requested
+      // role and both request fields are removed, all in one update
+      allow update: if isAdmin()
+        && !isOwner(uid)
+        && resource.data.role == "student"
+        && resource.data.get("approvalStatus", null) == "pending"
+        && resource.data.requestedRole in ["counsellor", "lecturer"]
+        && changedKeys().hasOnly(["role", "requestedRole", "approvalStatus"])
+        && request.resource.data.role == resource.data.requestedRole
+        && !("requestedRole" in request.resource.data)
+        && !("approvalStatus" in request.resource.data);
+
+      // Admin rejects a pending staff request (role stays "student")
+      allow update: if isAdmin()
+        && !isOwner(uid)
+        && resource.data.get("approvalStatus", null) == "pending"
+        && changedKeys().hasOnly(["approvalStatus"])
+        && request.resource.data.approvalStatus == "rejected";
 
       // Admins change the role field only: never their own, never to or from
       // admin (that's console-only), and guests can only be students
@@ -165,29 +229,80 @@ service cloud.firestore {
 
     // ---------- bookings ----------
     // Only the student and the booked counsellor see a booking. No admin
-    // access (NFR01).
+    // access (NFR01). Field list and status changes: see the top of this file.
     match /bookings/{bookingId} {
-      // Students book for themselves with a real counsellor. The booking
-      // starts as "pending" and carries the student's real anonId.
+      function isText(data, field, max) {
+        return !(field in data)
+          || (data[field] is string && data[field].size() > 0 && data[field].size() <= max);
+      }
+
+      function validOptional(data) {
+        return isText(data, "slotId", 128)
+          && isText(data, "notes", 500)
+          && isText(data, "cancelReason", 200);
+      }
+
+      // A slot, if given, must exist and belong to the booked counsellor
+      function validSlot(data) {
+        return !("slotId" in data)
+          || (exists(/databases/$(database)/documents/slots/$(data.slotId))
+              && get(/databases/$(database)/documents/slots/$(data.slotId)).data.counsellorId == data.counsellorId);
+      }
+
+      // Only status, cancelReason and updatedAt ever change after creation,
+      // and updatedAt must be stamped by the server
+      function validUpdate() {
+        return changedKeys().hasOnly(["status", "cancelReason", "updatedAt"])
+          && request.resource.data.updatedAt == request.time
+          && validOptional(request.resource.data)
+          && (!changedKeys().hasAny(["cancelReason"])
+              || request.resource.data.status in ["cancelled", "declined"]);
+      }
+
+      function counsellorMove(from, to) {
+        return (from == "pending" && to in ["confirmed", "declined"])
+          || (from == "confirmed" && to == "cancelled")
+          || (from == "confirmed" && to == "completed" && request.time >= resource.data.startAt);
+      }
+
+      // Students book for themselves with a real, available counsellor. The
+      // booking starts as "pending" and carries the student's real anonId.
       allow create: if isStudent()
+        && request.resource.data.keys().hasAll(["studentId", "counsellorId", "studentAnonId",
+             "startAt", "endAt", "sessionType", "status", "createdAt", "updatedAt"])
+        && request.resource.data.keys().hasOnly(["studentId", "counsellorId", "studentAnonId",
+             "startAt", "endAt", "sessionType", "status", "createdAt", "updatedAt",
+             "slotId", "notes"])
         && request.resource.data.studentId == request.auth.uid
         && request.resource.data.status == "pending"
         && request.resource.data.studentAnonId == userDoc(request.auth.uid).anonId
-        && exists(/databases/$(database)/documents/counsellors/$(request.resource.data.counsellorId));
+        && request.resource.data.counsellorId is string
+        && exists(/databases/$(database)/documents/counsellors/$(request.resource.data.counsellorId))
+        && get(/databases/$(database)/documents/counsellors/$(request.resource.data.counsellorId)).data.isAvailable == true
+        && request.resource.data.sessionType in ["in-person", "video", "phone", "chat"]
+        && request.resource.data.startAt is timestamp
+        && request.resource.data.startAt > request.time
+        && request.resource.data.endAt is timestamp
+        && request.resource.data.endAt > request.resource.data.startAt
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && validOptional(request.resource.data)
+        && validSlot(request.resource.data);
 
       // The student and the booked counsellor can read it
       allow read: if isOwner(resource.data.studentId)
         || isOwner(resource.data.counsellorId);
 
-      // Student may only cancel: status -> "cancelled", nothing else
+      // Student may only cancel a pending or confirmed booking
       allow update: if isOwner(resource.data.studentId)
-        && changedKeys().hasOnly(["status"])
+        && validUpdate()
+        && resource.data.status in ["pending", "confirmed"]
         && request.resource.data.status == "cancelled";
 
-      // Booked counsellor may only change the status
+      // Booked counsellor may only move the status along (see counsellorMove)
       allow update: if isOwner(resource.data.counsellorId)
-        && changedKeys().hasOnly(["status"])
-        && request.resource.data.status in ["confirmed", "declined", "cancelled", "completed"];
+        && validUpdate()
+        && counsellorMove(resource.data.status, request.resource.data.status);
 
       // Student deletes their own bookings (Delete My Data)
       allow delete: if isOwner(resource.data.studentId);
@@ -199,14 +314,16 @@ service cloud.firestore {
     // Doc id: "<counsellorUid>_<studentUid>" so rules can look it up directly.
     match /careLinks/{linkId} {
       // Only the booked counsellor creates it, for a CONFIRMED booking
-      // between exactly these two people
+      // between exactly these two people. getAfter() so it works in the same
+      // batch that confirms the booking (bookingService.updateBookingStatus);
+      // outside a batch it's the same as get().
       allow create: if isCounsellor()
         && linkId == request.auth.uid + "_" + request.resource.data.studentId
         && request.resource.data.counsellorId == request.auth.uid
         && request.resource.data.keys().hasOnly(["counsellorId", "studentId", "bookingId", "createdAt"])
-        && get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.counsellorId == request.auth.uid
-        && get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.studentId == request.resource.data.studentId
-        && get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.status == "confirmed";
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.counsellorId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.studentId == request.resource.data.studentId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.status == "confirmed";
 
       // The two people in the link can see it
       allow read: if isOwner(resource.data.counsellorId)
@@ -239,6 +356,28 @@ service cloud.firestore {
         && request.resource.data.isAvailable == false;
 
       allow delete: if (isOwner(counsellorId) && isCounsellor()) || isAdmin();
+    }
+
+    // ---------- counsellorPhotos ----------
+    // Profile photos for counsellors ONLY (kept apart so the counsellors list
+    // stays light). Spark plan, so no Storage: a small JPEG data URL.
+    match /counsellorPhotos/{counsellorId} {
+      allow read: if isSignedIn();
+
+      // Admins only, exactly {photo, updatedAt}, for a counsellor who has a
+      // profile. existsAfter() so it can be saved in the same batch that
+      // creates the profile.
+      allow create, update: if isAdmin()
+        && existsAfter(/databases/$(database)/documents/counsellors/$(counsellorId))
+        && request.resource.data.keys().hasOnly(["photo", "updatedAt"])
+        && request.resource.data.keys().hasAll(["photo", "updatedAt"])
+        && request.resource.data.photo is string
+        && request.resource.data.photo.size() < 200000
+        && request.resource.data.photo.matches("^data:image/jpeg;base64,[A-Za-z0-9+/=]+$")
+        && request.resource.data.updatedAt == request.time;
+
+      // Admins remove it (also in the same batch that deletes the profile)
+      allow delete: if isAdmin();
     }
 
     // ---------- slots ----------

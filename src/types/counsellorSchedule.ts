@@ -32,4 +32,4 @@ export type WeekRange = {
   startDate: string;
 };
 
-export type ViewMode = "week" | "month";
+export type ViewMode = "day" | "week" | "month";

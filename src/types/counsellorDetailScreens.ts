@@ -130,3 +130,131 @@ export type NotificationDetailData = {
     tertiary: string; // e.g. "Decline"
   };
 };
+
+// ─── Pre-Chat / Student Waiting Room ───
+export type ClinicalPromptItem = {
+  id: string;
+  iconName: string;
+  promptText: string;
+};
+
+export type PreChatWaitingRoomData = {
+  studentId: string;
+  studentAnonId: string;
+  scheduledTime: string;
+  intakeRoomStatus: string;
+  phqScore: number;
+  primaryConcern: string;
+  duration: string;
+  sharedContext: string;
+  openingPrompts: ClinicalPromptItem[];
+};
+
+// ─── Clinical Alerts & Preferences ───
+export type ClinicalAlertPreferences = {
+  crisisRiskTriggers: boolean;
+  newAppointmentRequests: boolean;
+  upcomingSessionReminders: boolean;
+  intakeFormSubmissions: boolean;
+  secureChatMessages: boolean;
+  quietHoursDutyOff: boolean;
+  advanceReminderMinutes: number;
+  advanceReminderType: "gentle" | "standard";
+  scheduledWindow: string;
+  previewStudentIdentityHidden: boolean;
+  priorityOverrideAlwaysOn: boolean;
+};
+
+// ─── Patients Directory Item ───
+export type PatientBadgeType = "WEEKLY" | "BI-WEEKLY" | "MONTHLY" | "ANONYMOUS";
+export type PatientItem = {
+  id: string;
+  studentId: string;
+  studentAnonId: string;
+  displayName: string;
+  idMode: "anonymous" | "standard";
+  initials?: string;
+  avatarIcon?: "shield" | "key" | "lock";
+  badgeText: string;
+  badgeStyle?: "mint" | "slate" | "amber" | "teal" | "indigo";
+  sessionTimingText: string;
+  isActive: boolean;
+  hasUnread?: boolean;
+  status: "active" | "inactive" | "pending";
+  totalLogs?: number;
+  lastSessionDate?: string;
+};
+
+// ─── Anonymous Session Details Screen ───
+export type AnonymousSessionDetailData = {
+  id: string;
+  studentId: string;
+  studentAnonId: string;
+  displayName: string;
+  idMode: "anonymous" | "standard";
+  sessionType: SessionType;
+  sessionTypeLabel: string;
+  location: string;
+  locationSub: string;
+  timeRange: string;
+  duration: string;
+  timeRelative: string;
+  caseRef: string;
+  recurrence: string;
+  intakeType: string;
+  concernTags: string[];
+  bookingStatus: string;
+  privacyNotice: string;
+  complianceNotice: string;
+  prepNotes: string;
+  prepNoteUpdatedAt: string;
+  isCheckedIn: boolean;
+};
+
+// ─── Session Notes / View Notes Screen ───
+export type ClinicalNoteEntry = {
+  id: string;
+  date: string;
+  modality: string;
+  status: string;
+  content: string;
+  counselorName: string;
+  signedStatus: string;
+};
+
+export type SessionNotesData = {
+  studentId: string;
+  studentAnonId: string;
+  displayName: string;
+  idMode: "anonymous" | "standard";
+  sessionType: SessionType;
+  sessionTypeLabel: string;
+  timeRelative: string;
+  timeRange: string;
+  duration: string;
+  caseRef: string;
+  sessionOrdinal: string;
+  followUpPriority: string;
+  followUpAction: string;
+  topics: { icon: string; name: string }[];
+  notes: ClinicalNoteEntry[];
+};
+
+// ─── Add Session Screen ───
+export type NewSessionFormInput = {
+  studentId: string;
+  studentAnonId: string;
+  displayName: string;
+  idMode: "anonymous" | "standard";
+  sessionType: SessionType;
+  date: string;
+  startTime: string;
+  endTime: string;
+  duration: string;
+  locationOrRoom?: string;
+  focus?: string;
+  selectedTags: string[];
+  isAnonymous: boolean;
+  sendReminder: boolean;
+};
+

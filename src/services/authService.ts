@@ -27,6 +27,10 @@ import {
 // "admin" is only ever set in the Firebase console, never at sign-up
 export type Role = "student" | "counsellor" | "lecturer" | "admin";
 
+// Staff sign-ups ask for one of these; an admin approves or rejects (FR01)
+export type StaffRole = "counsellor" | "lecturer";
+export type ApprovalStatus = "pending" | "rejected";
+
 export type UserProfile = {
   uid: string;
   role: Role;
@@ -37,19 +41,30 @@ export type UserProfile = {
   shareMoodWithCounsellor: boolean;
   isGuest: boolean;
   createdAt?: Timestamp | null; // Set by the server at sign-up
+  // Staff sign-ups only. Role stays "student" until an admin approves, which
+  // sets role to requestedRole and removes both fields.
+  requestedRole?: StaffRole;
+  approvalStatus?: ApprovalStatus;
 };
+
+// Waiting for or refused staff approval: never treat as a real student
+export const isStaffRequest = (profile: UserProfile) =>
+  profile.role === "student" && !!profile.approvalStatus;
 
 // Random public ID so counsellors never need the student's real name
 const makeAnonId = () => `Student #${Math.floor(1000 + Math.random() * 9000)}`;
 
 // ---------- CREATE ----------
 
-// Register screen: creates the login account + the user's profile document
+// Register screen: creates the login account + the user's profile document.
+// requestedRole (staff only) asks an admin for that role; the account stays a
+// "student" with approvalStatus "pending" until then.
 export async function registerStudent(
   fullName: string,
   email: string,
   password: string,
   anonymousMode: boolean,
+  requestedRole?: StaffRole,
 ) {
   const cred = await createUserWithEmailAndPassword(
     auth,
@@ -65,6 +80,7 @@ export async function registerStudent(
     anonymousMode,
     shareMoodWithCounsellor: false,
     isGuest: false,
+    ...(requestedRole ? { requestedRole, approvalStatus: "pending" as const } : {}),
   };
   await setDoc(doc(db, "users", cred.user.uid), {
     ...profile,
@@ -133,6 +149,25 @@ export async function updatePrivacySettings(
   settings: { anonymousMode: boolean; shareMoodWithCounsellor: boolean },
 ) {
   await updateDoc(doc(db, "users", uid), settings);
+}
+
+// Profile screen - Ishara (Member 2). The owner rule already allows fullName
+// (it only blocks role, uid, anonId, isGuest and the staff request fields).
+export const FULL_NAME_MIN = 2;
+export const FULL_NAME_MAX = 60;
+
+// Plain-language problem with a name, or undefined when it's fine
+export function validateFullName(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return "Enter your full name.";
+  if (trimmed.length < FULL_NAME_MIN) return `Use at least ${FULL_NAME_MIN} characters.`;
+  if (trimmed.length > FULL_NAME_MAX) return `Keep it under ${FULL_NAME_MAX} characters.`;
+  return undefined;
+}
+
+// Changes fullName only; AuthContext's live profile picks it up everywhere
+export async function updateFullName(uid: string, fullName: string) {
+  await updateDoc(doc(db, "users", uid), { fullName: fullName.trim() });
 }
 
 // ---------- DELETE ----------

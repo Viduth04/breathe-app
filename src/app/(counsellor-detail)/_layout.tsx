@@ -42,6 +42,19 @@ export default function CounsellorDetailLayout() {
           animation: "fade",
         }}
       />
+      <Stack.Screen name="pre-chat-empty-state" />
+      <Stack.Screen name="clinical-alerts-preferences" />
+      <Stack.Screen name="patients-list" />
+      <Stack.Screen name="anonymous-session-details" />
+      <Stack.Screen name="session-notes" />
+      <Stack.Screen name="requests" />
+      <Stack.Screen
+        name="add-session"
+        options={{
+          presentation: "modal",
+          animation: "slide_from_bottom",
+        }}
+      />
     </Stack>
   );
 }

@@ -2,8 +2,12 @@ import AuthHeader from "@/components/auth/AuthHeader";
 import Button from "@/components/common/Button";
 import Input from "@/components/common/Input";
 import Screen from "@/components/common/Screen";
-import { getAuthErrorMessage, registerStudent } from "@/services/authService";
-import { colors, radius, spacing, typography } from "@/theme";
+import {
+  getAuthErrorMessage,
+  registerStudent,
+  StaffRole,
+} from "@/services/authService";
+import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState } from "react";
@@ -14,6 +18,14 @@ type Errors = Partial<Record<Field | "form", string>>;
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// "Joining as": students sign up as before; staff send a request to an admin (FR01)
+type JoiningAs = "student" | StaffRole;
+const JOINING_AS: { key: JoiningAs; label: string }[] = [
+  { key: "student", label: "Student" },
+  { key: "counsellor", label: "Counsellor" },
+  { key: "lecturer", label: "Lecturer" },
+];
+
 export default function Register() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -21,6 +33,7 @@ export default function Register() {
   const [confirm, setConfirm] = useState("");
   const [anonymousMode, setAnonymousMode] = useState(true);
   const [agreed, setAgreed] = useState(false);
+  const [joiningAs, setJoiningAs] = useState<JoiningAs>("student");
   const [errors, setErrors] = useState<Errors>({});
   const [loading, setLoading] = useState(false);
 
@@ -44,7 +57,13 @@ export default function Register() {
     if (!validate()) return;
     setLoading(true);
     try {
-      await registerStudent(fullName, email, password, anonymousMode);
+      await registerStudent(
+        fullName,
+        email,
+        password,
+        anonymousMode,
+        joiningAs === "student" ? undefined : joiningAs,
+      );
     } catch (e) {
       setErrors({ form: getAuthErrorMessage(e) });
       setLoading(false);
@@ -59,6 +78,55 @@ export default function Register() {
         Create Your Account
       </Text>
       <Text style={[typography.body, styles.subtitle]}>Join Breathe today</Text>
+
+      <Text style={styles.joinLabel}>Joining as</Text>
+      <View style={styles.joinChips} accessibilityRole="radiogroup">
+        {JOINING_AS.map(({ key, label }) => {
+          const selected = joiningAs === key;
+          return (
+            <Pressable
+              key={key}
+              onPress={() => setJoiningAs(key)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected, checked: selected }}
+              accessibilityLabel={`Joining as ${label}`}
+              style={({ pressed }) => [
+                styles.joinChip,
+                selected && styles.joinChipSelected,
+                pressed && styles.pressed,
+              ]}
+            >
+              {selected ? (
+                <Ionicons
+                  name="checkmark"
+                  size={16}
+                  color={colors.primary}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                />
+              ) : null}
+              <Text style={[styles.joinText, selected && styles.joinTextSelected]}>
+                {label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {joiningAs !== "student" ? (
+        <View style={styles.staffNote} accessibilityLiveRegion="polite">
+          <Ionicons
+            name="information-circle-outline"
+            size={18}
+            color={colors.primary}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          />
+          <Text style={[typography.caption, styles.staffNoteText]}>
+            Staff accounts need admin approval before you can use them.
+          </Text>
+        </View>
+      ) : null}
+      <View style={styles.joinBlockEnd} />
 
       <Input
         label="Full name"
@@ -188,11 +256,46 @@ export default function Register() {
 }
 
 const styles = StyleSheet.create({
+  joinLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: colors.text,
+    marginBottom: spacing.xs,
+  },
+  joinChips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  // Selected = thicker border + check + bold, not colour alone
+  joinChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    minHeight: TOUCH_TARGET,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  joinChipSelected: {
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: colors.selected,
+  },
+  joinText: { fontSize: 14, color: colors.text },
+  joinTextSelected: { fontWeight: "700", color: colors.primary },
+  pressed: { opacity: 0.7 },
+  staffNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  staffNoteText: { flex: 1 },
   subtitle: {
     color: colors.textSecondary,
     marginTop: spacing.xs,
     marginBottom: spacing.lg,
   },
+  joinBlockEnd: { marginBottom: spacing.lg },
   anonCard: {
     backgroundColor: colors.success,
     borderWidth: 1,

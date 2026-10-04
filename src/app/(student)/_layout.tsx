@@ -2,6 +2,7 @@ import { FloatingHelpButton } from "@/components/crisis/UrgentHelpLink";
 import LoadingScreen from "@/components/navigation/LoadingScreen";
 import { tabIcon, tabScreenOptions } from "@/components/navigation/tabs";
 import { useAuth } from "@/context/AuthContext";
+import { isStaffRequest } from "@/services/authService";
 import { router, Redirect } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
 import { Ionicons } from "@expo/vector-icons";
@@ -14,7 +15,8 @@ export default function StudentLayout() {
 
   if (!user) return <Redirect href="/(auth)/welcome" />;
   if (!profile) return <LoadingScreen offerLogout />;
-  if (profile.role !== "student") return <Redirect href="/" />;
+  // Other roles, and staff sign-ups awaiting approval, go back to index
+  if (profile.role !== "student" || isStaffRequest(profile)) return <Redirect href="/" />;
 
   return (
     <View style={styles.fill}>
@@ -57,6 +59,9 @@ export default function StudentLayout() {
         {/* Reachable from Profile, but not shown in the tab bar */}
         <Tabs.Screen name="privacy" options={{ href: null }} />
         <Tabs.Screen name="companion" options={{ href: null }} />
+        <Tabs.Screen name="mood-history" options={{ href: null }} />
+        <Tabs.Screen name="mood-entry/[id]" options={{ href: null }} />
+        <Tabs.Screen name="resource/[id]" options={{ href: null }} />
         
         {/* Booking sub-screens, not shown in the tab bar */}
         <Tabs.Screen name="session/chat" options={{ href: null, tabBarStyle: { display: "none" } }} />

@@ -7,6 +7,12 @@ import {
   PastSessionItem,
   PastSessionsStats,
   NotificationDetailData,
+  PreChatWaitingRoomData,
+  ClinicalAlertPreferences,
+  PatientItem,
+  AnonymousSessionDetailData,
+  SessionNotesData,
+  ClinicalNoteEntry,
 } from "@/types/counsellorDetailScreens";
 
 // ─── Request Detail: Student #5104 ───
@@ -205,3 +211,265 @@ export const MOCK_NOTIFICATION_DETAIL: NotificationDetailData = {
     tertiary: "Decline",
   },
 };
+
+// ─── Pre-Chat Waiting Room: Student #4021 ───
+export const MOCK_PRE_CHAT_WAITING_ROOM: PreChatWaitingRoomData = {
+  studentId: "std-4021",
+  studentAnonId: "Student #4021",
+  scheduledTime: "Today, 11:00 AM",
+  intakeRoomStatus: "Today, Monday 18 Aug • Intake Room Ready",
+  phqScore: 14,
+  primaryConcern: "Exam Stress & Insomnia",
+  duration: "45 minutes",
+  sharedContext:
+    "Feeling overwhelmed with upcoming mid-term finals and having trouble concentrating.",
+  openingPrompts: [
+    {
+      id: "prompt-1",
+      iconName: "hand-left-outline",
+      promptText: "Hello! Welcome to your session. How are you feeling today?",
+    },
+    {
+      id: "prompt-2",
+      iconName: "leaf-outline",
+      promptText:
+        "Hi there. I reviewed your check-in note regarding exam stress. Would you like to start there?",
+    },
+    {
+      id: "prompt-3",
+      iconName: "time-outline",
+      promptText:
+        "Welcome. We have 45 minutes today—take your time settling in.",
+    },
+  ],
+};
+
+// ─── Clinical Alerts & Preferences ───
+export const DEFAULT_CLINICAL_ALERT_PREFERENCES: ClinicalAlertPreferences = {
+  crisisRiskTriggers: true,
+  newAppointmentRequests: true,
+  upcomingSessionReminders: true,
+  intakeFormSubmissions: true,
+  secureChatMessages: true,
+  quietHoursDutyOff: true,
+  advanceReminderMinutes: 15,
+  advanceReminderType: "gentle",
+  scheduledWindow: "06:00 PM – 08:00 AM",
+  previewStudentIdentityHidden: true,
+  priorityOverrideAlwaysOn: true,
+};
+
+// ─── Patients Directory List (24 assigned cases representation) ───
+export const MOCK_PATIENTS_LIST: PatientItem[] = [
+  {
+    id: "pat-1",
+    studentId: "std-4810",
+    studentAnonId: "Student #4810",
+    displayName: "Sarah Jenkins",
+    idMode: "standard",
+    initials: "SJ",
+    badgeText: "WEEKLY",
+    badgeStyle: "mint",
+    sessionTimingText: "Next: Tomorrow, 10:00 AM • Last: 3 days ago",
+    isActive: true,
+    hasUnread: false,
+    status: "active",
+    totalLogs: 8,
+    lastSessionDate: "3 days ago",
+  },
+  {
+    id: "pat-2",
+    studentId: "std-5104",
+    studentAnonId: "Student #5104",
+    displayName: "Student #5104",
+    idMode: "anonymous",
+    avatarIcon: "shield",
+    badgeText: "ANONYMOUS",
+    badgeStyle: "slate",
+    sessionTimingText: "New — 1st consultation • Today, 2:30 PM",
+    isActive: true,
+    hasUnread: true,
+    status: "active",
+    totalLogs: 1,
+    lastSessionDate: "Today",
+  },
+  {
+    id: "pat-3",
+    studentId: "std-3902",
+    studentAnonId: "Student #3902",
+    displayName: "Alex Rivera",
+    idMode: "standard",
+    initials: "AR",
+    badgeText: "BI-WEEKLY",
+    badgeStyle: "amber",
+    sessionTimingText: "Last session: Oct 12 • 4 completed logs",
+    isActive: false,
+    hasUnread: false,
+    status: "active",
+    totalLogs: 4,
+    lastSessionDate: "Oct 12",
+  },
+  {
+    id: "pat-4",
+    studentId: "std-8821",
+    studentAnonId: "Student #8821",
+    displayName: "Student #8821",
+    idMode: "anonymous",
+    avatarIcon: "key",
+    badgeText: "ANONYMOUS",
+    badgeStyle: "slate",
+    sessionTimingText: "Follow-up pending • Note submitted 4h ago",
+    isActive: false,
+    hasUnread: true,
+    status: "pending",
+    totalLogs: 3,
+    lastSessionDate: "Oct 14",
+  },
+  {
+    id: "pat-5",
+    studentId: "std-6291",
+    studentAnonId: "Student #6291",
+    displayName: "Maya Lin",
+    idMode: "standard",
+    initials: "ML",
+    badgeText: "WEEKLY",
+    badgeStyle: "teal",
+    sessionTimingText: "Next: Friday, 9:00 AM • Wellness Plan v2",
+    isActive: false,
+    hasUnread: false,
+    status: "active",
+    totalLogs: 6,
+    lastSessionDate: "Oct 10",
+  },
+  {
+    id: "pat-6",
+    studentId: "std-7712",
+    studentAnonId: "Student #7712",
+    displayName: "David Chen",
+    idMode: "standard",
+    initials: "DC",
+    badgeText: "MONTHLY",
+    badgeStyle: "indigo",
+    sessionTimingText: "Last session: 12 days ago • Review scheduled",
+    isActive: false,
+    hasUnread: false,
+    status: "active",
+    totalLogs: 2,
+    lastSessionDate: "12 days ago",
+  },
+  {
+    id: "pat-7",
+    studentId: "std-3419",
+    studentAnonId: "Student #3419",
+    displayName: "Student #3419",
+    idMode: "anonymous",
+    avatarIcon: "lock",
+    badgeText: "ANONYMOUS",
+    badgeStyle: "slate",
+    sessionTimingText: "Consult completed Oct 04 • Inactive",
+    isActive: false,
+    hasUnread: false,
+    status: "inactive",
+    totalLogs: 5,
+    lastSessionDate: "Oct 04",
+  },
+];
+
+// ─── Anonymous Session Details: Student #8812 ───
+export const MOCK_ANONYMOUS_SESSION_8812: AnonymousSessionDetailData = {
+  id: "session-3",
+  studentId: "std-8812",
+  studentAnonId: "Student #8812",
+  displayName: "Student #8812",
+  idMode: "anonymous",
+  sessionType: "in-person",
+  sessionTypeLabel: "In-Person Consultation",
+  location: "Room 302, Counseling Wing",
+  locationSub: "Main Clinical Building, 3rd Floor",
+  timeRange: "02:30 PM – 03:15 PM",
+  duration: "45 min",
+  timeRelative: "In 5h 15m",
+  caseRef: "#ME-8812",
+  recurrence: "Bi-weekly Ongoing",
+  intakeType: "Single Intake",
+  concernTags: ["Academic Pressure", "Social Connection"],
+  bookingStatus: "Clinically Verified",
+  privacyNotice: "Anonymous — student ID withheld",
+  complianceNotice: "FERPA & HIPAA Encrypted Case Record",
+  prepNotes:
+    "Student indicated elevated tension regarding upcoming presentation schedules and social transition fatigue. Review somatic breathing grounding tools and evaluate routine balance from previous intake note.",
+  prepNoteUpdatedAt: "Updated 3h ago",
+  isCheckedIn: false,
+};
+
+// ─── Session Notes: Maya Senanayake ───
+export const MOCK_SESSION_NOTES_MAYA: SessionNotesData = {
+  studentId: "std-maya",
+  studentAnonId: "Student #3189",
+  displayName: "Maya Senanayake",
+  idMode: "standard",
+  sessionType: "chat",
+  sessionTypeLabel: "Secured Chat Session",
+  timeRelative: "In 2h 15m",
+  timeRange: "11:30 AM – 12:15 PM",
+  duration: "45 min",
+  caseRef: "#ME-4402",
+  sessionOrdinal: "3rd Follow-up Session",
+  followUpPriority: "Priority Review",
+  followUpAction:
+    "Sleep hygiene & journaling routine review. Evaluate adherence to morning sunlight exposure and thought-reframing worksheets.",
+  topics: [
+    { icon: "🌙", name: "Sleep Hygiene" },
+    { icon: "📓", name: "Journaling Routine" },
+    { icon: "⚡", name: "Academic Anxiety" },
+    { icon: "🧠", name: "Cognitive Reframing" },
+  ],
+  notes: [
+    {
+      id: "note-1",
+      date: "Aug 11, 2026 • Chat",
+      modality: "Chat",
+      status: "Completed",
+      content:
+        "Student reports average sleep latency improved from 75 mins to 35 mins following evening digital curfew. Still experiencing anticipatory panic during Sunday revision blocks. Introduced 4-7-8 breathing practice and structured journaling prompt.",
+      counselorName: "Dr. Anjali Perera",
+      signedStatus: "Signed & Synced",
+    },
+    {
+      id: "note-2",
+      date: "Aug 4, 2026 • Initial Follow-up",
+      modality: "Initial Follow-up",
+      status: "Completed",
+      content:
+        "Reviewed baseline sleep logs. Identified ruminative loop triggered around 11:30 PM. Recommended physical notebook rather than mobile notes app for worry dump. Patient receptivity high.",
+      counselorName: "Dr. Anjali Perera",
+      signedStatus: "Signed & Synced",
+    },
+  ],
+};
+
+// ─── Quick Select Students for Add Session ───
+export const MOCK_ADD_SESSION_STUDENTS = [
+  {
+    id: "std-5104",
+    studentAnonId: "Student #5104",
+    displayName: "Student #5104 (Anonymous)",
+    idMode: "anonymous" as const,
+    quickLabel: "#5104 (Anon)",
+  },
+  {
+    id: "std-sarah",
+    studentAnonId: "Student #4820",
+    displayName: "Sarah Jenkins",
+    idMode: "standard" as const,
+    quickLabel: "Sarah Jenkins",
+  },
+  {
+    id: "std-alex",
+    studentAnonId: "Student #6291",
+    displayName: "Alex Rivera",
+    idMode: "standard" as const,
+    quickLabel: "Alex Rivera",
+  },
+];
+

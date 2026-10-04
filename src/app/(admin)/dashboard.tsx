@@ -7,9 +7,7 @@ import RoleBadge from "@/components/admin/RoleBadge";
 import { displayName } from "@/components/admin/RoleSheet";
 import {
   ErrorState,
-  InlineError,
   LoadingState,
-  SuccessNotice,
 } from "@/components/admin/StateViews";
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
@@ -22,11 +20,12 @@ import {
   removeDemoStats,
 } from "@/services/adminService";
 import { getAuthErrorMessage } from "@/services/authService";
-import { colors, spacing, typography } from "@/theme";
+import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
+import { confirmAction } from "@/utils/confirm";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const today = () =>
   new Date().toLocaleDateString(undefined, {
@@ -73,27 +72,41 @@ export default function Dashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string>();
   const [demoBusy, setDemoBusy] = useState<"load" | "remove" | null>(null);
-  const [demoError, setDemoError] = useState<string>();
-  const [notice, setNotice] = useState<string | null>(null);
-  const hideNotice = useCallback(() => setNotice(null), []);
+  const [demoResult, setDemoResult] = useState<{
+    kind: "success" | "error";
+    message: string;
+  } | null>(null);
 
   // Sample weekly stats so the lecturer charts can be demoed (admins only)
   const runDemo = async (action: "load" | "remove") => {
-    setDemoError(undefined);
-    setDemoBusy(action);
+    const isLoad = action === "load";
+    setDemoResult(null);
     try {
+      const confirmed = await confirmAction({
+        title: isLoad ? "Load demo stats?" : "Remove demo stats?",
+        message: isLoad
+          ? "This adds sample weekly mood totals for past weeks. Existing weeks are skipped."
+          : "This removes only stats marked as demo. Real stats will not be changed.",
+        confirmText: isLoad ? "Load" : "Remove",
+      });
+      if (!confirmed) return;
+
+      setDemoBusy(action);
       const count = action === "load" ? await loadDemoStats() : await removeDemoStats();
-      setNotice(
-        action === "load"
-          ? count
-            ? `Demo stats added for ${count} past ${count === 1 ? "week" : "weeks"}.`
-            : "Those weeks already have data, so nothing was added."
-          : count
-            ? `Removed demo stats from ${count} ${count === 1 ? "week" : "weeks"}.`
-            : "There were no demo stats to remove.",
-      );
+      setDemoResult({
+        kind: "success",
+        message:
+          action === "load"
+            ? count
+              ? `Demo stats added for ${count} past ${count === 1 ? "week" : "weeks"}.`
+              : "Those weeks already have data, so nothing was added."
+            : count
+              ? `Removed demo stats from ${count} ${count === 1 ? "week" : "weeks"}.`
+              : "There were no demo stats to remove.",
+      });
     } catch (e) {
-      setDemoError(getAuthErrorMessage(e));
+      console.warn(`[Admin demo stats] ${action} failed`, e);
+      setDemoResult({ kind: "error", message: getAuthErrorMessage(e) });
     } finally {
       setDemoBusy(null);
     }
@@ -134,7 +147,6 @@ export default function Dashboard() {
         }
       >
         <AdminHeader title={`Hi, ${firstName}`} subtitle={today()} />
-        <SuccessNotice message={notice} onHide={hideNotice} />
 
         {loading ? (
           <LoadingState label="Loading overview" />
@@ -147,6 +159,37 @@ export default function Dashboard() {
           />
         ) : (
           <>
+            {/* Staff sign-ups waiting for approval (FR01) */}
+            {stats.staffRequests > 0 ? (
+              <Pressable
+                onPress={() => router.navigate("/(admin)/users")}
+                accessibilityRole="button"
+                accessibilityLabel={`${stats.staffRequests} staff ${
+                  stats.staffRequests === 1 ? "request" : "requests"
+                } waiting for approval. Review in Users.`}
+                style={({ pressed }) => [pressed && styles.pressed]}
+              >
+                <Card style={styles.requests}>
+                  <View style={styles.requestBadge}>
+                    <Text style={styles.requestBadgeText}>{stats.staffRequests}</Text>
+                  </View>
+                  <View style={styles.userInfo}>
+                    <Text style={styles.userName}>
+                      Staff {stats.staffRequests === 1 ? "request" : "requests"} waiting
+                    </Text>
+                    <Text style={typography.caption}>Review and approve in Users</Text>
+                  </View>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={colors.textSecondary}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no"
+                  />
+                </Card>
+              </Pressable>
+            ) : null}
+
             <View style={styles.grid}>
               <StatCard label="Students" value={stats.students} icon="school-outline" />
               <StatCard label="Guests" value={stats.guests} icon="eye-off-outline" />
@@ -196,7 +239,6 @@ export default function Dashboard() {
                 data are skipped, this week is never touched, and demo weeks are
                 labelled for lecturers. Remove them before real use.
               </Text>
-              <InlineError message={demoError} />
               <View style={styles.demoButtons}>
                 <Button
                   title="Load demo stats"
@@ -213,6 +255,35 @@ export default function Dashboard() {
                   disabled={demoBusy !== null}
                 />
               </View>
+              {demoResult ? (
+                <View
+                  accessible
+                  accessibilityRole="alert"
+                  accessibilityLiveRegion="polite"
+                  style={[
+                    styles.demoResult,
+                    demoResult.kind === "success"
+                      ? styles.demoSuccess
+                      : styles.demoFailure,
+                  ]}
+                >
+                  <Ionicons
+                    name={demoResult.kind === "success" ? "checkmark-circle" : "alert-circle"}
+                    size={20}
+                    color={demoResult.kind === "success" ? colors.primary : colors.danger}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no"
+                  />
+                  <Text
+                    style={[
+                      styles.demoResultText,
+                      demoResult.kind === "success" && styles.demoSuccessText,
+                    ]}
+                  >
+                    {demoResult.message}
+                  </Text>
+                </View>
+              ) : null}
             </Card>
 
             <Text style={[typography.heading, styles.section]} accessibilityRole="header">
@@ -257,10 +328,40 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   statAttention: { backgroundColor: colors.dangerTint },
+  pressed: { opacity: 0.7 },
+  requests: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    minHeight: TOUCH_TARGET,
+    backgroundColor: colors.dangerTint,
+  },
+  requestBadge: {
+    minWidth: 32,
+    height: 32,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radius.full,
+    backgroundColor: colors.danger,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  requestBadgeText: { fontSize: 15, fontWeight: "700", color: colors.white },
   statValue: { ...typography.title, marginTop: spacing.xs },
   section: { marginTop: spacing.lg, marginBottom: spacing.sm },
   actions: { gap: spacing.sm },
   demoButtons: { gap: spacing.sm, marginTop: spacing.md },
+  demoResult: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderRadius: 8,
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  demoSuccess: { backgroundColor: colors.success },
+  demoFailure: { backgroundColor: colors.dangerTint },
+  demoResultText: { ...typography.body, color: colors.danger, flex: 1 },
+  demoSuccessText: { color: colors.primary },
   userRow: {
     flexDirection: "row",
     alignItems: "center",

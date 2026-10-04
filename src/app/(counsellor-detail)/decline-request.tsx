@@ -93,7 +93,7 @@ export default function DeclineRequestScreen() {
 
           <View style={styles.headerTitleContainer}>
             <Text style={styles.headerDispatchTag}>
-              MINDEASE • SESSION DISPATCH
+              BREATHE • SESSION DISPATCH
             </Text>
             <Text style={styles.headerTitle} accessibilityRole="header">
               Decline Request

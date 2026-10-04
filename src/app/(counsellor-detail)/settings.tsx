@@ -315,7 +315,7 @@ export default function CounselorSettingsScreen() {
             {/* Working Hours */}
             <Pressable
               onPress={() => Alert.alert("Working Hours", settings.workingHours)}
-              style={[styles.menuRow, styles.lastRow]}
+              style={styles.menuRow}
               accessibilityRole="button"
               accessibilityLabel="Working Hours"
             >
@@ -330,6 +330,27 @@ export default function CounselorSettingsScreen() {
                 <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
               </View>
             </Pressable>
+
+            {/* Patients Directory */}
+            <Pressable
+              onPress={() => router.navigate("/(counsellor-detail)/patients-list")}
+              style={[styles.menuRow, styles.lastRow]}
+              accessibilityRole="button"
+              accessibilityLabel="Patients Caseload Directory"
+            >
+              <View style={styles.menuRowLeft}>
+                <View style={styles.mintIconSquare}>
+                  <Ionicons name="people-outline" size={18} color="#065F46" />
+                </View>
+                <Text style={styles.menuItemLabel}>Patients Directory</Text>
+              </View>
+              <View style={styles.menuRowRight}>
+                <View style={styles.durationPill}>
+                  <Text style={styles.durationPillText}>24 Caseload</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+              </View>
+            </Pressable>
           </View>
         </View>
 
@@ -337,6 +358,25 @@ export default function CounselorSettingsScreen() {
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionHeaderTitle}>PRIVACY & SECURITY</Text>
           <View style={styles.cardGroup}>
+            {/* Clinical Alerts & Preferences */}
+            <Pressable
+              onPress={() => router.navigate("/(counsellor-detail)/clinical-alerts-preferences")}
+              style={styles.menuRow}
+              accessibilityRole="button"
+              accessibilityLabel="Clinical Alerts and Notification Preferences"
+            >
+              <View style={styles.menuRowLeft}>
+                <View style={styles.mintIconSquare}>
+                  <Ionicons name="notifications-outline" size={18} color="#065F46" />
+                </View>
+                <View>
+                  <Text style={styles.menuItemLabel}>Clinical Alerts & Preferences</Text>
+                  <Text style={styles.switchSubLabel}>Triage flags, quiet hours & lead times</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+            </Pressable>
+
             {/* 2FA Toggle Switch */}
             <View style={styles.switchRow}>
               <View style={styles.switchRowLeft}>
@@ -401,7 +441,7 @@ export default function CounselorSettingsScreen() {
           <Text style={styles.sectionHeaderTitle}>SUPPORT</Text>
           <View style={styles.cardGroup}>
             <Pressable
-              onPress={() => Alert.alert("Help Center", "MindEase Clinical Help Desk & Knowledge Base.")}
+              onPress={() => Alert.alert("Help Center", "Breathe Clinical Help Desk & Knowledge Base.")}
               style={styles.menuRow}
               accessibilityRole="button"
               accessibilityLabel="Help Center"
@@ -416,7 +456,7 @@ export default function CounselorSettingsScreen() {
             </Pressable>
 
             <Pressable
-              onPress={() => Alert.alert("Contact Support", "Support line: support@mindease.edu • ext 410")}
+              onPress={() => Alert.alert("Contact Support", "Support line: support@breathe.sliit.lk • ext 410")}
               style={[styles.menuRow, styles.lastRow]}
               accessibilityRole="button"
               accessibilityLabel="Contact Support"
@@ -447,7 +487,7 @@ export default function CounselorSettingsScreen() {
 
         {/* ─── Watermark Footer ─── */}
         <View style={styles.watermarkFooter}>
-          <Text style={styles.watermarkText}>MindEase v1.0.0 • Clinical Counselor Portal</Text>
+          <Text style={styles.watermarkText}>Breathe v1.0.0 • Clinical Counselor Portal</Text>
         </View>
       </ScrollView>
 

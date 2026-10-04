@@ -128,36 +128,35 @@ export default function CounsellorDashboard() {
 
     if (session.studentAnonId === "Student #4021" || session.id === "session-1") {
       router.navigate("/(counsellor-detail)/confirmed-session");
-    } else if (session.isNext) {
+    } else if (
+      session.sessionType === "chat" ||
+      session.displayName === "Maya Senanayake" ||
+      session.studentId === "std-maya"
+    ) {
       router.navigate({
-        pathname: "/(counsellor-detail)/ready-to-join",
+        pathname: "/(counsellor-detail)/session-notes",
         params: {
+          sessionId: session.id,
           studentAnonId: session.studentAnonId,
-          sessionTitle: session.sessionTypeLabel,
-          timeRange: session.timeRange,
+          studentName: session.displayName,
+          idMode: session.idMode,
         },
       });
     } else {
-      setActiveModalData({
-        title: `Clinical Notes: ${session.displayName}`,
-        description: `${session.timeRange} (${session.sessionTypeLabel})`,
-        details: `${session.noteType}: ${session.noteText}\n\nStudent Privacy Status: ${
-          session.idMode === "anonymous"
-            ? "Anonymous Mode Active (Real identity hidden per NFR01)"
-            : "Standard Student Profile"
-        }`,
+      router.navigate({
+        pathname: "/(counsellor-detail)/anonymous-session-details",
+        params: {
+          sessionId: session.id,
+          studentAnonId: session.studentAnonId,
+          sessionType: session.sessionType,
+        },
       });
     }
   };
 
-  // Add Session stub action
+  // Add Session action -> routes to Add Session form screen
   const handleAddSession = () => {
-    setActiveModalData({
-      title: "Add New Consultation",
-      description: "Quickly schedule an emergency or walk-in appointment.",
-      details:
-        "This will add an appointment slot to your clinical calendar. Feature links with Schedule availability tab.",
-    });
+    router.navigate("/(counsellor-detail)/add-session");
   };
 
   // Profile quick access
@@ -281,24 +280,38 @@ export default function CounsellorDashboard() {
               subtitleColor="#0369A1"
             />
           </Pressable>
-          <StatCard
-            title="Requests"
-            value={requests.length}
-            subtitle="Awaiting action"
-            iconName="clipboard-outline"
-            iconColor="#065F46"
-            iconBg={colors.success}
-            iconBorder="rgba(110, 231, 183, 0.6)"
-          />
-          <StatCard
-            title="Clinical Time"
-            value="2.5h"
-            subtitle="Booked hours"
-            iconName="time-outline"
-            iconColor={colors.primary}
-            iconBg="#ECFDF5"
-            iconBorder="rgba(5, 150, 105, 0.2)"
-          />
+          <Pressable
+            style={{ flex: 1 }}
+            onPress={() => router.navigate("/(counsellor-detail)/requests")}
+            accessibilityRole="button"
+            accessibilityLabel="View All Pending Booking Requests"
+          >
+            <StatCard
+              title="Requests"
+              value={requests.length}
+              subtitle="Awaiting action"
+              iconName="clipboard-outline"
+              iconColor="#065F46"
+              iconBg={colors.success}
+              iconBorder="rgba(110, 231, 183, 0.6)"
+            />
+          </Pressable>
+          <Pressable
+            style={{ flex: 1 }}
+            onPress={() => router.navigate("/(counsellor-detail)/patients-list")}
+            accessibilityRole="button"
+            accessibilityLabel="View Patients Caseload Directory"
+          >
+            <StatCard
+              title="Patients"
+              value="24"
+              subtitle="Caseload directory"
+              iconName="people-outline"
+              iconColor={colors.primary}
+              iconBg="#ECFDF5"
+              iconBorder="rgba(5, 150, 105, 0.2)"
+            />
+          </Pressable>
         </View>
 
         {/* Today's Sessions Section */}
@@ -330,11 +343,17 @@ export default function CounsellorDashboard() {
         )}
 
         {/* Pending Requests Section */}
-        <SectionHeader
-          title="Pending Requests"
-          subtitle="Awaiting Confirmation"
-          badgeText={`${requests.length} awaiting`}
-        />
+        <Pressable
+          onPress={() => router.navigate("/(counsellor-detail)/requests")}
+          accessibilityRole="button"
+          accessibilityLabel="View All Pending Requests"
+        >
+          <SectionHeader
+            title="Pending Requests"
+            subtitle="Awaiting Confirmation"
+            badgeText={`${requests.length} awaiting`}
+          />
+        </Pressable>
 
         {requests.length === 0 ? (
           <View style={styles.emptyContainer}>

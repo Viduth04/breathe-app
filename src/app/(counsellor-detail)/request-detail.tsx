@@ -22,8 +22,6 @@ export default function RequestDetailScreen() {
   const [data, setData] = useState<RequestDetailData>(MOCK_REQUEST_DETAIL);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [rescheduleModalVisible, setRescheduleModalVisible] = useState(false);
-  const [declineModalVisible, setDeclineModalVisible] = useState(false);
-  const [declineReason, setDeclineReason] = useState("");
 
   const handleAccept = () => {
     router.navigate({
@@ -53,12 +51,6 @@ export default function RequestDetailScreen() {
         sessionTypeLabel: data.sessionTypeLabel,
       },
     });
-  };
-
-  const confirmDecline = () => {
-    setDeclineModalVisible(false);
-    setData((prev) => ({ ...prev, status: "declined" }));
-    setFeedback("Request declined. Note sent privately to student.");
   };
 
   return (
@@ -361,34 +353,6 @@ export default function RequestDetailScreen() {
         </View>
       </Modal>
 
-      {/* ─── Decline Modal ─── */}
-      <Modal
-        visible={declineModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setDeclineModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Decline Booking Request</Text>
-            <Text style={styles.modalDesc}>
-              A supportive note and university mental health hotline resources will automatically be attached.
-            </Text>
-            <Pressable
-              style={[styles.primaryBtn, { backgroundColor: colors.danger, marginTop: 12 }]}
-              onPress={confirmDecline}
-            >
-              <Text style={styles.primaryBtnText}>Confirm Decline</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.outlineBtn, { marginTop: 8 }]}
-              onPress={() => setDeclineModalVisible(false)}
-            >
-              <Text style={styles.outlineBtnText}>Cancel</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
