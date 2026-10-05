@@ -64,9 +64,9 @@ function thisWeek(list: CheckIn[]) {
 }
 
 const sessionDate = (d: Date) =>
-  d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+  d.toLocaleDateString('en-LK', { timeZone: 'Asia/Colombo', weekday: "short", day: "numeric", month: "short" });
 const sessionTime = (d: Date) =>
-  d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  d.toLocaleTimeString('en-LK', { timeZone: 'Asia/Colombo', hour: "numeric", minute: "2-digit" });
 
 export default function Home() {
   const { user, profile } = useAuth();
@@ -215,7 +215,7 @@ export default function Home() {
         <CardBody state={checkins} label="this week's mood">
           <View style={styles.week}>
             {week.map(({ dateKey: key, date, mood }) => {
-              const fullDay = date.toLocaleDateString(undefined, { weekday: "long" });
+              const fullDay = date.toLocaleDateString('en-LK', { weekday: "long", timeZone: 'Asia/Colombo' });
               const isToday = key === todayKey;
               return (
                 <View
@@ -231,7 +231,7 @@ export default function Home() {
                     ]}
                   />
                   <Text style={[typography.caption, isToday && styles.todayLabel]}>
-                    {date.toLocaleDateString(undefined, { weekday: "short" })}
+                    {date.toLocaleDateString('en-LK', { weekday: "short", timeZone: 'Asia/Colombo' })}
                   </Text>
                 </View>
               );

@@ -5,22 +5,86 @@ import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { getBooking } from "@/services/bookingService";
 import { Booking } from "@/types/booking";
-import { ActivityIndicator } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View, Pressable, StatusBar, Modal, TextInput } from "react-native";
 import { router } from "expo-router";
-import { StyleSheet, Text, View, Pressable, StatusBar } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useAuth } from "@/context/AuthContext";
+import { getCounsellorPhoto } from "@/services/counsellorPhotoService";
+import { db } from "@/firebase/config";
+import { collection, addDoc } from "firebase/firestore";
+
+function formatTime(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+}
 
 export default function VideoCallScreen() {
-    const { id } = useLocalSearchParams<{ id: string }>();
-    const [session, setSession] = useState<Booking | null>(null);
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [session, setSession] = useState<Booking | null>(null);
+  const [counsellorPhoto, setCounsellorPhoto] = useState<string | null>(null);
+  const [counsellorName, setCounsellorName] = useState("Doctor");
+  const [seconds, setSeconds] = useState(0);
+  const { profile } = useAuth();
   
-    useEffect(() => {
-      if (id) {
-        getBooking(id).then(data => {
-          setSession(data);
+  // Review Modal State
+  const [showReview, setShowReview] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [feedback, setFeedback] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  
+  useEffect(() => {
+    if (id) {
+      getBooking(id).then(data => {
+        setSession(data);
+        if (data?.counsellorId) {
+          getCounsellorPhoto(data.counsellorId).then(photo => {
+            setCounsellorPhoto(photo);
+          });
+        }
+      });
+    }
+  }, [id]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setSeconds(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleEndCall = () => {
+    setShowReview(true);
+  };
+
+  const finishSession = () => {
+    setShowReview(false);
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.push("/(student)/session/dashboard");
+    }
+  };
+
+  const submitReview = async () => {
+    try {
+      if (session?.counsellorId) {
+        await addDoc(collection(db, "counsellorReviews"), {
+          counsellorId: session.counsellorId,
+          studentId: profile?.uid || "Anonymous",
+          rating,
+          feedback,
+          createdAt: new Date(),
         });
       }
-    }, [id]);
+    } catch (e) {
+      console.warn("Failed to submit review", e);
+    }
+    setSubmitted(true);
+    setTimeout(() => {
+      finishSession();
+    }, 1500);
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -29,113 +93,155 @@ export default function VideoCallScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Pressable onPress={handleEndCall} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color={colors.text} />
           </Pressable>
           <View>
-            <Text style={styles.headerTitle}>{session?.counsellorName || "Doctor"}</Text>
+            <Text style={styles.headerTitle}>{counsellorName}</Text>
             <Text style={styles.headerSubtitle}>Counselor Video Call</Text>
           </View>
         </View>
-        <View style={styles.timerPill}>
-          <View style={styles.timerDot} />
-          <Text style={styles.timerText}>14:35</Text>
+        <View style={styles.timerBadge}>
+          <Text style={styles.timerText}>{formatTime(seconds)}</Text>
         </View>
       </View>
 
-      {/* Main Video Area */}
-      <View style={styles.videoContainer}>
-        {/* Large Video Feed (Doctor) */}
-        <Image 
-          source={{ uri: "https://i.pravatar.cc/1000?img=47" }} 
-          style={styles.mainVideo} 
-          contentFit="cover"
-        />
-
-        {/* Top Overlay Pills */}
-        <View style={styles.overlayTop}>
-          <View style={styles.overlayPillDark}>
-            <View style={styles.greenDot} />
-            <Text style={styles.overlayText}>{session?.counsellorName || "Doctor"} • Clinical Psychologist</Text>
-          </View>
-          <View style={styles.overlayPillDark}>
-            <Ionicons name="lock-closed-outline" size={14} color="#FFF" />
-            <Text style={styles.overlayText}>End-to-End Encrypted</Text>
-          </View>
-        </View>
-
-        {/* Bottom Left Overlay */}
-        <View style={styles.overlayBottomLeft}>
-          <View style={styles.overlayPillDark}>
-            <Ionicons name="stats-chart" size={14} color="#FFF" />
-            <Text style={styles.overlayText}>HD Audio Connected</Text>
-          </View>
-        </View>
-
-        {/* Small Video Feed (You) */}
-        <View style={styles.pipContainer}>
-          <Image 
-            source={{ uri: "https://i.pravatar.cc/300?img=44" }} 
-            style={styles.pipVideo} 
-            contentFit="cover"
-          />
-          <View style={styles.pipTopOverlay}>
-            <View style={styles.pipPill}>
-              <Text style={styles.pipText}>You</Text>
+      {/* Main Content Area */}
+      <View style={styles.content}>
+        
+        {/* Main Video Feed (Counselor) */}
+        <View style={styles.mainVideoContainer}>
+          {counsellorPhoto ? (
+            <Image 
+              source={{ uri: counsellorPhoto }}
+              style={styles.mainVideoImage}
+              contentFit="cover"
+            />
+          ) : (
+            <View style={styles.placeholderContainer}>
+              <Ionicons name="person" size={80} color="#E2E8F0" />
             </View>
-            <View style={styles.pipIconBox}>
-              <Ionicons name="mic-off" size={12} color="#FFF" />
-            </View>
-          </View>
-          <View style={styles.pipBottomOverlay}>
-            <View style={styles.pipLivePill}>
+          )}
+
+          {/* Top Overlay Pills */}
+          <View style={styles.overlayTop}>
+            <View style={styles.overlayPillDark}>
               <View style={styles.greenDot} />
-              <Text style={styles.pipText}>Live</Text>
+              <Text style={styles.overlayText}>{counsellorName} • Clinical Psychologist</Text>
             </View>
+            <View style={styles.overlayPillDark}>
+              <Ionicons name="lock-closed-outline" size={14} color="#FFF" />
+              <Text style={styles.overlayText}>End-to-End Encrypted</Text>
+            </View>
+          </View>
+
+          {/* Bottom Left Overlay */}
+          <View style={styles.overlayBottomLeft}>
+            <View style={styles.overlayPillLight}>
+              <Ionicons name="mic-outline" size={16} color={colors.text} />
+              <Text style={styles.overlayTextDark}>Audio Active</Text>
+            </View>
+          </View>
+
+          {/* PIP Video (Student) */}
+          <View style={styles.pipContainer}>
+            <View style={styles.pipPlaceholder}>
+              <Text style={styles.pipInitial}>{profile?.fullName?.charAt(0) || "Y"}</Text>
+            </View>
+            <View style={styles.pipBottomOverlay}>
+              <View style={styles.pipLivePill}>
+                <View style={styles.greenDot} />
+                <Text style={styles.pipText}>Live</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Controls Dock */}
+        <View style={styles.controlsDock}>
+          <View style={styles.controlItem}>
+            <Pressable style={styles.controlButton}>
+              <Ionicons name="videocam-outline" size={24} color="#FFF" />
+            </Pressable>
+            <Text style={styles.controlLabel}>Video</Text>
+          </View>
+
+          <View style={styles.controlItem}>
+            <Pressable style={styles.controlButton}>
+              <Ionicons name="mic-outline" size={24} color="#FFF" />
+            </Pressable>
+            <Text style={styles.controlLabel}>Mute</Text>
+          </View>
+
+          <View style={styles.controlItem}>
+            <Pressable style={styles.controlButton} onPress={() => router.push({ pathname: "/(student)/session/chat", params: { uid: session?.counsellorId } })}>
+              <Ionicons name="chatbubble-outline" size={24} color="#FFF" />
+            </Pressable>
+            <Text style={styles.controlLabel}>Chat</Text>
+          </View>
+
+          <View style={styles.controlItem}>
+            <Pressable style={styles.endButton} onPress={handleEndCall}>
+              <Ionicons name="call" size={24} color="#FFF" style={{ transform: [{ rotate: "135deg" }] }} />
+            </Pressable>
+            <Text style={styles.controlLabel}>End</Text>
           </View>
         </View>
       </View>
 
-      {/* Bottom Controls Bar */}
-      <View style={styles.controlsBar}>
-        <View style={styles.controlItem}>
-          <Pressable style={styles.controlButton}>
-            <Ionicons name="mic-outline" size={24} color="#FFF" />
-          </Pressable>
-          <Text style={styles.controlLabel}>Mute</Text>
-        </View>
+      {/* Review Modal */}
+      <Modal visible={showReview} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {submitted ? (
+              <View style={styles.successView}>
+                <Ionicons name="checkmark-circle" size={64} color={colors.primary} />
+                <Text style={styles.successTitle}>Review Submitted!</Text>
+                <Text style={styles.successText}>Thank you for your feedback.</Text>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.modalTitle}>Rate your session</Text>
+                <Text style={styles.modalSubtitle}>How was your consultation with {counsellorName}?</Text>
+                
+                <View style={styles.starsContainer}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <Pressable key={star} onPress={() => setRating(star)}>
+                      <Ionicons 
+                        name={rating >= star ? "star" : "star-outline"} 
+                        size={40} 
+                        color={rating >= star ? "#F59E0B" : "#D1D5DB"} 
+                        style={styles.starIcon}
+                      />
+                    </Pressable>
+                  ))}
+                </View>
 
-        <View style={styles.controlItem}>
-          <Pressable style={styles.controlButton}>
-            <Ionicons name="videocam-outline" size={24} color="#FFF" />
-          </Pressable>
-          <Text style={styles.controlLabel}>Video</Text>
-        </View>
+                <TextInput
+                  style={styles.feedbackInput}
+                  placeholder="Share your experience (optional)..."
+                  placeholderTextColor={colors.textSecondary}
+                  multiline
+                  value={feedback}
+                  onChangeText={setFeedback}
+                />
 
-        <View style={styles.controlItem}>
-          <Pressable style={styles.controlButton}>
-            <Ionicons name="volume-high-outline" size={24} color="#FFF" />
-          </Pressable>
-          <Text style={styles.controlLabel}>Speaker</Text>
-        </View>
+                <Pressable 
+                  style={[styles.submitButton, rating === 0 && { opacity: 0.5 }]} 
+                  onPress={submitReview}
+                  disabled={rating === 0}
+                >
+                  <Text style={styles.submitButtonText}>Submit Review</Text>
+                </Pressable>
 
-        <View style={styles.controlItem}>
-          <Pressable style={styles.controlButton}>
-            <Ionicons name="chatbubble-outline" size={24} color="#FFF" />
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>1</Text>
-            </View>
-          </Pressable>
-          <Text style={styles.controlLabel}>Chat</Text>
+                <Pressable style={styles.skipButton} onPress={finishSession}>
+                  <Text style={styles.skipButtonText}>Skip for now</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
         </View>
-
-        <View style={styles.controlItem}>
-          <Pressable style={styles.endButton} onPress={() => router.back()}>
-            <Ionicons name="call" size={24} color="#FFF" style={{ transform: [{ rotate: "135deg" }] }} />
-          </Pressable>
-          <Text style={styles.controlLabel}>End</Text>
-        </View>
-      </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -143,90 +249,94 @@ export default function VideoCallScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: "#F9FAFB",
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.md,
+    backgroundColor: "#FFF",
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
+    marginRight: spacing.md,
+    padding: spacing.xs,
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: "700",
+    fontWeight: "bold",
     color: colors.text,
   },
   headerSubtitle: {
-    fontSize: 13,
+    fontSize: 12,
     color: colors.textSecondary,
+    marginTop: 2,
   },
-  timerPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.surface,
+  timerBadge: {
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
     paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
+    paddingVertical: 4,
     borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 6,
-  },
-  timerDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.danger,
   },
   timerText: {
+    color: colors.danger,
+    fontWeight: "bold",
     fontSize: 14,
-    fontWeight: "600",
-    color: colors.text,
   },
-  videoContainer: {
+  content: {
     flex: 1,
-    marginHorizontal: spacing.md,
-    marginTop: spacing.sm,
-    borderRadius: 24,
+    padding: spacing.md,
+  },
+  mainVideoContainer: {
+    flex: 1,
+    backgroundColor: "#1F2937",
+    borderRadius: radius.xl,
     overflow: "hidden",
-    backgroundColor: "#000", // Fallback before image loads
     position: "relative",
   },
-  mainVideo: {
+  mainVideoImage: {
     width: "100%",
     height: "100%",
   },
+  placeholderContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   overlayTop: {
     position: "absolute",
-    top: spacing.md,
-    left: spacing.md,
-    right: spacing.md,
+    top: 16,
+    left: 16,
+    right: 16,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    flexWrap: "wrap",
-    gap: spacing.sm,
+  },
+  overlayBottomLeft: {
+    position: "absolute",
+    bottom: 16,
+    left: 16,
   },
   overlayPillDark: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(28, 28, 30, 0.75)",
-    paddingHorizontal: spacing.sm,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    gap: 6,
+  },
+  overlayPillLight: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.9)",
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: radius.full,
     gap: 6,
@@ -236,59 +346,39 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
   },
+  overlayTextDark: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "600",
+  },
   greenDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
     backgroundColor: "#4CAF50",
   },
-  overlayBottomLeft: {
-    position: "absolute",
-    bottom: spacing.md,
-    left: spacing.md,
-  },
   pipContainer: {
     position: "absolute",
-    bottom: spacing.md,
-    right: spacing.md,
+    bottom: 16,
+    right: 16,
     width: 100,
     height: 140,
-    borderRadius: 16,
+    backgroundColor: "#374151",
+    borderRadius: radius.lg,
     overflow: "hidden",
     borderWidth: 2,
-    borderColor: "#FFF",
-    backgroundColor: "#333",
+    borderColor: "rgba(255,255,255,0.2)",
   },
-  pipVideo: {
-    width: "100%",
-    height: "100%",
-  },
-  pipTopOverlay: {
-    position: "absolute",
-    top: 8,
-    left: 8,
-    right: 8,
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  pipPill: {
-    backgroundColor: "rgba(28, 28, 30, 0.7)",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: radius.full,
-  },
-  pipText: {
-    color: "#FFF",
-    fontSize: 10,
-    fontWeight: "600",
-  },
-  pipIconBox: {
-    backgroundColor: "rgba(28, 28, 30, 0.7)",
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+  pipPlaceholder: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  pipInitial: {
+    fontSize: 40,
+    fontWeight: "bold",
+    color: "#FFF",
   },
   pipBottomOverlay: {
     position: "absolute",
@@ -298,32 +388,35 @@ const styles = StyleSheet.create({
   pipLivePill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(28, 28, 30, 0.7)",
+    backgroundColor: "rgba(0,0,0,0.6)",
     paddingHorizontal: 6,
-    paddingVertical: 4,
-    borderRadius: radius.full,
+    paddingVertical: 2,
+    borderRadius: 4,
     gap: 4,
   },
-  controlsBar: {
-    backgroundColor: "#161B22",
+  pipText: {
+    color: "#FFF",
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+  controlsDock: {
     flexDirection: "row",
-    justifyContent: "space-around",
+    justifyContent: "space-between",
     alignItems: "center",
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.md,
+    backgroundColor: "#1F2937",
+    padding: spacing.md,
+    borderRadius: radius.xl,
     marginTop: spacing.md,
-    paddingVertical: spacing.md,
-    borderRadius: 32,
   },
   controlItem: {
     alignItems: "center",
-    gap: 6,
+    gap: 8,
   },
   controlButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(255,255,255,0.1)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -340,20 +433,82 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
   },
-  badge: {
-    position: "absolute",
-    top: -4,
-    right: -4,
-    backgroundColor: "#FFF",
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    alignItems: "center",
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "center",
+    padding: spacing.lg,
   },
-  badgeText: {
-    color: "#161B22",
-    fontSize: 10,
+  modalContent: {
+    backgroundColor: "#FFF",
+    borderRadius: radius.xl,
+    padding: spacing.xl,
+    alignItems: "center",
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: colors.text,
+    marginBottom: spacing.xs,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: "center",
+    marginBottom: spacing.lg,
+  },
+  starsContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginBottom: spacing.xl,
+  },
+  starIcon: {
+    marginHorizontal: 4,
+  },
+  feedbackInput: {
+    width: "100%",
+    backgroundColor: "#F3F4F6",
+    borderRadius: radius.md,
+    padding: spacing.md,
+    height: 100,
+    textAlignVertical: "top",
+    marginBottom: spacing.lg,
+    color: colors.text,
+  },
+  submitButton: {
+    backgroundColor: colors.primary,
+    width: "100%",
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    alignItems: "center",
+    marginBottom: spacing.md,
+  },
+  submitButtonText: {
+    color: "#FFF",
+    fontSize: 16,
     fontWeight: "bold",
   },
+  skipButton: {
+    paddingVertical: spacing.sm,
+  },
+  skipButtonText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  successView: {
+    alignItems: "center",
+    paddingVertical: spacing.xl,
+  },
+  successTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: colors.text,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  successText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  }
 });

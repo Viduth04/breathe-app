@@ -21,7 +21,7 @@ import {
 } from "@/services/telehealthVideoService";
 
 export default function ReadyToJoinScreen() {
-  const params = useLocalSearchParams<{
+  const params = useLocalSearchParams<{ sessionId?: string; 
     studentAnonId?: string;
     sessionTitle?: string;
     timeRange?: string;
@@ -31,6 +31,7 @@ export default function ReadyToJoinScreen() {
 
   const { callMediaState, toggleMic, toggleCam } = useCounsellorStore();
 
+  const sessionId = params.sessionId;
   const studentAnonId = params.studentAnonId || "Student #4021";
   const sessionTitle = params.sessionTitle || "Encrypted Video Consultation";
   const timeRange = params.timeRange || "02:00 PM – 02:45 PM";
@@ -48,7 +49,8 @@ export default function ReadyToJoinScreen() {
     router.navigate({
       pathname: "/(counsellor-detail)/active-video-call",
       params: {
-        studentAnonId,
+          sessionId,
+          studentAnonId,
         sessionTitle,
         timeRange,
         sessionId: params.sessionId,

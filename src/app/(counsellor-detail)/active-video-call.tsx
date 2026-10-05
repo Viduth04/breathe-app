@@ -48,7 +48,7 @@ export default function ActiveVideoCallScreen() {
   }, [roomId]);
 
   // Call timer: starting at 12:34 (754 seconds) as in Figma mockup, counting up
-  const [seconds, setSeconds] = useState(754);
+  const [seconds, setSeconds] = useState(0);
   const [isCallActive, setIsCallActive] = useState(true);
   const [waveformHeights, setWaveformHeights] = useState([8, 14, 22, 16, 24, 18, 10]);
   const [notesModalVisible, setNotesModalVisible] = useState(false);
@@ -175,55 +175,22 @@ export default function ActiveVideoCallScreen() {
       <View style={styles.clientRow}>
         <Text style={styles.clientText}>
           Client:{" "}
-          <Text style={styles.clientAnon}>{studentAnonId} - Anonymous</Text>
+          <Text style={styles.clientAnon}>{studentAnonId}</Text>
         </Text>
         <Text style={styles.safeChannelText}>SafeChannel™</Text>
       </View>
 
-      {/* ─── Main Video Stage ─── */}
+      {/* 🔹🔹🔹 Main Video Stage 🔹🔹🔹 */}
       <View style={styles.videoStageContainer}>
-        <View style={styles.dashedStageBox}>
-          {/* Privacy Shield Squircle */}
-          <View style={styles.shieldEmblemContainer}>
-            <View style={styles.shieldEmblemBox}>
-              <Ionicons name="shield-outline" size={44} color="#6EE7B7" />
-              <View style={styles.shieldInnerPerson}>
-                <Ionicons name="person-outline" size={22} color="#6EE7B7" />
-              </View>
-            </View>
-
-            {/* Mic Badge on Shield */}
-            <View style={styles.shieldMicBadge}>
-              <Ionicons name="mic" size={13} color={colors.white} />
-            </View>
-          </View>
-
-          {/* Privacy Status Pill */}
-          <View style={styles.privacyModePill}>
-            <Ionicons name="eye-off-outline" size={14} color="#E2E8F0" />
-            <Text style={styles.privacyModeText}>
-              Video Hidden — Anonymous Mode
-            </Text>
-          </View>
-
-          {/* Privacy Description */}
-          <Text style={styles.privacyDescText}>
-            Microphone active • Encrypted audio{"\n"}transmission only
-          </Text>
-
-          {/* Live Audio Waveform Bars */}
-          <View style={styles.waveformContainer}>
-            {waveformHeights.map((h, i) => (
-              <View
-                key={i}
-                style={[styles.waveformBar, { height: h }]}
-              />
-            ))}
-          </View>
-
-          <Text style={styles.waveformLabel}>LIVE AUDIO WAVEFORM</Text>
-
-          {/* ─── Floating PiP Self-View ─── */}
+        <View style={[styles.dashedStageBox, { backgroundColor: '#444', borderWidth: 0, overflow: 'hidden' }]}>
+           <Text style={{ color: '#FFF', fontSize: 80, fontWeight: 'bold' }}>
+             {studentAnonId ? studentAnonId.charAt(0).toUpperCase() : 'S'}
+           </Text>
+           
+           <View style={{ position: 'absolute', bottom: 16, left: 16, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 }}>
+             <Text style={{ color: 'white', fontWeight: 'bold' }}>{studentAnonId}</Text>
+           </View>
+        {/* 🔹🔹🔹 Floating PiP Self-View 🔹🔹🔹 */}
           <View style={styles.pipCard}>
             <View style={styles.pipTopRow}>
               <Text style={styles.pipLabel}>PIP</Text>
