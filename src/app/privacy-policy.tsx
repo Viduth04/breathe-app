@@ -23,6 +23,7 @@ const SECTIONS: Section[] = [
       "Your mood check-ins, so you can see how you've been feeling over time.",
       "Your counselling bookings, so you and your counsellor can manage appointments.",
       "Your chats with a counsellor. Only you and that counsellor can read them.",
+      "Your check-in reminder times and days, if you set any. Reminders are scheduled on your device and only say \"Time for your daily check-in\", never anything about your mood.",
       "Anonymous weekly totals: each check-in adds 1 to that week's count for the mood you picked. The totals don't include your name, email, anonymous ID or when you checked in, so they can't be linked back to you.",
     ],
   },
@@ -65,7 +66,7 @@ const SECTIONS: Section[] = [
     title: "Deleting your data",
     points: [
       "Go to Privacy & Data and tap Delete My Data.",
-      "This permanently deletes your check-ins, bookings, chats and messages (including your counsellor's replies), profile and account. It can't be undone.",
+      "This permanently deletes your check-ins, bookings, chats and messages (including your counsellor's replies), check-in reminders, profile and account. It can't be undone.",
       "If you registered with an email, you'll be asked for your password first so no one else can delete your account.",
       "Your past check-ins stay counted in the anonymous weekly totals. Those totals don't record who contributed, so there is no way to find and remove your part.",
     ],

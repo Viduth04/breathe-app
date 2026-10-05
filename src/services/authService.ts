@@ -1,4 +1,5 @@
 import { auth, db } from "@/firebase/config";
+import { cancelAllReminderNotifications } from "@/services/reminderNotifications";
 import {
     createUserWithEmailAndPassword,
     deleteUser,
@@ -176,7 +177,8 @@ export async function updateFullName(uid: string, fullName: string) {
 const BATCH_LIMIT = 500;
 
 // Privacy & Data screen: removes the student's check-ins, bookings, care links,
-// chats (with every message in them), profile and account.
+// chats (with every message in them), check-in reminders (and the reminder
+// notifications scheduled on this device), profile and account.
 // Email accounts must confirm their password first. Re-authenticating up front means
 // deleteUser can't fail with auth/requires-recent-login after the data is already gone.
 // Guest (anonymous) accounts have no password, so they skip that step.
@@ -198,10 +200,11 @@ export async function deleteMyData(password?: string) {
   const mine = (name: string, field: string) =>
     getDocs(query(collection(db, name), where(field, "==", user.uid)));
 
-  const [checkins, bookings, careLinks, chats] = await Promise.all([
+  const [checkins, bookings, careLinks, reminders, chats] = await Promise.all([
     mine("checkins", "userId"),
     mine("bookings", "studentId"),
     mine("careLinks", "studentId"),
+    getDocs(collection(db, "users", user.uid, "reminders")),
     getDocs(
       query(
         collection(db, "chats"),
@@ -212,6 +215,7 @@ export async function deleteMyData(password?: string) {
   checkins.forEach((d) => refs.push(d.ref));
   bookings.forEach((d) => refs.push(d.ref));
   careLinks.forEach((d) => refs.push(d.ref));
+  reminders.forEach((d) => refs.push(d.ref));
   for (const chat of chats.docs) {
     const messages = await getDocs(collection(chat.ref, "messages"));
     messages.forEach((d) => refs.push(d.ref));
@@ -225,11 +229,20 @@ export async function deleteMyData(password?: string) {
     refs.slice(i, i + BATCH_LIMIT).forEach((ref) => batch.delete(ref));
     await batch.commit();
   }
+  // The reminders are gone, so nothing should fire for them any more
+  await cancelAllReminderNotifications().catch((e) =>
+    console.warn("Cancelling reminder notifications failed", e),
+  );
 
   await deleteUser(user);
 }
 
 export async function logout() {
+  // Reminders belong to this person: the next person on this device mustn't
+  // get them. They're scheduled again from Firestore at the next login.
+  await cancelAllReminderNotifications().catch((e) =>
+    console.warn("Cancelling reminder notifications failed", e),
+  );
   await signOut(auth);
 }
 

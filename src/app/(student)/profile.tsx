@@ -1,7 +1,7 @@
 // Profile - Ishara (Member 2). Supports FR01, NFR01.
 //
 // Who you are in Breathe (name, email, anonymous ID), a small summary of your
-// own check-ins, editing your name, links to Privacy & Data, Crisis Support
+// own check-ins, editing your name, links to Check-in reminders, Privacy & Data, Crisis Support
 // and the Privacy Policy, and logging out. Delete My Data stays in Privacy & Data.
 
 import RoleBadge from "@/components/admin/RoleBadge";
@@ -40,6 +40,12 @@ const LINKS: {
   icon: keyof typeof Ionicons.glyphMap;
   href: Href;
 }[] = [
+  {
+    title: "Check-in reminders",
+    hint: "Gentle reminders at times that suit you",
+    icon: "alarm-outline",
+    href: "/(student)/reminders",
+  },
   {
     title: "Privacy & Data",
     hint: "Anonymous Mode, mood sharing, delete my data",
