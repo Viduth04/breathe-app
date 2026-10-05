@@ -52,4 +52,8 @@ export type CounsellorProfileInfo = {
   isVerified: boolean;
   isAvailable: boolean;
   unreadAlertsCount: number;
+  bio?: string;
+  specialties?: string[];
+  languages?: string[];
+  experienceYears?: number;
 };

@@ -71,3 +71,29 @@ export const typography = {
 
 // Minimum touch target (NFR06 / WCAG)
 export const TOUCH_TARGET = 48;
+
+// Popup System Tokens - WCAG 2.1 AA Calibrated
+export const popupColors = {
+  // Success / Verified (Deep Green & Mint)
+  successText: "#076047",
+  successSurface: "#E5F8E4",
+  successBorder: "#B9E8C7",
+
+  // Warning / Attention (Warm amber ochre, not yellow)
+  warningText: "#8A5B00",
+  warningSurface: "#FEF3C7",
+  warningBorder: "#FDE68A",
+
+  // Destructive / Critical Error (Muted clinical terracotta clay, not alarming red)
+  destructiveText: "#A33B3B",
+  destructiveSurface: "#FDF2F2",
+  destructiveBorder: "#FECACA",
+
+  // Information / Clinical Note (Calm slate teal, not bright blue)
+  infoText: "#1E5E7A",
+  infoSurface: "#EBF5F9",
+  infoBorder: "#BAE6FD",
+
+  // Backdrop Scrim
+  scrim: "rgba(27, 43, 36, 0.45)",
+};

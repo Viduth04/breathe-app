@@ -34,8 +34,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Breathe uses your photos only when an admin adds a counsellor's profile photo.",
-          "cameraPermission": false,
+          "photosPermission": "Breathe uses your photos to set or update your clinical profile picture.",
+          "cameraPermission": "Breathe uses your camera to capture your clinical profile picture.",
           "microphonePermission": false
         }
       ],

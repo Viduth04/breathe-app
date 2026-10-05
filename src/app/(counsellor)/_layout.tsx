@@ -60,6 +60,8 @@ function CounsellorTabsNavigator() {
   );
 }
 
+import { PopupProvider } from "@/components/common/popup";
+
 // Counsellors only: logged-out users go to Welcome, other roles go back to index
 export default function CounsellorLayout() {
   const { user, profile } = useAuth();
@@ -69,8 +71,10 @@ export default function CounsellorLayout() {
   if (profile.role !== "counsellor") return <Redirect href="/" />;
 
   return (
-    <CounsellorBadgeProvider>
-      <CounsellorTabsNavigator />
-    </CounsellorBadgeProvider>
+    <PopupProvider>
+      <CounsellorBadgeProvider>
+        <CounsellorTabsNavigator />
+      </CounsellorBadgeProvider>
+    </PopupProvider>
   );
 }

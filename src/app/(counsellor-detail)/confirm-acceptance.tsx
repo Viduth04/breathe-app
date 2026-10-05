@@ -16,10 +16,12 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, TOUCH_TARGET } from "@/theme";
 import { useCounsellorStore } from "@/services/counsellorStore";
+import { usePopup } from "@/components/common/popup";
 
 export default function ConfirmAcceptanceModal() {
   const params = useLocalSearchParams<{ requestId?: string; studentAnonId?: string }>();
   const { confirmAcceptance, requests } = useCounsellorStore();
+  const { showToast } = usePopup();
 
   const targetReq =
     requests.find((r) => r.id === params.requestId || r.studentAnonId === params.studentAnonId) ||
@@ -32,11 +34,16 @@ export default function ConfirmAcceptanceModal() {
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
-    confirmAcceptance(targetReq?.id || "req-1", note.trim());
-    router.replace("/(counsellor-detail)/request-accepted");
+    try {
+      confirmAcceptance(targetReq?.id || "req-1", note.trim());
+      router.replace("/(counsellor-detail)/request-accepted");
+    } catch (e) {
+      setIsSubmitting(false);
+      showToast({ message: "Could not confirm acceptance. Please check connection.", type: "error" });
+    }
   };
 
   const handleCancel = () => {

@@ -8,7 +8,6 @@ import {
   StyleSheet,
   Pressable,
   ScrollView,
-  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,17 +18,19 @@ import {
   initLobbySession,
   runTelehealthDiagnostics,
 } from "@/services/telehealthVideoService";
+import { usePopup } from "@/components/common/popup";
 
 export default function ReadyToJoinScreen() {
-  const params = useLocalSearchParams<{ sessionId?: string; 
+  const params = useLocalSearchParams<{
+    sessionId?: string;
     studentAnonId?: string;
     sessionTitle?: string;
     timeRange?: string;
     duration?: string;
-    sessionId?: string;
   }>();
 
   const { callMediaState, toggleMic, toggleCam } = useCounsellorStore();
+  const { alert } = usePopup();
 
   const sessionId = params.sessionId;
   const studentAnonId = params.studentAnonId || "Student #4021";
@@ -49,22 +50,17 @@ export default function ReadyToJoinScreen() {
     router.navigate({
       pathname: "/(counsellor-detail)/active-video-call",
       params: {
-          sessionId,
-          studentAnonId,
+        sessionId,
+        studentAnonId,
         sessionTitle,
         timeRange,
-        sessionId: params.sessionId,
       },
     });
   };
 
   const runHardwareDiagnostics = async () => {
     const res = await runTelehealthDiagnostics();
-    Alert.alert(
-      "Clinical AV Diagnostics",
-      res.summary,
-      [{ text: "Done", style: "default" }]
-    );
+    alert("Clinical AV Diagnostics", res.summary);
   };
 
   return (

@@ -2,12 +2,13 @@
 // Provides validated references to Firebase Auth, Firestore, and Realtime Database (RTDB),
 // role validation for admin-provisioned counselor accounts, and path constants.
 
-import { auth, db, rtdb } from "@/firebase/config";
+import { auth, db, rtdb, storage } from "@/firebase/config";
 import { User, getIdTokenResult } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 
 export const FIRESTORE_COLLECTIONS = {
-  COUNSELORS: "counselors",
+  COUNSELORS: "counsellors",
+  COUNSELLOR_PHOTOS: "counsellorPhotos",
   REQUESTS: "requests",
   SESSIONS: "sessions",
   CLINICAL_NOTES: "clinicalNotes",
@@ -96,4 +97,4 @@ export async function getCounselorAuthIdentity(
   }
 }
 
-export { auth, db, rtdb };
+export { auth, db, rtdb, storage };
