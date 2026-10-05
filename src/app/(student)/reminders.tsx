@@ -3,7 +3,8 @@
 // Gentle check-in reminders at times the student picks: add, list, edit,
 // switch on/off and delete (users/{uid}/reminders, owner only). Each one is a
 // weekly local notification on this device with neutral text. Guests can use
-// it too. On web the reminders are saved but no notifications are shown.
+// it too. On web and in Expo Go on Android the reminders are saved but no
+// notifications are shown.
 
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
@@ -16,6 +17,7 @@ import {
   getReminderPermission,
   ReminderPermission,
   remindersSupported,
+  remindersUnsupportedReason,
   requestReminderPermission,
   syncReminderNotifications,
 } from "@/services/reminderNotifications";
@@ -286,9 +288,9 @@ export default function Reminders() {
               importantForAccessibility="no"
             />
             <Text style={[typography.body, styles.flex]}>
-              Reminder notifications only work in the Breathe phone app. You can
-              still set them up here, and they'll start on your phone once you log
-              in there.
+              {remindersUnsupportedReason === "android-expo-go"
+                ? "Reminder notifications work in the installed app. Your reminders are saved."
+                : "Reminder notifications only work in the Breathe phone app. You can still set them up here, and they'll start on your phone once you log in there."}
             </Text>
           </View>
         </Card>
