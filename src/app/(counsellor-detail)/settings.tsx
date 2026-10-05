@@ -9,9 +9,10 @@ import {
   Pressable,
   ScrollView,
   Switch,
-  Alert,
   Modal,
   TextInput,
+  Image,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
@@ -19,6 +20,23 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors, TOUCH_TARGET } from "@/theme";
 import { useCounsellorStore } from "@/services/counsellorStore";
 import { logout } from "@/services/authService";
+import { usePopup, POPUP_MESSAGES } from "@/components/common/popup";
+import {
+  SPECIALTIES,
+  LANGUAGES,
+  Specialty,
+  Language,
+} from "@/types/counsellor";
+import {
+  pickAvatarFromLibrary,
+  takeAvatarWithCamera,
+  uploadCounsellorAvatar,
+  deleteCounsellorAvatar,
+  persistCounsellorProfile,
+  validateProfileInput,
+  ProfileValidationErrors,
+} from "@/services/counsellorProfileService";
+import { auth } from "@/services/counsellorFirebaseConfig";
 
 export default function CounselorSettingsScreen() {
   const {
@@ -29,43 +47,214 @@ export default function CounselorSettingsScreen() {
     toggleTwoFactor,
     toggleQuietHours,
     updateSettings,
+    updateProfile,
+    setProfileAvatar,
+    cleanupFirebaseSync,
   } = useCounsellorStore();
 
+  const { showToast, confirm, alert } = usePopup();
+
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
+  const [avatarSheetVisible, setAvatarSheetVisible] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Edit Profile Form State
   const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
-  const [editedTitle, setEditedTitle] = useState(profile.title);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [formFullName, setFormFullName] = useState(profile.fullName);
+  const [formTitle, setFormTitle] = useState(profile.title);
+  const [formBio, setFormBio] = useState(
+    profile.bio || "Dedicated clinical counselor focused on student mental wellbeing and academic stress management."
+  );
+  const [formExperience, setFormExperience] = useState(String(profile.experienceYears ?? 8));
+  const [formSpecialties, setFormSpecialties] = useState<Specialty[]>(
+    (profile.specialties as Specialty[]) || ["Anxiety", "Stress", "Academic Pressure"]
+  );
+  const [formLanguages, setFormLanguages] = useState<Language[]>(
+    (profile.languages as Language[]) || ["English", "Sinhala"]
+  );
+  const [formOrganization, setFormOrganization] = useState(profile.organization || "MindEase");
+  const [formErrors, setFormErrors] = useState<ProfileValidationErrors>({});
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+  const handleOpenEditProfile = () => {
+    setFormFullName(profile.fullName);
+    setFormTitle(profile.title);
+    setFormBio(profile.bio || "Dedicated clinical counselor focused on student mental wellbeing and academic stress management.");
+    setFormExperience(String(profile.experienceYears ?? 8));
+    setFormSpecialties((profile.specialties as Specialty[]) || ["Anxiety", "Stress", "Academic Pressure"]);
+    setFormLanguages((profile.languages as Language[]) || ["English", "Sinhala"]);
+    setFormOrganization(profile.organization || "MindEase");
+    setFormErrors({});
+    setEditProfileModalVisible(true);
   };
 
-  const handleLogout = () => {
-    Alert.alert(
-      "Log Out",
-      "Are you sure you want to log out of the Clinical Counselor Portal?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Log Out",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await logout();
-            } catch {
-              // Fallback to welcome screen
-            }
-            router.replace("/(auth)/welcome");
-          },
-        },
-      ]
-    );
+  const handlePickFromLibrary = async () => {
+    setAvatarSheetVisible(false);
+    try {
+      const uri = await pickAvatarFromLibrary();
+      if (!uri) return; // User cancelled
+
+      setIsUploadingAvatar(true);
+      setUploadProgress(15);
+      const counsellorId = auth.currentUser?.uid || "counselor-anjali";
+      const freshUrl = await uploadCounsellorAvatar(counsellorId, uri, (pct) => {
+        setUploadProgress(pct);
+      });
+
+      setProfileAvatar(freshUrl);
+      showToast(POPUP_MESSAGES.toasts.profileSaved, "success");
+    } catch (err: any) {
+      console.warn("[settings] Pick image error:", err);
+      showToast(err?.message || "Could not select photo", "error");
+    } finally {
+      setIsUploadingAvatar(false);
+      setUploadProgress(0);
+    }
   };
 
-  const handleSaveProfile = () => {
-    setEditProfileModalVisible(false);
-    showToast("Profile credentials updated successfully.");
+  const handleTakePhoto = async () => {
+    setAvatarSheetVisible(false);
+    try {
+      const uri = await takeAvatarWithCamera();
+      if (!uri) return;
+
+      setIsUploadingAvatar(true);
+      setUploadProgress(15);
+      const counsellorId = auth.currentUser?.uid || "counselor-anjali";
+      const freshUrl = await uploadCounsellorAvatar(counsellorId, uri, (pct) => {
+        setUploadProgress(pct);
+      });
+
+      setProfileAvatar(freshUrl);
+      showToast(POPUP_MESSAGES.toasts.profileSaved, "success");
+    } catch (err: any) {
+      console.warn("[settings] Camera photo error:", err);
+      showToast(err?.message || "Could not take photo", "error");
+    } finally {
+      setIsUploadingAvatar(false);
+      setUploadProgress(0);
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    setAvatarSheetVisible(false);
+    const confirmed = await confirm({
+      title: "Remove Profile Picture",
+      message: "Are you sure you want to remove your profile picture? Students will see the default clinical avatar.",
+      isDestructive: true,
+      variant: "destructive",
+      icon: "trash-outline",
+    });
+
+    if (confirmed) {
+      try {
+        const counsellorId = auth.currentUser?.uid || "counselor-anjali";
+        await deleteCounsellorAvatar(counsellorId);
+        setProfileAvatar("");
+        showToast("Profile picture removed", "info");
+      } catch (err: any) {
+        showToast("Failed to remove avatar", "error");
+      }
+    }
+  };
+
+  const toggleSpecialty = (spec: Specialty) => {
+    if (formSpecialties.includes(spec)) {
+      if (formSpecialties.length <= 1) {
+        showToast("Please keep at least 1 specialty", "warning");
+        return;
+      }
+      setFormSpecialties(formSpecialties.filter((s) => s !== spec));
+    } else {
+      if (formSpecialties.length >= 6) {
+        showToast("Maximum 6 specialties allowed", "warning");
+        return;
+      }
+      setFormSpecialties([...formSpecialties, spec]);
+    }
+  };
+
+  const toggleLanguage = (lang: Language) => {
+    if (formLanguages.includes(lang)) {
+      if (formLanguages.length <= 1) {
+        showToast("Please keep at least 1 language", "warning");
+        return;
+      }
+      setFormLanguages(formLanguages.filter((l) => l !== lang));
+    } else {
+      setFormLanguages([...formLanguages, lang]);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    const expNum = parseInt(formExperience.trim(), 10);
+    const payload = {
+      fullName: formFullName.trim(),
+      title: formTitle.trim(),
+      bio: formBio.trim(),
+      specialties: formSpecialties,
+      languages: formLanguages,
+      experienceYears: isNaN(expNum) ? 0 : expNum,
+      organization: formOrganization.trim(),
+      photoURL: profile.avatarUrl,
+    };
+
+    const errors = validateProfileInput(payload);
+    if (errors) {
+      setFormErrors(errors);
+      showToast(
+        errors.fullName || errors.title || errors.bio || errors.experienceYears || errors.general || "Please fix errors",
+        "warning"
+      );
+      return;
+    }
+
+    try {
+      setIsSavingProfile(true);
+      const counsellorId = auth.currentUser?.uid || "counselor-anjali";
+
+      // 1. Optimistic store update
+      updateProfile({
+        fullName: payload.fullName,
+        title: payload.title,
+        bio: payload.bio,
+        specialties: payload.specialties,
+        languages: payload.languages,
+        experienceYears: payload.experienceYears,
+        organization: payload.organization,
+      });
+
+      // 2. Persist to Firestore
+      await persistCounsellorProfile(counsellorId, payload);
+
+      setEditProfileModalVisible(false);
+      showToast(POPUP_MESSAGES.toasts.profileSaved, "success");
+    } catch (err: any) {
+      console.warn("[settings] Save profile error:", err);
+      showToast(err?.message || "Failed to save profile. Please try again.", "error");
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    const shouldLogout = await confirm({
+      ...POPUP_MESSAGES.confirmations.logOut,
+      isDestructive: true,
+      variant: "destructive",
+      icon: "log-out",
+    });
+
+    if (shouldLogout) {
+      try {
+        cleanupFirebaseSync();
+        await logout();
+      } catch {
+        // Fallback to welcome screen
+      }
+      router.replace("/(auth)/welcome");
+    }
   };
 
   return (
@@ -88,21 +277,37 @@ export default function CounselorSettingsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Toast Feedback */}
-        {toastMessage && (
-          <View style={styles.toastBanner}>
-            <Ionicons name="checkmark-circle" size={16} color="#065F46" />
-            <Text style={styles.toastText}>{toastMessage}</Text>
-          </View>
-        )}
-
         {/* ─── Profile Header Card ─── */}
         <View style={styles.profileCard}>
           <View style={styles.profileTopRow}>
-            {/* Avatar with Mint Background */}
-            <View style={styles.avatarBackdrop}>
-              <Ionicons name="person" size={28} color="#065F46" />
-            </View>
+            {/* Avatar with Photo & Camera Upload Trigger */}
+            <Pressable
+              onPress={() => setAvatarSheetVisible(true)}
+              style={styles.avatarTouchContainer}
+              accessibilityRole="button"
+              accessibilityLabel="Change profile picture"
+            >
+              <View style={styles.avatarBackdrop}>
+                {profile.avatarUrl ? (
+                  <Image
+                    source={{ uri: profile.avatarUrl }}
+                    style={styles.avatarImage}
+                    accessibilityLabel={`${profile.fullName} profile photo`}
+                  />
+                ) : (
+                  <Ionicons name="person" size={28} color="#065F46" />
+                )}
+                {isUploadingAvatar && (
+                  <View style={styles.avatarUploadOverlay}>
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <Text style={styles.avatarUploadPctText}>{uploadProgress}%</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.avatarCameraBadge}>
+                <Ionicons name="camera" size={13} color="#FFFFFF" />
+              </View>
+            </Pressable>
 
             {/* Details & License */}
             <View style={styles.profileMeta}>
@@ -123,7 +328,7 @@ export default function CounselorSettingsScreen() {
 
           {/* Edit Profile Action */}
           <Pressable
-            onPress={() => setEditProfileModalVisible(true)}
+            onPress={handleOpenEditProfile}
             style={styles.editProfileTrigger}
             accessibilityRole="button"
             accessibilityLabel="Edit Profile"
@@ -142,7 +347,7 @@ export default function CounselorSettingsScreen() {
           <View style={styles.cardGroup}>
             {/* Email Row */}
             <Pressable
-              onPress={() => Alert.alert("Account Email", settings.email)}
+              onPress={() => alert("Registered Clinical Email", settings.email)}
               style={styles.menuRow}
               accessibilityRole="button"
               accessibilityLabel="Email"
@@ -163,7 +368,7 @@ export default function CounselorSettingsScreen() {
 
             {/* Phone Number Row */}
             <Pressable
-              onPress={() => Alert.alert("Phone Number", settings.phoneNumber)}
+              onPress={() => alert("Direct Consultation Hotline", settings.phoneNumber)}
               style={styles.menuRow}
               accessibilityRole="button"
               accessibilityLabel="Phone Number"
@@ -182,7 +387,7 @@ export default function CounselorSettingsScreen() {
 
             {/* Change Password Row */}
             <Pressable
-              onPress={() => Alert.alert("Change Password", "Password reset link sent to your registered institutional email.")}
+              onPress={() => showToast(POPUP_MESSAGES.toasts.passwordResetSent, "success")}
               style={[styles.menuRow, styles.lastRow]}
               accessibilityRole="button"
               accessibilityLabel="Change Password"
@@ -207,7 +412,7 @@ export default function CounselorSettingsScreen() {
           <View style={styles.cardGroup}>
             {/* Credentials Row */}
             <Pressable
-              onPress={() => Alert.alert("Credentials", settings.credentials)}
+              onPress={() => alert("Academic & Clinical Accreditations", settings.credentials)}
               style={styles.menuRow}
               accessibilityRole="button"
               accessibilityLabel="Credentials"
@@ -248,7 +453,7 @@ export default function CounselorSettingsScreen() {
 
             {/* Bio Row */}
             <Pressable
-              onPress={() => Alert.alert("Bio", "10+ years student clinical wellness counselor at SLIIT.")}
+              onPress={() => alert("Counselor Clinical Bio", settings.bio || "10+ years student clinical wellness counselor at SLIIT.")}
               style={[styles.menuRow, styles.lastRow]}
               accessibilityRole="button"
               accessibilityLabel="Bio"
@@ -314,7 +519,7 @@ export default function CounselorSettingsScreen() {
 
             {/* Working Hours */}
             <Pressable
-              onPress={() => Alert.alert("Working Hours", settings.workingHours)}
+              onPress={() => alert("Clinical Working Hours", settings.workingHours)}
               style={styles.menuRow}
               accessibilityRole="button"
               accessibilityLabel="Working Hours"
@@ -415,7 +620,7 @@ export default function CounselorSettingsScreen() {
 
             {/* Data & Confidentiality */}
             <Pressable
-              onPress={() => Alert.alert("Compliance", "All session notes, mood check-ins, and student data are end-to-end encrypted under HIPAA / FERPA guidelines.")}
+              onPress={() => alert("FERPA & HIPAA Compliance", "All session notes, mood check-ins, and student consultation records are encrypted under SLIIT healthcare guidelines.")}
               style={[styles.menuRow, styles.lastRow]}
               accessibilityRole="button"
               accessibilityLabel="Data & Confidentiality"
@@ -441,7 +646,7 @@ export default function CounselorSettingsScreen() {
           <Text style={styles.sectionHeaderTitle}>SUPPORT</Text>
           <View style={styles.cardGroup}>
             <Pressable
-              onPress={() => Alert.alert("Help Center", "Breathe Clinical Help Desk & Knowledge Base.")}
+              onPress={() => alert("Clinical Help Center", "Breathe Clinical Help Desk & SLIIT Wellness Knowledge Base.")}
               style={styles.menuRow}
               accessibilityRole="button"
               accessibilityLabel="Help Center"
@@ -456,7 +661,7 @@ export default function CounselorSettingsScreen() {
             </Pressable>
 
             <Pressable
-              onPress={() => Alert.alert("Contact Support", "Support line: support@breathe.sliit.lk • ext 410")}
+              onPress={() => alert("Contact Support", "Counselor Help Line: support@breathe.sliit.lk • Ext 410")}
               style={[styles.menuRow, styles.lastRow]}
               accessibilityRole="button"
               accessibilityLabel="Contact Support"
@@ -539,37 +744,349 @@ export default function CounselorSettingsScreen() {
         </View>
       </Modal>
 
+      {/* ─── Avatar Options Modal ─── */}
+      <Modal
+        visible={avatarSheetVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAvatarSheetVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>Profile Picture</Text>
+              <Pressable
+                onPress={() => setAvatarSheetVisible(false)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <Ionicons name="close" size={22} color="#64748B" />
+              </Pressable>
+            </View>
+            <Text style={styles.modalDesc}>
+              Upload a clear professional photo. Photos are resized, optimized, and stripped of personal metadata.
+            </Text>
+
+            <View style={styles.sheetActionsList}>
+              <Pressable
+                onPress={handleTakePhoto}
+                style={styles.sheetActionItem}
+                accessibilityRole="button"
+                accessibilityLabel="Take Photo with Camera"
+              >
+                <View style={styles.sheetActionIconBox}>
+                  <Ionicons name="camera-outline" size={20} color="#065F46" />
+                </View>
+                <View style={styles.sheetActionTextBox}>
+                  <Text style={styles.sheetActionTitle}>Take Photo</Text>
+                  <Text style={styles.sheetActionSub}>Use your device camera</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+              </Pressable>
+
+              <Pressable
+                onPress={handlePickFromLibrary}
+                style={styles.sheetActionItem}
+                accessibilityRole="button"
+                accessibilityLabel="Choose from Photo Library"
+              >
+                <View style={styles.sheetActionIconBox}>
+                  <Ionicons name="images-outline" size={20} color="#065F46" />
+                </View>
+                <View style={styles.sheetActionTextBox}>
+                  <Text style={styles.sheetActionTitle}>Choose from Library</Text>
+                  <Text style={styles.sheetActionSub}>Select from saved images</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+              </Pressable>
+
+              {Boolean(profile.avatarUrl) && (
+                <Pressable
+                  onPress={handleRemoveAvatar}
+                  style={[styles.sheetActionItem, styles.sheetActionDestructive]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove Profile Picture"
+                >
+                  <View style={[styles.sheetActionIconBox, styles.destructiveIconBox]}>
+                    <Ionicons name="trash-outline" size={20} color="#DC2626" />
+                  </View>
+                  <View style={styles.sheetActionTextBox}>
+                    <Text style={[styles.sheetActionTitle, { color: "#DC2626" }]}>
+                      Remove Picture
+                    </Text>
+                    <Text style={styles.sheetActionSub}>Revert to default clinical icon</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color="#FCA5A5" />
+                </Pressable>
+              )}
+            </View>
+
+            <Pressable
+              onPress={() => setAvatarSheetVisible(false)}
+              style={styles.modalCancelBtnFull}
+            >
+              <Text style={styles.modalCancelBtnText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       {/* ─── Edit Profile Modal ─── */}
       <Modal
         visible={editProfileModalVisible}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setEditProfileModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Edit Counselor Profile</Text>
-            <Text style={styles.modalDesc}>Update your clinical title and institutional credentials.</Text>
+          <View style={[styles.modalContent, styles.editProfileModalContent]}>
+            <View style={styles.modalHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Edit Counselor Profile</Text>
+                <Text style={styles.modalDesc}>
+                  Update your public details visible to students across Breathe.
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setEditProfileModalVisible(false)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <Ionicons name="close" size={22} color="#64748B" />
+              </Pressable>
+            </View>
 
-            <Text style={styles.fieldLabel}>Clinical Title</Text>
-            <TextInput
-              style={styles.fieldInput}
-              value={editedTitle}
-              onChangeText={setEditedTitle}
-            />
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.editProfileScrollInner}
+            >
+              {/* Full Name */}
+              <View style={styles.formFieldGroup}>
+                <Text style={styles.fieldLabel}>
+                  Full Name <Text style={styles.requiredStar}>*</Text>
+                </Text>
+                <TextInput
+                  style={[
+                    styles.fieldInput,
+                    Boolean(formErrors.fullName) && styles.fieldInputError,
+                  ]}
+                  value={formFullName}
+                  onChangeText={(val) => {
+                    setFormFullName(val);
+                    if (formErrors.fullName) setFormErrors({ ...formErrors, fullName: undefined });
+                  }}
+                  placeholder="e.g. Dr. Anjali Perera"
+                  placeholderTextColor="#94A3B8"
+                  maxLength={80}
+                />
+                {Boolean(formErrors.fullName) && (
+                  <Text style={styles.fieldErrorText}>{formErrors.fullName}</Text>
+                )}
+              </View>
 
+              {/* Clinical Title */}
+              <View style={styles.formFieldGroup}>
+                <Text style={styles.fieldLabel}>
+                  Clinical Title <Text style={styles.requiredStar}>*</Text>
+                </Text>
+                <TextInput
+                  style={[
+                    styles.fieldInput,
+                    Boolean(formErrors.title) && styles.fieldInputError,
+                  ]}
+                  value={formTitle}
+                  onChangeText={(val) => {
+                    setFormTitle(val);
+                    if (formErrors.title) setFormErrors({ ...formErrors, title: undefined });
+                  }}
+                  placeholder="e.g. Lead Clinical Counselor"
+                  placeholderTextColor="#94A3B8"
+                  maxLength={100}
+                />
+                {Boolean(formErrors.title) && (
+                  <Text style={styles.fieldErrorText}>{formErrors.title}</Text>
+                )}
+              </View>
+
+              {/* Organization */}
+              <View style={styles.formFieldGroup}>
+                <Text style={styles.fieldLabel}>Organization / Practice Unit</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={formOrganization}
+                  onChangeText={setFormOrganization}
+                  placeholder="e.g. MindEase"
+                  placeholderTextColor="#94A3B8"
+                  maxLength={80}
+                />
+              </View>
+
+              {/* Experience Years */}
+              <View style={styles.formFieldGroup}>
+                <Text style={styles.fieldLabel}>
+                  Years of Experience <Text style={styles.requiredStar}>*</Text>
+                </Text>
+                <TextInput
+                  style={[
+                    styles.fieldInput,
+                    Boolean(formErrors.experienceYears) && styles.fieldInputError,
+                  ]}
+                  value={formExperience}
+                  onChangeText={(val) => {
+                    setFormExperience(val.replace(/[^0-9]/g, ""));
+                    if (formErrors.experienceYears) {
+                      setFormErrors({ ...formErrors, experienceYears: undefined });
+                    }
+                  }}
+                  placeholder="e.g. 8"
+                  placeholderTextColor="#94A3B8"
+                  keyboardType="numeric"
+                  maxLength={2}
+                />
+                {Boolean(formErrors.experienceYears) && (
+                  <Text style={styles.fieldErrorText}>{formErrors.experienceYears}</Text>
+                )}
+              </View>
+
+              {/* Clinical Bio */}
+              <View style={styles.formFieldGroup}>
+                <View style={styles.labelCountRow}>
+                  <Text style={styles.fieldLabel}>
+                    Clinical Bio <Text style={styles.requiredStar}>*</Text>
+                  </Text>
+                  <Text style={styles.charCountText}>{formBio.length}/300</Text>
+                </View>
+                <TextInput
+                  style={[
+                    styles.fieldInput,
+                    styles.fieldTextArea,
+                    Boolean(formErrors.bio) && styles.fieldInputError,
+                  ]}
+                  value={formBio}
+                  onChangeText={(val) => {
+                    setFormBio(val);
+                    if (formErrors.bio) setFormErrors({ ...formErrors, bio: undefined });
+                  }}
+                  placeholder="Write a welcoming summary of your practice style for students..."
+                  placeholderTextColor="#94A3B8"
+                  multiline
+                  numberOfLines={3}
+                  maxLength={300}
+                />
+                {Boolean(formErrors.bio) && (
+                  <Text style={styles.fieldErrorText}>{formErrors.bio}</Text>
+                )}
+              </View>
+
+              {/* Clinical Specialties */}
+              <View style={styles.formFieldGroup}>
+                <Text style={styles.fieldLabel}>
+                  Clinical Specialties (1–6) <Text style={styles.requiredStar}>*</Text>
+                </Text>
+                <View style={styles.chipGrid}>
+                  {SPECIALTIES.map((spec) => {
+                    const isSelected = formSpecialties.includes(spec);
+                    return (
+                      <Pressable
+                        key={spec}
+                        onPress={() => toggleSpecialty(spec)}
+                        style={[
+                          styles.chipItem,
+                          isSelected && styles.chipItemSelected,
+                        ]}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: isSelected }}
+                      >
+                        {isSelected && (
+                          <Ionicons
+                            name="checkmark"
+                            size={14}
+                            color="#FFFFFF"
+                            style={{ marginRight: 4 }}
+                          />
+                        )}
+                        <Text
+                          style={[
+                            styles.chipText,
+                            isSelected && styles.chipTextSelected,
+                          ]}
+                        >
+                          {spec}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Spoken Languages */}
+              <View style={styles.formFieldGroup}>
+                <Text style={styles.fieldLabel}>
+                  Spoken Languages <Text style={styles.requiredStar}>*</Text>
+                </Text>
+                <View style={styles.chipGrid}>
+                  {LANGUAGES.map((lang) => {
+                    const isSelected = formLanguages.includes(lang);
+                    return (
+                      <Pressable
+                        key={lang}
+                        onPress={() => toggleLanguage(lang)}
+                        style={[
+                          styles.chipItem,
+                          isSelected && styles.chipItemSelected,
+                        ]}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: isSelected }}
+                      >
+                        {isSelected && (
+                          <Ionicons
+                            name="checkmark"
+                            size={14}
+                            color="#FFFFFF"
+                            style={{ marginRight: 4 }}
+                          />
+                        )}
+                        <Text
+                          style={[
+                            styles.chipText,
+                            isSelected && styles.chipTextSelected,
+                          ]}
+                        >
+                          {lang}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            </ScrollView>
+
+            {/* Modal Actions */}
             <View style={styles.modalBtnRow}>
               <Pressable
                 onPress={() => setEditProfileModalVisible(false)}
                 style={styles.modalCancelBtn}
+                disabled={isSavingProfile}
               >
                 <Text style={styles.modalCancelBtnText}>Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={handleSaveProfile}
-                style={styles.modalDoneBtnSmall}
+                style={[
+                  styles.modalDoneBtnSmall,
+                  isSavingProfile && { opacity: 0.7 },
+                ]}
+                disabled={isSavingProfile}
+                accessibilityRole="button"
+                accessibilityLabel="Save Profile Changes"
               >
-                <Text style={styles.modalDoneBtnText}>Save</Text>
+                {isSavingProfile ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.modalDoneBtnText}>Save Profile</Text>
+                )}
               </Pressable>
             </View>
           </View>
@@ -991,5 +1508,168 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#64748B",
     fontWeight: "600",
+  },
+  avatarTouchContainer: {
+    position: "relative",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 28,
+  },
+  avatarCameraBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    backgroundColor: "#065F46",
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarUploadOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 28,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarUploadPctText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  modalHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 4,
+  },
+  sheetActionsList: {
+    marginVertical: 10,
+    gap: 8,
+  },
+  sheetActionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    gap: 12,
+  },
+  sheetActionDestructive: {
+    backgroundColor: "#FEF2F2",
+    borderColor: "#FEE2E2",
+  },
+  sheetActionIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "#ECFDF5",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  destructiveIconBox: {
+    backgroundColor: "#FEE2E2",
+  },
+  sheetActionTextBox: {
+    flex: 1,
+  },
+  sheetActionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  sheetActionSub: {
+    fontSize: 11.5,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  modalCancelBtnFull: {
+    marginTop: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    backgroundColor: "#F1F5F9",
+  },
+  editProfileModalContent: {
+    maxHeight: "85%",
+    paddingBottom: 16,
+  },
+  editProfileScrollInner: {
+    paddingVertical: 8,
+    gap: 12,
+  },
+  formFieldGroup: {
+    gap: 4,
+  },
+  requiredStar: {
+    color: "#DC2626",
+    fontWeight: "700",
+  },
+  fieldInputError: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FEF2F2",
+  },
+  fieldErrorText: {
+    color: "#DC2626",
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: -2,
+    marginBottom: 4,
+  },
+  labelCountRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  charCountText: {
+    fontSize: 11,
+    color: "#94A3B8",
+    fontWeight: "600",
+  },
+  fieldTextArea: {
+    minHeight: 70,
+    textAlignVertical: "top",
+    paddingTop: 8,
+  },
+  chipGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 4,
+  },
+  chipItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  chipItemSelected: {
+    backgroundColor: "#065F46",
+    borderColor: "#065F46",
+  },
+  chipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#475569",
+  },
+  chipTextSelected: {
+    color: "#FFFFFF",
+    fontWeight: "700",
   },
 });

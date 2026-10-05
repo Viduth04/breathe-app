@@ -21,6 +21,7 @@ import {
 } from "@/types/counsellorDashboard";
 import { useCounsellorBadges } from "@/context/CounsellorBadgeContext";
 import { useCounsellorStore } from "@/services/counsellorStore";
+import { usePopup } from "@/components/common/popup";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
@@ -49,10 +50,9 @@ export default function CounsellorDashboard() {
     profile,
     toggleAvailability,
   } = useCounsellorStore();
+  const { showToast } = usePopup();
 
   const [activeFilter, setActiveFilter] = useState<TimeFilter>("Day");
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
-  const [feedbackActionStudent, setFeedbackActionStudent] = useState<string | null>(null);
   const [activeModalData, setActiveModalData] = useState<{
     title: string;
     description: string;
@@ -76,20 +76,19 @@ export default function CounsellorDashboard() {
   // If navigated here after completing a live session
   useEffect(() => {
     if (params?.sessionCompleted) {
-      setFeedbackMessage("Consultation with Student #4021 concluded. Case audit logged.");
-      setFeedbackActionStudent(null);
+      showToast({ message: "Consultation with Student #4021 concluded. Case audit logged.", type: "success" });
     }
   }, [params?.sessionCompleted]);
 
   // Toggle availability state with inline feedback
   const handleToggleAvailability = (value: boolean) => {
     toggleAvailability(value);
-    setFeedbackActionStudent(null);
-    setFeedbackMessage(
-      value
+    showToast({
+      message: value
         ? "You are now online and available for bookings."
-        : "Availability paused. Students will see you as away."
-    );
+        : "Availability paused. Students will see you as away.",
+      type: value ? "success" : "info",
+    });
   };
 
   // Accept a booking request -> routes to Confirm Acceptance modal
@@ -203,50 +202,6 @@ export default function CounsellorDashboard() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Inline Feedback Toast */}
-        {feedbackMessage && (
-          <View style={styles.toastBanner} accessibilityRole="alert">
-            <Ionicons
-              name="checkmark-circle"
-              size={18}
-              color={colors.primary}
-              accessibilityElementsHidden
-              importantForAccessibility="no"
-            />
-            <Text style={styles.toastText}>{feedbackMessage}</Text>
-            {feedbackActionStudent && (
-              <Pressable
-                onPress={() => router.navigate("/(counsellor)/messages")}
-                accessibilityRole="button"
-                accessibilityLabel="Message Student"
-                style={styles.toastActionBtn}
-              >
-                <Text style={styles.toastActionText}>Message</Text>
-                <Ionicons
-                  name="arrow-forward"
-                  size={12}
-                  color={colors.white}
-                />
-              </Pressable>
-            )}
-            <Pressable
-              onPress={() => {
-                setFeedbackMessage(null);
-                setFeedbackActionStudent(null);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Dismiss message"
-              hitSlop={8}
-            >
-              <Ionicons
-                name="close"
-                size={16}
-                color={colors.textSecondary}
-              />
-            </Pressable>
-          </View>
-        )}
-
         {/* Profile Card with Availability Switch */}
         <CounsellorProfileCard
           profile={{ ...profile, unreadAlertsCount: alertsUnread }}
