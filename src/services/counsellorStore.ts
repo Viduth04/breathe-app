@@ -932,6 +932,29 @@ export const counsellorStore = {
     }
   },
 
+  // Update profile avatar in store
+  setProfileAvatar(avatarUrl: string) {
+    state = {
+      ...state,
+      profile: {
+        ...state.profile,
+        avatarUrl,
+      },
+    };
+    notifyListeners();
+  },
+
+  // Update profile details in store
+  updateProfile(updated: Partial<CounsellorProfileInfo>) {
+    state = {
+      ...state,
+      profile: {
+        ...state.profile,
+        ...updated,
+      },
+    };
+    notifyListeners();
+  },
 
   // Toggle 2FA switch
   toggleTwoFactor() {
@@ -989,6 +1012,23 @@ export const counsellorStore = {
       calendarBookings: state.calendarBookings.map((b) =>
         b.id === slotId ? { ...b, isBlocked: true, displayName: "Blocked Slot (Paperwork)" } : b
       ),
+    };
+    notifyListeners();
+  },
+
+  // Mark a single alert as read
+  markAlertAsRead(alertId: string) {
+    let wasUnread = false;
+    state = {
+      ...state,
+      alerts: state.alerts.map((a) => {
+        if (a.id === alertId) {
+          if (a.isUnread) wasUnread = true;
+          return { ...a, isUnread: false };
+        }
+        return a;
+      }),
+      alertsUnread: wasUnread ? Math.max(0, state.alertsUnread - 1) : state.alertsUnread,
     };
     notifyListeners();
   },
@@ -1729,7 +1769,10 @@ export function useCounsellorStore() {
     toggleTwoFactor: counsellorStore.toggleTwoFactor,
     toggleQuietHours: counsellorStore.toggleQuietHours,
     updateSettings: counsellorStore.updateSettings,
+    updateProfile: counsellorStore.updateProfile,
+    setProfileAvatar: counsellorStore.setProfileAvatar,
     blockSlot: counsellorStore.blockSlot,
+    markAlertAsRead: counsellorStore.markAlertAsRead,
     markAlertsAsRead: counsellorStore.markAlertsAsRead,
     decrementMessages: counsellorStore.decrementMessages,
     updateAlertPreferences: counsellorStore.updateAlertPreferences,
