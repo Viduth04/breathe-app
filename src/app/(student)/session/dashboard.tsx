@@ -206,7 +206,7 @@ export default function SessionsScreen() {
                   <View style={styles.sessionDetailsBox}>
                     <View style={styles.detailRow}>
                       <Ionicons name="time-outline" size={16} color={colors.text} />
-                      <Text style={styles.detailTextBold}>{session.startAt.toDate().toDateString()} • {session.startAt.toDate().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
+                      <Text style={styles.detailTextBold}>{session.startAt.toDate().toLocaleDateString('en-LK', { timeZone: 'Asia/Colombo', month: 'short', day: 'numeric', year: 'numeric' })} • {session.startAt.toDate().toLocaleTimeString('en-LK', { hour: "2-digit", minute: "2-digit", timeZone: 'Asia/Colombo' })}</Text>
                     </View>
                     <View style={styles.badgesRow}>
                       <View style={styles.infoBadge}>
@@ -260,7 +260,7 @@ export default function SessionsScreen() {
                 <View style={styles.sessionDetailsBox}>
                   <View style={styles.detailRow}>
                     <Ionicons name="time-outline" size={16} color={colors.text} />
-                    <Text style={styles.detailTextBold}>{session.startAt.toDate().toDateString()} • {session.startAt.toDate().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
+                    <Text style={styles.detailTextBold}>{session.startAt.toDate().toLocaleDateString('en-LK', { timeZone: 'Asia/Colombo', month: 'short', day: 'numeric', year: 'numeric' })} • {session.startAt.toDate().toLocaleTimeString('en-LK', { hour: "2-digit", minute: "2-digit", timeZone: 'Asia/Colombo' })}</Text>
                   </View>
                   <View style={styles.badgesRow}>
                     <View style={styles.infoBadge}>
@@ -299,7 +299,7 @@ export default function SessionsScreen() {
                 <View style={styles.cardTopRow}>
                   <View style={styles.cancelledPill}>
                     <View style={styles.cancelledDot} />
-                    <Text style={styles.cancelledStatusText}>Cancelled • {session.startAt.toDate().toDateString()}</Text>
+                    <Text style={styles.cancelledStatusText}>Cancelled • {session.startAt.toDate().toLocaleDateString('en-LK', { timeZone: 'Asia/Colombo', month: 'short', day: 'numeric', year: 'numeric' })}</Text>
                   </View>
                   <Text style={styles.refText}>Ref: {`#${session.id.substring(0, 5).toUpperCase()}`}</Text>
                 </View>
@@ -323,7 +323,7 @@ export default function SessionsScreen() {
                     </View>
                     <View>
                       <Text style={styles.originalSlotLabel}>Original Slot</Text>
-                      <Text style={styles.originalSlotTime}>{session.startAt.toDate().toDateString()} • {session.startAt.toDate().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
+                      <Text style={styles.originalSlotTime}>{session.startAt.toDate().toLocaleDateString('en-LK', { timeZone: 'Asia/Colombo', month: 'short', day: 'numeric', year: 'numeric' })} • {session.startAt.toDate().toLocaleTimeString('en-LK', { hour: "2-digit", minute: "2-digit", timeZone: 'Asia/Colombo' })}</Text>
                     </View>
                   </View>
                   <View style={styles.reasonRow}>
@@ -354,10 +354,7 @@ export default function SessionsScreen() {
             {/* Sort Row */}
             <View style={styles.sortRow}>
               <Text style={styles.showingText}>Showing <Text style={{fontWeight: '700'}}>{filteredCounsellors.length} matching counselor{filteredCounsellors.length !== 1 ? 's' : ''}</Text></Text>
-              <View style={styles.sortRight}>
-                <Text style={styles.sortText}>Sort: Highest Rated</Text>
-                <Ionicons name="chevron-down" size={14} color={colors.text} />
-              </View>
+              
             </View>
 
             {loading ? (
@@ -388,9 +385,13 @@ export default function SessionsScreen() {
                     </View>
                     <View style={styles.findCardBottom}>
                       <View style={styles.nextTimeRow}>
-                        <Ionicons name="time-outline" size={16} color={colors.text} />
-                        <Text style={styles.nextTimeText}>Next: <Text style={{fontWeight: '700'}}>9:30 AM</Text></Text>
-                      </View>
+                          <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
+                          <Text style={styles.nextTimeText}>
+                            {counselor.isAvailable && counselor.availableSlots?.length > 0 
+                              ? `Next: ${counselor.availableSlots[0]}` 
+                              : 'No upcoming slots'}
+                          </Text>
+                        </View>
                       <Pressable style={styles.viewProfileBtn} onPress={() => router.push({ pathname: "/(student)/session/counselor", params: { uid: counselor.uid } })}>
                         <Text style={styles.viewProfileText}>View Profile</Text>
                         <Ionicons name="arrow-forward" size={16} color="#FFF" />

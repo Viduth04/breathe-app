@@ -4,17 +4,18 @@ import { Image } from "expo-image";
 import CounsellorAvatar from "@/components/common/CounsellorAvatar";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import { ActivityIndicator } from "react-native";
 import { router } from "expo-router";
-import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
+import { ScrollView, StyleSheet, Text, View, Pressable, Modal, FlatList } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Card from "@/components/common/Card";
 
 export default function CounselorProfileScreen() {
   const [showCalendar, setShowCalendar] = useState(false);
-  const [selectedDate, setSelectedDate] = useState("15");
+  const [showReviews, setShowReviews] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date().getDate().toString());
 
   const getMockData = (cId: string) => {
     const charCode = cId.charCodeAt(0) || 0;
@@ -64,6 +65,7 @@ export default function CounselorProfileScreen() {
   const mockData = uid ? getMockData(uid as string) : null;
   const [counsellor, setCounsellor] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [reviews, setReviews] = useState<any[]>([]);
 
   useEffect(() => {
     if (uid) {
@@ -79,7 +81,9 @@ export default function CounselorProfileScreen() {
   }, [uid]);
 
   if (loading) {
-    return <SafeAreaView style={styles.container}><ActivityIndicator style={{marginTop: 100}} /></SafeAreaView>;
+    return <SafeAreaView style={styles.container}><ActivityIndicator style={{marginTop: 100}} />
+
+      </SafeAreaView>;
   }
 
   return (
@@ -90,9 +94,7 @@ export default function CounselorProfileScreen() {
           <Ionicons name="arrow-back" size={24} color={colors.primary} />
         </Pressable>
         <Text style={styles.headerTitle}>Counselor Booking</Text>
-        <View style={styles.headerRightIcon}>
-          <Ionicons name="person-outline" size={20} color="#FFF" />
-        </View>
+        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -121,12 +123,7 @@ export default function CounselorProfileScreen() {
                 <Text style={styles.tagTextPrimary}>{lang}</Text>
               </View>
             ))}
-            {counsellor?.experienceYears && (
-              <View style={[styles.tagPill, { backgroundColor: "#F3F0E6" }]}>
-                <Ionicons name="school-outline" size={14} color={colors.textSecondary} />
-                <Text style={styles.tagTextSecondary}>{counsellor.experienceYears}+ Years</Text>
-              </View>
-            )}
+            
           </View>
         </View>
 
@@ -173,18 +170,22 @@ export default function CounselorProfileScreen() {
               <View style={{ marginTop: 16 }}>
                 {/* Calendar Header */}
                 <View style={styles.calendarHeader}>
-                  <View>
-                    <Text style={styles.monthTitle}>Octust 2026</Text>
-                    <Text style={styles.monthSubtitle}>Select your consultation day</Text>
-                  </View>
+                  
+                    <View>
+                      <Text style={styles.monthTitle}>
+                        {new Intl.DateTimeFormat('en-LK', { month: 'long', year: 'numeric', timeZone: 'Asia/Colombo' }).format(new Date())}
+                      </Text>
+                      <Text style={styles.monthSubtitle}>Select your consultation day</Text>
+                    </View>
+
                   <View style={styles.monthNav}>
-                    <Pressable style={styles.navBtn}>
-                      <Ionicons name="chevron-back" size={16} color={colors.text} />
-                    </Pressable>
-                    <Pressable style={styles.navBtn}>
-                      <Ionicons name="chevron-forward" size={16} color={colors.text} />
-                    </Pressable>
-                  </View>
+                      <Pressable style={[styles.navBtn, { opacity: 0.3 }]} disabled={true}>
+                        <Ionicons name="chevron-back" size={16} color={colors.text} />
+                      </Pressable>
+                      <Pressable style={styles.navBtn}>
+                        <Ionicons name="chevron-forward" size={16} color={colors.text} />
+                      </Pressable>
+                    </View>
                 </View>
 
                 {/* Days of week */}
@@ -195,139 +196,104 @@ export default function CounselorProfileScreen() {
                 </View>
 
                 {/* Calendar Grid */}
-                <View style={styles.calendarGrid}>
-                  {/* Row 1 */}
-                  {renderDay("27", "empty")}
-                  {renderDay("28", "empty")}
-                  {renderDay("29", "empty")}
-                  {renderDay("30", "empty")}
-                  {renderDay("01", "unavailable")}
-                  {renderDay("02", "unavailable")}
-                  {renderDay("03", "unavailable")}
-                  {/* Row 2 */}
-                  {renderDay("04", "unavailable")}
-                  {renderDay("05", "unavailable")}
-                  {renderDay("06", "unavailable")}
-                  {renderDay("07", "unavailable")}
-                  {renderDay("08", "unavailable")}
-                  {renderDay("09", "unavailable")}
-                  {renderDay("10", "unavailable")}
-                  {/* Row 3 */}
-                  {renderDay("11", "unavailable")}
-                  {renderDay("12", "unavailable")}
-                  {renderDay("13", "unavailable")}
-                  {renderDay("14", "unavailable")}
-                  {renderDay("15", "available")}
-                  {renderDay("16", "unavailable")}
-                  {renderDay("17", "unavailable")}
-                  {/* Row 4 */}
-                  {renderDay("18", "available")}
-                  {renderDay("19", "unavailable")}
-                  {renderDay("20", "unavailable")}
-                  {renderDay("21", "unavailable")}
-                  {renderDay("22", "available")}
-                  {renderDay("23", "unavailable")}
-                  {renderDay("24", "unavailable")}
-                </View>
+                  <View style={styles.calendarGrid}>
+                    {/* Dynamic Row 1-4 */}
+                    {[27,28,29,30,1,2,3, 4,5,6,7,8,9,10, 11,12,13,14,15,16,17, 18,19,20,21,22,23,24].map((dayNum, i) => {
+                       const d = String(dayNum).padStart(2, '0');
+                       const isEmpty = i < 4; // 27,28,29,30
+                       let status = "unavailable";
+                       if (isEmpty) status = "empty";
+                       else if (counsellor?.availableDate === String(dayNum) && counsellor?.availableSlots?.length > 0) {
+                           status = "available";
+                       }
+                       // fallback if not set in DB
+                       else if (!counsellor?.availableDate && dayNum === new Date().getDate() && counsellor?.availableSlots?.length > 0) {
+                           status = "available";
+                       }
+                       return renderDay(d, status as any);
+                    })}
+                  </View>
 
                 
               </View>
             )}
 
             <View style={[styles.slotsGrid, { marginTop: showCalendar ? 0 : 0 }]}>
-              <View style={[styles.slotBox, styles.slotBoxActive]}>
-                <Ionicons name="calendar-outline" size={16} color="#FFF" />
-                <Text style={[styles.slotText, styles.slotTextActive]}>Mon, {selectedDate} Oct</Text>
-              </View>
-              {selectedDate === "15" ? (
-                <>
-                  <View style={styles.slotBox}>
+              
+                <View style={[styles.slotBox, styles.slotBoxActive, { width: '100%', marginBottom: 4 }]}>
+                  <Ionicons name="calendar-outline" size={16} color="#FFF" />
+                  <Text style={[styles.slotText, styles.slotTextActive]}>
+                    {(() => {
+                        const now = new Date();
+                        const targetDate = new Date(now.getFullYear(), now.getMonth(), parseInt(selectedDate));
+                        return new Intl.DateTimeFormat('en-LK', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Colombo' }).format(targetDate);
+                    })()}
+                  </Text>
+                </View>
+
+              
+              {(counsellor?.availableSlots && counsellor.availableSlots.length > 0) ? (
+                counsellor.availableSlots.map((time, idx) => (
+                  <View key={idx} style={styles.slotBox}>
                     <Ionicons name="time-outline" size={16} color={colors.primary} />
-                    <Text style={styles.slotText}>10:00 AM</Text>
+                    <Text style={styles.slotText}>{time}</Text>
                   </View>
-                  <View style={styles.slotBox}>
-                    <Ionicons name="time-outline" size={16} color={colors.primary} />
-                    <Text style={styles.slotText}>2:00 PM</Text>
-                  </View>
-                  <View style={styles.slotBox}>
-                    <Ionicons name="time-outline" size={16} color={colors.primary} />
-                    <Text style={styles.slotText}>4:00 PM</Text>
-                  </View>
-                </>
-              ) : selectedDate === "18" ? (
-                <>
-                  <View style={styles.slotBox}>
-                    <Ionicons name="time-outline" size={16} color={colors.primary} />
-                    <Text style={styles.slotText}>09:30 AM</Text>
-                  </View>
-                  <View style={styles.slotBox}>
-                    <Ionicons name="time-outline" size={16} color={colors.primary} />
-                    <Text style={styles.slotText}>11:00 AM</Text>
-                  </View>
-                </>
-              ) : selectedDate === "22" ? (
-                <>
-                  <View style={styles.slotBox}>
-                    <Ionicons name="time-outline" size={16} color={colors.primary} />
-                    <Text style={styles.slotText}>1:00 PM</Text>
-                  </View>
-                  <View style={styles.slotBox}>
-                    <Ionicons name="time-outline" size={16} color={colors.primary} />
-                    <Text style={styles.slotText}>3:30 PM</Text>
-                  </View>
-                </>
+                ))
               ) : (
-                <Text style={{color: colors.textSecondary, alignSelf: 'center', marginVertical: 10}}>No slots available</Text>
+                <View style={{ width: '100%', alignItems: 'center', paddingVertical: 24 }}><Text style={{ color: colors.textSecondary, fontSize: 14 }}>No slots available for this day.</Text></View>
               )}
+
             </View>
           </Card>
 
         {/* Reviews Card */}
+        <Pressable onPress={() => setShowReviews(true)}>
         <Card style={styles.sectionCard}>
           <View style={styles.sectionHeaderBetween}>
             <View style={styles.sectionTitleRow}>
               <View style={styles.titleLine} />
               <Text style={styles.sectionTitle}>Reviews</Text>
             </View>
-            <View style={styles.totalReviewsBadge}>
-              <Text style={styles.totalReviewsText}>Total: 124</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={styles.totalReviewsBadge}>
+                <Text style={styles.totalReviewsText}>Total: {reviews.length}</Text>
+              </View>
+              <Text style={{ fontSize: 12, fontWeight: "600", color: colors.primary }}>See All</Text>
+              <Ionicons name="arrow-forward" size={12} color={colors.primary} />
             </View>
           </View>
-
-          <View style={styles.reviewItem}>
-            <View style={styles.starsRow}>
-              <Ionicons name="star" size={14} color="#F59E0B" />
-              <Ionicons name="star" size={14} color="#F59E0B" />
-              <Ionicons name="star" size={14} color="#F59E0B" />
-              <Ionicons name="star" size={14} color="#F59E0B" />
-              <Ionicons name="star" size={14} color="#F59E0B" />
-            </View>
-            <Text style={styles.reviewText}>
-              "Very helpful and understanding." <Text style={styles.reviewerName}>— Anonymous</Text>
-            </Text>
-          </View>
-
-          <View style={styles.reviewDivider} />
-
-          <View style={styles.reviewItem}>
-            <View style={styles.starsRow}>
-              <Ionicons name="star" size={14} color="#F59E0B" />
-              <Ionicons name="star" size={14} color="#F59E0B" />
-              <Ionicons name="star" size={14} color="#F59E0B" />
-              <Ionicons name="star" size={14} color="#F59E0B" />
-              <Ionicons name="star-outline" size={14} color="#D1D5DB" />
-            </View>
-            <Text style={styles.reviewText}>
-              "Good listener." <Text style={styles.reviewerName}>— Anonymous</Text>
-            </Text>
-          </View>
-        </Card>
+          {reviews.length === 0 ? (
+            <Text style={{color: colors.textSecondary, alignSelf: 'center', marginVertical: 20}}>No reviews yet.</Text>
+          ) : (
+            reviews.slice(0, 4).map((item, idx) => (
+              <View key={item.id}>
+                <View style={styles.reviewItem}>
+                  <View style={styles.starsRow}>
+                    {[1,2,3,4,5].map(star => (
+                      <Ionicons 
+                        key={star} 
+                        name={star <= item.rating ? "star" : "star-outline"} 
+                        size={14} 
+                        color={star <= item.rating ? "#F59E0B" : "#D1D5DB"} 
+                      />
+                    ))}
+                  </View>
+                  <Text style={styles.reviewText}>
+                    "${item.feedback || 'Great session.'}" <Text style={styles.reviewerName}>— ${item.studentId === "Anonymous" ? "Anonymous" : "Student"}</Text>
+                  </Text>
+                </View>
+                {idx < 3 && reviews.length > (idx + 1) && <View style={styles.reviewDivider} />}
+              </View>
+            ))
+          )}
+</Card>
+        </Pressable>
 
       </ScrollView>
 
       {/* Bottom Fixed Bar */}
       <View style={styles.bottomBar}>
-        <Pressable style={styles.chatFirstBtn} onPress={() => router.push("/(student)/session/chat")}>
+        <Pressable style={styles.chatFirstBtn} onPress={() => router.push({ pathname: "/(student)/session/chat", params: { uid: counsellor?.id || counsellor?.uid } })}>
           <Ionicons name="chatbubble-outline" size={20} color={colors.primary} />
           <Text style={styles.chatFirstText}>Chat First</Text>
         </Pressable>
@@ -336,6 +302,44 @@ export default function CounselorProfileScreen() {
           <Text style={styles.bookSessionText}>Book Session</Text>
         </Pressable>
       </View>
+    
+      {/* Reviews Modal */}
+      <Modal visible={showReviews} transparent animationType="slide">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, height: '80%', padding: 24 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+              <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1F2937' }}>All Reviews</Text>
+              <Pressable onPress={() => setShowReviews(false)} style={{ padding: 4 }}>
+                <Ionicons name="close" size={24} color="#4B5563" />
+              </Pressable>
+            </View>
+            
+            <FlatList 
+              data={reviews}
+              keyExtractor={item => item.id}
+              showsVerticalScrollIndicator={false}
+              ListEmptyComponent={<Text style={{textAlign: 'center', marginTop: 40, color: '#9CA3AF'}}>No reviews available.</Text>}
+              renderItem={({ item }) => (
+                <View style={{ paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+                  <View style={{ flexDirection: 'row', marginBottom: 8 }}>
+                    {[1, 2, 3, 4, 5].map(star => (
+                      <Ionicons 
+                        key={star} 
+                        name={star <= item.rating ? "star" : "star-outline"} 
+                        size={16} 
+                        color={star <= item.rating ? "#F59E0B" : "#D1D5DB"} 
+                        style={{ marginRight: 2 }}
+                      />
+                    ))}
+                  </View>
+                  <Text style={{ fontSize: 15, color: '#374151', fontStyle: 'italic', marginBottom: 8, lineHeight: 22 }}>"${item.feedback || 'Great session.'}"</Text>
+                  <Text style={{ fontSize: 13, color: '#9CA3AF' }}>— ${item.studentId === "Anonymous" ? "Anonymous" : "Student"}</Text>
+                </View>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
