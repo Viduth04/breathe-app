@@ -5,31 +5,18 @@
 //     (logout cancels them, and another person may have used the device)
 //   - tapping a reminder notification opens the check-in screen, also when
 //     the tap is what launched the app
+// Never imports expo-notifications itself (it crashes Android Expo Go); where
+// notifications are unsupported both effects do nothing.
 
 import { listReminders } from "@/services/reminderService";
 import {
   initReminderNotifications,
-  REMINDER_DATA_TYPE,
+  listenForReminderTaps,
   remindersSupported,
   syncReminderNotifications,
 } from "@/services/reminderNotifications";
-import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
 import { useEffect } from "react";
-
-// Responses already acted on (the "last response" survives until cleared)
-const handled = new Set<string>();
-
-function openCheckIn(response: Notifications.NotificationResponse | null) {
-  if (!response) return;
-  const { identifier, content } = response.notification.request;
-  if (content.data?.type !== REMINDER_DATA_TYPE) return;
-  const key = `${identifier}@${response.notification.date}`;
-  if (handled.has(key)) return;
-  handled.add(key);
-  router.navigate("/(student)/check-in");
-  Notifications.clearLastNotificationResponseAsync().catch(() => {});
-}
 
 export function useReminderNotifications(uid: string | undefined) {
   // Re-sync on login (and when another account signs in on this device)
@@ -53,10 +40,10 @@ export function useReminderNotifications(uid: string | undefined) {
   // Taps
   useEffect(() => {
     if (!remindersSupported) return;
-    Notifications.getLastNotificationResponseAsync()
-      .then(openCheckIn)
-      .catch(() => {});
-    const sub = Notifications.addNotificationResponseReceivedListener(openCheckIn);
-    return () => sub.remove();
+    try {
+      return listenForReminderTaps(() => router.navigate("/(student)/check-in"));
+    } catch (e) {
+      console.warn("Listening for reminder taps failed", e);
+    }
   }, []);
 }
