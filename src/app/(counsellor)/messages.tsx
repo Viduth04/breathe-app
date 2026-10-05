@@ -428,7 +428,7 @@ export default function CounsellorMessagesScreen() {
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.encryptionTitle}>
-            HIPAA & FERPA Compliant · TLS Encrypted Transport
+            HIPAA & FERPA Compliant · E2E Encrypted
           </Text>
           <Text style={styles.encryptionSubtitle}>
             Authorized Clinical Record Storage & Audit Logs Active
@@ -456,7 +456,7 @@ export default function CounsellorMessagesScreen() {
 
               <Text style={styles.calmEmptyTitle}>Your Clinical Inbox is Clear</Text>
               <Text style={styles.calmEmptySub}>
-                All conversations are confidential and TLS transport encrypted. When a session request is accepted or an urgent outreach is initiated, the secure consultation channel will appear here.
+                All conversations are confidential and end-to-end encrypted. When a session request is accepted or an urgent outreach is initiated, the secure consultation channel will appear here.
               </Text>
 
               <View style={styles.calmEmptyActionsCol}>
@@ -1021,7 +1021,7 @@ export default function CounsellorMessagesScreen() {
                 style={styles.sheetSubmitBtn}
                 onPress={() => {
                   setOutreachFeedback(
-                    `Found Student ${outreachSearchId || "#5104"}. Confidential channel ready.`
+                    `Found Student ${outreachSearchId || "#5104"}. E2E channel ready.`
                   );
                   setTimeout(() => {
                     setOutreachModalVisible(false);

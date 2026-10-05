@@ -4,7 +4,7 @@
 // 2. /typing/{conversationId}/{userId} - Instant typing indicators with auto-cleanup.
 // 3. /calls/{callId} - Waiting room lobby presence, media mute state, and tele-health signaling.
 
-import { auth, rtdb } from "@/services/counsellorFirebaseConfig";
+import { rtdb } from "@/services/counsellorFirebaseConfig";
 import {
   ref,
   set,
@@ -266,14 +266,11 @@ export async function joinCallSignaling(
   role: "counselor" | "student",
   mediaState: { micOn: boolean; camOn: boolean }
 ): Promise<void> {
-  if (!rtdb || !callId || !auth?.currentUser) return;
+  if (!rtdb || !callId) return;
 
   try {
     const callRef = ref(rtdb, `calls/${callId}`);
-    const updates: Record<string, any> = {
-      status: "waiting",
-      startedAt: serverTimestamp(),
-    };
+    const updates: Record<string, any> = {};
 
     if (role === "counselor") {
       updates.counselorJoined = true;
@@ -309,7 +306,7 @@ export async function updateCallMedia(
   role: "counselor" | "student",
   mediaState: { micOn: boolean; camOn: boolean }
 ): Promise<void> {
-  if (!rtdb || !callId || !auth?.currentUser) return;
+  if (!rtdb || !callId) return;
 
   try {
     const mediaRef = ref(rtdb, `calls/${callId}/${role}Media`);
@@ -328,7 +325,7 @@ export function subscribeToCallSignaling(
   callId: string,
   onUpdate: (state: CallSignalingState) => void
 ): () => void {
-  if (!rtdb || !callId || !auth?.currentUser) return () => {};
+  if (!rtdb || !callId) return () => {};
 
   try {
     const callRef = ref(rtdb, `calls/${callId}`);
@@ -373,7 +370,7 @@ export function subscribeToCallSignaling(
  * Ends live call signaling session.
  */
 export async function endCallSignaling(callId: string): Promise<void> {
-  if (!rtdb || !callId || !auth?.currentUser) return;
+  if (!rtdb || !callId) return;
 
   try {
     const callRef = ref(rtdb, `calls/${callId}`);

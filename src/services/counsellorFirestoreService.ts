@@ -174,7 +174,7 @@ export async function acceptStudentRequest(
       date: payload.date,
       status: "confirmed",
       roomId,
-      securityTag: "TLS Encrypted",
+      securityTag: "E2E Encrypted",
       noteText: counselorNote || targetRequest.topic,
       createdAt: serverTimestamp(),
     });

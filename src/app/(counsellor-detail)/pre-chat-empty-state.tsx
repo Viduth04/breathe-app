@@ -20,8 +20,6 @@ import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { useCounsellorStore } from "@/services/counsellorStore";
 import { MOCK_PRE_CHAT_WAITING_ROOM } from "@/services/mockDetailScreensData";
 import { ClinicalPromptItem } from "@/types/counsellorDetailScreens";
-import { useNow } from "@/context/CounsellorTimeContext";
-import { formatColomboDashboardDate } from "@/utils/counsellorDateUtils";
 
 export default function PreChatEmptyStateScreen() {
   const params = useLocalSearchParams<{
@@ -31,8 +29,6 @@ export default function PreChatEmptyStateScreen() {
   }>();
 
   const { sendOpeningMessage } = useCounsellorStore();
-  const { now } = useNow();
-  const dynamicDateLabel = formatColomboDashboardDate(now);
 
   const studentAnonId =
     params.studentAnonId || MOCK_PRE_CHAT_WAITING_ROOM.studentAnonId;
@@ -118,7 +114,7 @@ export default function PreChatEmptyStateScreen() {
             onPress={() =>
               Alert.alert(
                 "Session Details",
-                `Patient: ${studentAnonId}\nModality: Secure Anonymous Video / Chat Consultation\nStandard Duration: 45 min\nEncryption: TLS & HIPAA Protected.`
+                `Patient: ${studentAnonId}\nModality: Secure Anonymous Video / Chat Consultation\nStandard Duration: 45 min\nEncryption: End-to-end verified.`
               )
             }
             style={styles.headerSquareBtn}
@@ -148,7 +144,7 @@ export default function PreChatEmptyStateScreen() {
             <View style={styles.statusCapsulePill}>
               <View style={styles.statusGreenDot} />
               <Text style={styles.statusCapsuleText}>
-                Today, {dynamicDateLabel} • Intake Room Ready
+                Today, Monday 18 Aug • Intake Room Ready
               </Text>
             </View>
           </View>
@@ -352,7 +348,7 @@ export default function PreChatEmptyStateScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#FFF9EC",
+    backgroundColor: "#FFF8E7",
   },
   header: {
     backgroundColor: "rgba(255, 255, 255, 0.95)",

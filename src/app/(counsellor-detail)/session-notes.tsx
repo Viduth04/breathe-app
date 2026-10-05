@@ -49,16 +49,8 @@ export default function SessionNotesScreen() {
   };
 
   const handleSaveNewNote = () => {
-    const trimmed = newNoteContent.trim();
-    if (!trimmed) {
-      showToast("Cannot save empty note. Please enter clinical observations.");
-      return;
-    }
-    if (trimmed.length < 5) {
-      showToast("Note is too short. Minimum 5 characters required for clinical records.");
-      return;
-    }
-    store.addClinicalNote(studentKey, trimmed, notesData.sessionType === "chat" ? "Chat" : "Consultation");
+    if (!newNoteContent.trim()) return;
+    store.addClinicalNote(studentKey, newNoteContent.trim(), notesData.sessionType === "chat" ? "Chat" : "Consultation");
     setNewNoteContent("");
     setModalVisible(false);
     showToast("Clinical note encrypted and synced to record.");

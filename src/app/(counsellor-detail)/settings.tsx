@@ -29,7 +29,6 @@ export default function CounselorSettingsScreen() {
     toggleTwoFactor,
     toggleQuietHours,
     updateSettings,
-    resetStore,
   } = useCounsellorStore();
 
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
@@ -53,7 +52,6 @@ export default function CounselorSettingsScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              resetStore();
               await logout();
             } catch {
               // Fallback to welcome screen
@@ -584,7 +582,7 @@ export default function CounselorSettingsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#FFF9EC",
+    backgroundColor: "#FFF8E7",
   },
   topNav: {
     flexDirection: "row",
@@ -593,7 +591,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#E6EDE5",
-    backgroundColor: "#FFF9EC",
+    backgroundColor: "#FFF8E7",
   },
   backButtonTouch: {
     width: TOUCH_TARGET,

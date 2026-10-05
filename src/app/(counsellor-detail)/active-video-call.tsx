@@ -155,7 +155,7 @@ export default function ActiveVideoCallScreen() {
           {/* Encrypted Badge */}
           <View style={styles.encryptedPill}>
             <Ionicons name="lock-closed" size={11} color="#A7F3D0" />
-            <Text style={styles.encryptedText}>TLS Encrypted</Text>
+            <Text style={styles.encryptedText}>Encrypted</Text>
           </View>
 
           {/* Live Timer Badge */}
@@ -360,7 +360,7 @@ export default function ActiveVideoCallScreen() {
               <View>
                 <Text style={styles.modalTitle}>Confidential Case Notes</Text>
                 <Text style={styles.modalSubtitle}>
-                  {studentAnonId} • HIPAA & TLS Protected
+                  {studentAnonId} • SafeChannel™ Encrypted
                 </Text>
               </View>
               <Pressable

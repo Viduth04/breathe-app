@@ -55,16 +55,8 @@ export default function AnonymousSessionDetailsScreen() {
   };
 
   const handleSavePrepNote = () => {
-    const trimmed = newNoteText.trim();
-    if (!trimmed) {
-      showToast("Observation cannot be empty. Please enter clinical prep notes.");
-      return;
-    }
-    if (trimmed.length < 3) {
-      showToast("Prep note is too short. Please provide meaningful clinical context.");
-      return;
-    }
-    store.addPrepNote(sessionId, trimmed);
+    if (!newNoteText.trim()) return;
+    store.addPrepNote(sessionId, newNoteText.trim());
     setModalVisible(false);
     showToast("Prep observation updated in clinical record.");
   };

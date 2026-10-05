@@ -3,12 +3,10 @@
 
 import React from "react";
 import { Stack } from "expo-router";
-import { CounsellorTimeProvider } from "@/context/CounsellorTimeContext";
 
 export default function CounsellorDetailLayout() {
   return (
-    <CounsellorTimeProvider>
-      <Stack
+    <Stack
       screenOptions={{
         headerShown: false,
         animation: "slide_from_right",
@@ -58,6 +56,5 @@ export default function CounsellorDetailLayout() {
         }}
       />
     </Stack>
-  </CounsellorTimeProvider>
   );
 }

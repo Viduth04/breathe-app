@@ -17,16 +17,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { CalendarBooking, useCounsellorStore } from "@/services/counsellorStore";
-import { useNow } from "@/context/CounsellorTimeContext";
-import {
-  formatColomboDashboardDate,
-  formatColomboFullDate,
-  formatColomboMonthYear,
-  toColomboDateKey,
-  parseColomboDateKey,
-  getColomboTodayKey,
-  generateMonthGrid,
-} from "@/utils/counsellorDateUtils";
 
 type RangeView = "day" | "week" | "month";
 
@@ -38,27 +28,15 @@ export default function MyCalendarScreen() {
   }>();
 
   const store = useCounsellorStore();
-  const { now, todayDateKey, formattedTodayHeader } = useNow();
 
   // Active view: day, week, month (defaults to day per prototype)
   const [activeRange, setActiveRange] = useState<RangeView>(
     (params.view as RangeView) || "day"
   );
 
-  // Month navigation year/month
-  const [viewYear, setViewYear] = useState<number>(() => now.getFullYear());
-  const [viewMonth, setViewMonth] = useState<number>(() => now.getMonth());
-
-  // Selected date key (synced with store, defaults to today)
-  const selectedDateKey = store.selectedDateKey || todayDateKey;
-  const selectedDateObj = useMemo(() => parseColomboDateKey(selectedDateKey), [selectedDateKey]);
-  const selectedDay = useMemo(() => parseInt(selectedDateKey.split("-")[2], 10) || 1, [selectedDateKey]);
-
-  const selectedMonthText = useMemo(() => {
-    const d = new Date(Date.UTC(viewYear, viewMonth, 1));
-    return formatColomboMonthYear(d);
-  }, [viewYear, viewMonth]);
-
+  // Selected date state (defaults to Aug 19, 2026)
+  const [selectedDay, setSelectedDay] = useState<number>(store.selectedCalendarDay || 19);
+  const [selectedMonth, setSelectedMonth] = useState<string>("August 2026");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -67,33 +45,13 @@ export default function MyCalendarScreen() {
   };
 
   const handleDaySelect = (dayNum: number) => {
-    const key = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
-    store.setSelectedDateKey(key);
+    setSelectedDay(dayNum);
+    store.setSelectedCalendarDay(dayNum);
   };
 
   const handleJumpToToday = () => {
-    store.jumpToToday();
-    setViewYear(now.getFullYear());
-    setViewMonth(now.getMonth());
-    showToast(`Jumped to Today (${formatColomboDashboardDate(now)})`);
-  };
-
-  const handlePrevMonth = () => {
-    if (viewMonth === 0) {
-      setViewYear((prev) => prev - 1);
-      setViewMonth(11);
-    } else {
-      setViewMonth((prev) => prev - 1);
-    }
-  };
-
-  const handleNextMonth = () => {
-    if (viewMonth === 11) {
-      setViewYear((prev) => prev + 1);
-      setViewMonth(0);
-    } else {
-      setViewMonth((prev) => prev + 1);
-    }
+    handleDaySelect(19);
+    showToast("Jumped to Today (Tue, Aug 19)");
   };
 
   const handleEnterRoom = (booking: CalendarBooking) => {
@@ -147,40 +105,52 @@ export default function MyCalendarScreen() {
     showToast("Slot blocked for administrative paperwork.");
   };
 
-  // Dynamic Month days setup via generateMonthGrid
+  // Month days setup: August 2026 starts Saturday Aug 1 (Row 1 has July 27-31 dimmed)
   const monthDays = useMemo(() => {
-    const grid = generateMonthGrid(viewYear, viewMonth, selectedDateKey, now);
+    const days: { day: number; isCurrentMonth: boolean; bookedTypes?: ("video" | "chat" | "in-person")[] }[] = [];
 
-    return grid.map((cell) => {
-      // Find any sessions from store on this dateKey
-      const daySessions = store.sessions.filter(
-        (s) =>
-          (s.date && toColomboDateKey(s.date) === cell.dateKey) ||
-          (cell.dateKey === todayDateKey && s.timeRelative?.toLowerCase().includes("today"))
-      );
+    // July 27-31
+    for (let d = 27; d <= 31; d++) {
+      days.push({ day: d, isCurrentMonth: false });
+    }
 
-      let bookedTypes: ("video" | "chat" | "in-person")[] | undefined;
-      if (daySessions.length > 0) {
-        bookedTypes = daySessions
-          .map((s) => s.sessionType || "video")
-          .slice(0, 3) as ("video" | "chat" | "in-person")[];
-      }
+    // August 1-31
+    const bookedMap: Record<number, ("video" | "chat" | "in-person")[]> = {
+      1: ["video"],
+      3: ["video"],
+      4: ["chat"],
+      6: ["video", "video"],
+      7: ["in-person"],
+      10: ["video"],
+      11: ["video", "in-person"],
+      13: ["chat"],
+      14: ["video"],
+      18: ["video", "chat"],
+      19: ["video", "chat", "in-person"],
+      20: ["video"],
+      21: ["video", "in-person"],
+      24: ["video"],
+      25: ["video", "chat"],
+      27: ["in-person"],
+      28: ["video"],
+      31: ["video"],
+    };
 
-      return {
-        day: cell.dayNumber,
-        dateKey: cell.dateKey,
-        isCurrentMonth: cell.isCurrentMonth,
-        isToday: cell.isToday,
-        isSelected: cell.isSelected,
-        bookedTypes,
-      };
-    });
-  }, [viewYear, viewMonth, selectedDateKey, now, store.sessions, todayDateKey]);
+    for (let d = 1; d <= 31; d++) {
+      days.push({
+        day: d,
+        isCurrentMonth: true,
+        bookedTypes: bookedMap[d] || undefined,
+      });
+    }
 
-  // Selected date sessions for day view and month preview
-  const selectedDateSessions = useMemo(() => {
-    return store.getSessionsForDate(selectedDateKey);
-  }, [store, selectedDateKey]);
+    // Sept 1-6
+    for (let d = 1; d <= 6; d++) {
+      days.push({ day: d, isCurrentMonth: false });
+    }
+
+    return days;
+  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
@@ -297,7 +267,7 @@ export default function MyCalendarScreen() {
             <View style={styles.subHeaderRow}>
               <View style={styles.subHeaderLeft}>
                 <Text style={styles.subHeaderTitle}>
-                  {formatColomboFullDate(selectedDateObj)}
+                  {selectedDay === 19 ? "Tuesday, Aug 19" : `Day ${selectedDay}, Aug 2026`}
                 </Text>
                 <Text style={styles.dotDivider}>•</Text>
                 <Text style={styles.bookingsCountText}>
@@ -305,7 +275,7 @@ export default function MyCalendarScreen() {
                 </Text>
               </View>
               <View style={styles.timezoneBadge}>
-                <Text style={styles.timezoneText}>SLST (UTC+5:30)</Text>
+                <Text style={styles.timezoneText}>UTC-4</Text>
               </View>
             </View>
 
@@ -498,15 +468,14 @@ export default function MyCalendarScreen() {
             <View style={styles.monthCard}>
               <View style={styles.monthHeaderRow}>
                 <View style={styles.monthTitleLeft}>
-                  <Text style={styles.monthHeading}>{selectedMonthText}</Text>
+                  <Text style={styles.monthHeading}>{selectedMonth}</Text>
                   <View style={styles.utcBadge}>
-                    <Text style={styles.utcBadgeText}>SLST (UTC+5:30)</Text>
+                    <Text style={styles.utcBadgeText}>UTC-4</Text>
                   </View>
                 </View>
 
                 <View style={styles.monthChevrons}>
                   <Pressable
-                    onPress={handlePrevMonth}
                     accessibilityRole="button"
                     accessibilityLabel="Previous month"
                     style={styles.monthNavChevron}
@@ -515,7 +484,6 @@ export default function MyCalendarScreen() {
                     <Ionicons name="chevron-back" size={16} color="#64748B" />
                   </Pressable>
                   <Pressable
-                    onPress={handleNextMonth}
                     accessibilityRole="button"
                     accessibilityLabel="Next month"
                     style={styles.monthNavChevron}
@@ -548,7 +516,7 @@ export default function MyCalendarScreen() {
                       accessibilityState={{ selected: isSelected }}
                       accessibilityLabel={
                         item.isCurrentMonth
-                          ? `${selectedMonthText} ${item.day}, ${item.bookedTypes?.length || 0} sessions`
+                          ? `August ${item.day}, ${item.bookedTypes?.length || 0} sessions`
                           : `Adjacent month day ${item.day}`
                       }
                       style={[
@@ -596,10 +564,8 @@ export default function MyCalendarScreen() {
 
               {/* Month Summary Footer */}
               <View style={styles.monthFooterRow}>
-                <Text style={styles.monthScheduledCount}>
-                  {store.sessions.length} Consultations scheduled
-                </Text>
-                <Text style={styles.monthCapacityText}>Live Sync Active</Text>
+                <Text style={styles.monthScheduledCount}>18 Consultations scheduled</Text>
+                <Text style={styles.monthCapacityText}>92% Slot capacity</Text>
               </View>
             </View>
 
@@ -607,17 +573,15 @@ export default function MyCalendarScreen() {
             <Pressable
               onPress={() => setActiveRange("day")}
               accessibilityRole="button"
-              accessibilityLabel={`Open day view for ${formatColomboFullDate(selectedDateObj)}`}
+              accessibilityLabel={`Open day view for Tuesday, Aug ${selectedDay}`}
               style={({ pressed }) => [styles.previewCard, pressed && styles.pressedState]}
             >
               <View style={styles.previewHeaderRow}>
                 <View style={styles.previewHeaderLeft}>
-                  <Text style={styles.previewTitle}>{formatColomboFullDate(selectedDateObj)}</Text>
+                  <Text style={styles.previewTitle}>Tuesday, Aug {selectedDay}</Text>
                   <View style={styles.previewDot} />
                   <View style={styles.previewBadge}>
-                    <Text style={styles.previewBadgeText}>
-                      {selectedDateSessions.length} {selectedDateSessions.length === 1 ? "Booking" : "Bookings"}
-                    </Text>
+                    <Text style={styles.previewBadgeText}>3 Bookings</Text>
                   </View>
                 </View>
 
@@ -629,61 +593,39 @@ export default function MyCalendarScreen() {
 
               {/* Micro Schedule Items */}
               <View style={styles.microItemsContainer}>
-                {selectedDateSessions.length > 0 ? (
-                  selectedDateSessions.slice(0, 3).map((session, sIdx) => {
-                    const isVideo = session.sessionType === "video";
-                    const isChat = session.sessionType === "chat";
-                    return (
-                      <View
-                        key={session.id || sIdx}
-                        style={[styles.microItemRow, isVideo && styles.microItemHighlighted]}
-                      >
-                        <View style={styles.microItemLeft}>
-                          <View
-                            style={
-                              isVideo
-                                ? styles.microSolidCircle
-                                : isChat
-                                ? styles.microHollowCircle
-                                : styles.microSquare
-                            }
-                          />
-                          <Text
-                            style={[
-                              styles.microTimeText,
-                              isVideo && styles.microTimeTextHighlighted,
-                            ]}
-                          >
-                            {session.timeRange || "10:00 - 10:45"}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.microStudentText,
-                              isVideo && styles.microStudentHighlighted,
-                            ]}
-                          >
-                            {session.studentAnonId || session.displayName}
-                          </Text>
-                        </View>
-                        <Text
-                          style={
-                            isVideo
-                              ? styles.microModalityTagHighlighted
-                              : styles.microModalityTag
-                          }
-                        >
-                          {(session.sessionType || "video").toUpperCase()}
-                        </Text>
-                      </View>
-                    );
-                  })
-                ) : (
-                  <View style={styles.microItemRow}>
-                    <Text style={[styles.microStudentText, { fontStyle: "italic" }]}>
-                      No clinical sessions booked on this date.
+                {/* Item 1: Chat */}
+                <View style={styles.microItemRow}>
+                  <View style={styles.microItemLeft}>
+                    <View style={styles.microHollowCircle} />
+                    <Text style={styles.microTimeText}>09:00 - 09:30</Text>
+                    <Text style={styles.microStudentText}>Student #4820</Text>
+                  </View>
+                  <Text style={styles.microModalityTag}>CHAT</Text>
+                </View>
+
+                {/* Item 2: Video (Mint Tinted) */}
+                <View style={[styles.microItemRow, styles.microItemHighlighted]}>
+                  <View style={styles.microItemLeft}>
+                    <View style={styles.microSolidCircle} />
+                    <Text style={[styles.microTimeText, styles.microTimeTextHighlighted]}>
+                      10:00 - 10:45
+                    </Text>
+                    <Text style={[styles.microStudentText, styles.microStudentHighlighted]}>
+                      Student #5104
                     </Text>
                   </View>
-                )}
+                  <Text style={styles.microModalityTagHighlighted}>VIDEO</Text>
+                </View>
+
+                {/* Item 3: In-Person */}
+                <View style={styles.microItemRow}>
+                  <View style={styles.microItemLeft}>
+                    <View style={styles.microSquare} />
+                    <Text style={styles.microTimeText}>11:30 - 12:15</Text>
+                    <Text style={styles.microStudentText}>Student #3991</Text>
+                  </View>
+                  <Text style={styles.microModalityTag}>IN-PERSON</Text>
+                </View>
               </View>
             </Pressable>
           </>

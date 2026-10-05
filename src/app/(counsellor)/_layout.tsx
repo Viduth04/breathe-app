@@ -5,7 +5,6 @@ import {
   CounsellorBadgeProvider,
   useCounsellorBadges,
 } from "@/context/CounsellorBadgeContext";
-import { CounsellorTimeProvider } from "@/context/CounsellorTimeContext";
 import { colors } from "@/theme";
 import { Redirect } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
@@ -70,10 +69,8 @@ export default function CounsellorLayout() {
   if (profile.role !== "counsellor") return <Redirect href="/" />;
 
   return (
-    <CounsellorTimeProvider>
-      <CounsellorBadgeProvider>
-        <CounsellorTabsNavigator />
-      </CounsellorBadgeProvider>
-    </CounsellorTimeProvider>
+    <CounsellorBadgeProvider>
+      <CounsellorTabsNavigator />
+    </CounsellorBadgeProvider>
   );
 }

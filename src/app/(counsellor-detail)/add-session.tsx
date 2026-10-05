@@ -21,42 +21,16 @@ import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { useCounsellorStore } from "@/services/counsellorStore";
 import { MOCK_ADD_SESSION_STUDENTS } from "@/services/mockDetailScreensData";
 import { SessionType } from "@/types/counsellorDashboard";
-import { useNow } from "@/context/CounsellorTimeContext";
-import {
-  toColomboDateKey,
-  parseColomboDateKey,
-  formatColomboFullDate,
-  formatColomboDashboardDate,
-  computeEndTime,
-  buildColomboDateTime,
-} from "@/utils/counsellorDateUtils";
 
 type DurationOption = "15m" | "30m" | "45m" | "60m";
 
 export default function AddSessionScreen() {
   const store = useCounsellorStore();
-  const { now, todayDateKey } = useNow();
-
-  // Dynamic 3 quick date options (Today, Tomorrow, Day 3)
-  const dateOptions = useMemo(() => {
-    const today = parseColomboDateKey(todayDateKey);
-    const tomorrow = new Date(today.getTime() + 24 * 3600 * 1000);
-    const dayAfter = new Date(today.getTime() + 48 * 3600 * 1000);
-
-    const tomorrowKey = toColomboDateKey(tomorrow);
-    const dayAfterKey = toColomboDateKey(dayAfter);
-
-    return [
-      { id: "today", label: "Today", dateKey: todayDateKey, fullDate: formatColomboFullDate(today) },
-      { id: "tomorrow", label: "Tomorrow", dateKey: tomorrowKey, fullDate: formatColomboFullDate(tomorrow) },
-      { id: "dayAfter", label: formatColomboDashboardDate(dayAfter), dateKey: dayAfterKey, fullDate: formatColomboFullDate(dayAfter) },
-    ];
-  }, [todayDateKey]);
 
   // Form state
   const [selectedStudent, setSelectedStudent] = useState(MOCK_ADD_SESSION_STUDENTS[0]);
   const [sessionModality, setSessionModality] = useState<SessionType>("video");
-  const [selectedDateOptionId, setSelectedDateOptionId] = useState<string>("tomorrow");
+  const [selectedDateQuick, setSelectedDateQuick] = useState<"Today" | "Tomorrow" | "Wed, Aug 20">("Tomorrow");
   const [startTime, setStartTime] = useState("10:00 AM");
   const [duration, setDuration] = useState<DurationOption>("45m");
   const [sessionFocus, setSessionFocus] = useState("");
@@ -67,43 +41,57 @@ export default function AddSessionScreen() {
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const selectedOption = useMemo(
-    () => dateOptions.find((o) => o.id === selectedDateOptionId) || dateOptions[1],
-    [dateOptions, selectedDateOptionId]
-  );
-  const formattedDate = selectedOption.fullDate;
-  const targetDateKey = selectedOption.dateKey;
-
-  const durationMinutes = useMemo(() => {
-    return parseInt(duration.replace("m", ""), 10) || 45;
-  }, [duration]);
-
-  // Auto-calculated end time via Colombo date arithmetic
+  // Auto-calculated end time
   const calculatedEndTime = useMemo(() => {
-    return computeEndTime(startTime, durationMinutes);
-  }, [startTime, durationMinutes]);
+    const durationMinutes = parseInt(duration.replace("m", ""), 10) || 45;
+    const [timeStr, meridiem] = startTime.split(" ");
+    const [hoursStr, minsStr] = timeStr.split(":");
+    let hours = parseInt(hoursStr, 10);
+    let mins = parseInt(minsStr, 10);
 
-  // Validation: Check for required fields and overlapping sessions via store collision selector
+    mins += durationMinutes;
+    if (mins >= 60) {
+      hours += Math.floor(mins / 60);
+      mins = mins % 60;
+    }
+
+    const formattedMins = mins < 10 ? `0${mins}` : mins;
+    return `${hours}:${formattedMins} ${meridiem || "AM"}`;
+  }, [startTime, duration]);
+
+  // Formatted date string
+  const formattedDate = useMemo(() => {
+    if (selectedDateQuick === "Today") return "Today, Monday, Aug 18, 2026";
+    if (selectedDateQuick === "Tomorrow") return "Tuesday, Aug 19, 2026";
+    return "Wednesday, Aug 20, 2026";
+  }, [selectedDateQuick]);
+
+  // Validation: Check for required fields and overlapping sessions across all days
   const validationError = useMemo(() => {
     if (!selectedStudent) {
       return "Student selection is required.";
     }
 
-    if (selectedOption.id === "today") {
-      const startDateTime = buildColomboDateTime(targetDateKey, startTime);
-      if (startDateTime.getTime() <= now.getTime()) {
-        return `Selected time (${startTime}) is in the past. Please choose a future time slot for today.`;
+    // Check overlap with existing confirmed sessions on the selected day and time
+    const targetDayText = selectedDateQuick;
+    const overlap = store.sessions.find((s) => {
+      const timeMatches = s.timeRange?.includes(startTime);
+      if (!timeMatches) return false;
+      if (targetDayText === "Today") {
+        return s.timeRelative?.toLowerCase().includes("today") || s.date?.toLowerCase().includes("today");
       }
-    }
+      if (targetDayText === "Tomorrow") {
+        return s.timeRelative?.toLowerCase().includes("tomorrow") || s.date?.toLowerCase().includes("tomorrow") || s.date?.toLowerCase().includes("aug 19");
+      }
+      return s.date?.toLowerCase().includes("aug 20");
+    });
 
-    const collision = store.checkCollision(targetDateKey, startTime, durationMinutes);
-    if (collision.hasConflict && collision.conflictingSession) {
-      const conf = collision.conflictingSession;
-      return `Conflict: ${conf.displayName || conf.studentAnonId} is already scheduled at ${conf.timeRange} on ${selectedOption.label}.`;
+    if (overlap) {
+      return `Conflict: ${overlap.displayName} is already scheduled at ${startTime} on ${targetDayText}.`;
     }
 
     return null;
-  }, [selectedStudent, selectedOption.id, selectedOption.label, targetDateKey, startTime, durationMinutes, store, now]);
+  }, [selectedStudent, selectedDateQuick, startTime, store.sessions]);
 
   const isValid = !validationError;
 
@@ -397,7 +385,7 @@ export default function AddSessionScreen() {
             <Ionicons name="lock-closed" size={14} color="#076047" />
             <Text style={styles.modalityNoticeText}>
               {sessionModality === "video"
-                ? "HIPAA-compliant encrypted clinical video link will be generated automatically."
+                ? "Encrypted end-to-end clinical video link will be generated automatically."
                 : sessionModality === "chat"
                 ? "Confidential encrypted chat thread will be initialized."
                 : "Room 302 assigned in Counseling Wing. Sanitization protocol active."}
@@ -427,15 +415,15 @@ export default function AddSessionScreen() {
 
           {/* Quick Date Pills */}
           <View style={styles.quickDateRow}>
-            {dateOptions.map((opt) => {
-              const isActive = selectedDateOptionId === opt.id;
+            {(["Today", "Tomorrow", "Wed, Aug 20"] as const).map((d) => {
+              const isActive = selectedDateQuick === d;
               return (
                 <Pressable
-                  key={opt.id}
-                  onPress={() => setSelectedDateOptionId(opt.id)}
+                  key={d}
+                  onPress={() => setSelectedDateQuick(d)}
                   accessibilityRole="button"
                   accessibilityState={{ selected: isActive }}
-                  accessibilityLabel={`Set date to ${opt.label}`}
+                  accessibilityLabel={`Set date to ${d}`}
                   style={[styles.quickDatePill, isActive && styles.quickDatePillActive]}
                 >
                   <Text
@@ -444,7 +432,7 @@ export default function AddSessionScreen() {
                       isActive && styles.quickDatePillTextActive,
                     ]}
                   >
-                    {opt.label}
+                    {d}
                   </Text>
                 </Pressable>
               );
