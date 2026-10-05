@@ -13,6 +13,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "@/firebase/config";
+import { useAuth } from "@/context/AuthContext";
 import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
@@ -40,6 +43,7 @@ export default function CounsellorScheduleScreen() {
   }>();
 
   const store = useCounsellorStore();
+  const { user } = useAuth();
 
   // View mode: day, week, month (defaults to 'day' if param specifies day, or 'week')
   const [viewMode, setViewMode] = useState<ViewMode>(
@@ -141,9 +145,33 @@ export default function CounsellorScheduleScreen() {
     showToast("All bookable slots marked as open.");
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+
+    // Run upstream batch saving logic
     store.saveScheduleSlots(slots);
-    showToast("Availability saved. Changes reflected instantly.");
+
+    // Run simple string-based saving logic for the student dashboard display
+
+
+    try {
+      if (user?.uid) {
+        const availableTimes = store.scheduleDaySlots
+          .filter(s => !s.isBooked && !store.heldScheduleSlots[s.id])
+          .map(s => {
+             const m = s.timeRange.match(/^(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
+             return m ? m[1] : s.timeRange;
+          });
+        
+        await updateDoc(doc(db, "counsellors", user.uid), {
+          availableSlots: availableTimes,
+          availableDate: String(store.selectedCalendarDay || 15)
+        });
+      }
+      showToast("Availability saved. Changes reflected instantly.");
+    } catch (e) {
+      console.warn("Failed to save to DB:", e);
+      showToast("Error saving availability.");
+    }
   };
 
   const handleHoldSlot = (slotId: string) => {
