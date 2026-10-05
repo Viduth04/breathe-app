@@ -44,6 +44,14 @@ const byName = (a: UserProfile, b: UserProfile) =>
   Number(a.isGuest) - Number(b.isGuest) ||
   displayName(a).localeCompare(displayName(b));
 
+// Only students have a meaningful anonymous ID (it's what counsellors see).
+// Stored as "Student #4021"; shown with the app's "Anonymous ID" wording.
+const anonLabel = (u: UserProfile) =>
+  u.role === "student" && !isStaffRequest(u) && u.anonId
+    ? `Anonymous ID #${u.anonId.replace(/^Student\s*#?\s*/i, "").replace(/^#/, "")}`
+    : undefined;
+
+
 export default function Users() {
   const { user: me } = useAuth();
   const params = useLocalSearchParams<{ requests?: string }>();
@@ -123,7 +131,7 @@ export default function Users() {
       (u) =>
         (filter === "all" || u.role === filter) &&
         (!term ||
-          [displayName(u), u.email ?? "", u.anonId].some((field) =>
+          [displayName(u), u.email ?? "", anonLabel(u) ?? ""].some((field) =>
             field.toLowerCase().includes(term),
           )),
     );
@@ -194,6 +202,7 @@ export default function Users() {
     // Admin roles (including your own) are only changed in the Firebase console
     const locked = isSelf || item.role === "admin";
     const name = displayName(item);
+    const anon = anonLabel(item);
     const details = (
       <Card style={styles.userCard}>
         <View style={styles.userInfo}>
@@ -207,9 +216,9 @@ export default function Users() {
               Requested {item.requestedRole ?? "staff"} ·{" "}
               {item.approvalStatus === "rejected" ? "rejected" : "waiting for approval"}
             </Text>
-          ) : (
-            <Text style={typography.caption}>{item.anonId}</Text>
-          )}
+          ) : anon ? (
+            <Text style={typography.caption}>{anon}</Text>
+          ) : null}
         </View>
         <View style={styles.userSide}>
           <RoleBadge role={item.role} />
@@ -228,7 +237,7 @@ export default function Users() {
 
     const summary = isStaffRequest(item)
       ? `${name}, requested ${item.requestedRole ?? "staff"}, ${item.approvalStatus}, ${item.email ?? "no email"}`
-      : `${name}, ${item.role}, ${item.email ?? "no email"}, ${item.anonId}`;
+      : `${name}, ${item.role}, ${item.email ?? "no email"}${anon ? `, ${anon}` : ""}`;
     if (locked) {
       return (
         <View accessible accessibilityLabel={isSelf ? `${summary}, you` : summary}>
