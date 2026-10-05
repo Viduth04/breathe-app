@@ -32,7 +32,7 @@ import {
 // and let the student try again (their input stays on screen)
 const SAVE_TIMEOUT_MS = 15000;
 
-function withTimeout<T>(promise: Promise<T>): Promise<T> {
+export function withTimeout<T>(promise: Promise<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject({ code: "unavailable" }), // Same message as Firestore offline

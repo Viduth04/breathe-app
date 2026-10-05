@@ -20,6 +20,14 @@
 //                               present together with requestedRole.
 //                               Approving = admin sets role to requestedRole
 //                               and deletes both fields in one update.
+//   users/{uid}/reminders/{id}  check-in reminders (FR05), owner only.
+//                               doc id "r1".."r5" (max 5 per person)
+//                               EXACTLY these fields
+//                               (type: src/types/reminder.ts):
+//       time                    "HH:mm", 24-hour, e.g. "08:30"
+//       days                    list of 0-6 (0 = Sunday), at least one
+//       enabled                 bool
+//       createdAt, updatedAt    serverTimestamp(); createdAt never changes
 //   checkins/{id}               userId          (student's uid)
 //   bookings/{id}               EXACTLY these fields (type: src/types/booking.ts,
 //                               write only via src/services/bookingService.ts)
@@ -78,9 +86,10 @@
 //                               only via recordAnonymousMoodStat())
 //
 // NOT IN FIRESTORE
-//   Reminders (FR05) are local notifications (expo-notifications); the
-//   counsellor Alerts tab reads pending bookings. There is no
-//   notifications collection, so any write to one is denied.
+//   The reminder NOTIFICATIONS themselves (FR05) are scheduled on the device
+//   (expo-notifications) from users/{uid}/reminders; the counsellor Alerts
+//   tab reads pending bookings. There is no notifications collection, so
+//   any write to one is denied.
 //
 // QUERIES MUST MATCH THE RULES
 //   Rules are not filters: a query is rejected if it COULD return a doc
@@ -199,6 +208,38 @@ service cloud.firestore {
         && (resource.data.isGuest != true || request.resource.data.role == "student");
 
       // Delete My Data removes your own profile only
+      allow delete: if isOwner(uid);
+    }
+
+    // ---------- users/{uid}/reminders ----------
+    // Check-in reminder times (FR05). Owner only - nobody else, admins
+    // included, can read or write them. Doc ids are fixed slots "r1".."r5",
+    // which caps each person at 5 reminders (rules can't count documents).
+    match /users/{uid}/reminders/{reminderId} {
+      function validReminder(d) {
+        return d.keys().hasAll(["time", "days", "enabled", "createdAt", "updatedAt"])
+          && d.keys().hasOnly(["time", "days", "enabled", "createdAt", "updatedAt"])
+          && d.time is string
+          && d.time.matches("^([01][0-9]|2[0-3]):[0-5][0-9]$")
+          && d.days is list
+          && d.days.size() >= 1 && d.days.size() <= 7
+          && d.days.hasOnly([0, 1, 2, 3, 4, 5, 6])
+          && d.enabled is bool
+          && d.updatedAt == request.time;
+      }
+
+      allow read: if isOwner(uid);
+
+      allow create: if isOwner(uid)
+        && reminderId.matches("^r[1-5]$")
+        && validReminder(request.resource.data)
+        && request.resource.data.createdAt == request.time;
+
+      allow update: if isOwner(uid)
+        && validReminder(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
+
+      // Also used by Delete My Data
       allow delete: if isOwner(uid);
     }
 

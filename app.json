@@ -26,6 +26,12 @@
     "plugins": [
       "expo-router",
       [
+        "expo-notifications",
+        {
+          "color": "#076047"
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Breathe uses your photos only when an admin adds a counsellor's profile photo.",

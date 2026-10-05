@@ -12,6 +12,7 @@ import { useAuth } from "@/context/AuthContext";
 import { getAuthErrorMessage } from "@/services/authService";
 import { listMyCheckins, moodByDay } from "@/services/checkinService";
 import { getUpcomingBooking, UpcomingBooking } from "@/services/homeService";
+import { listReminders } from "@/services/reminderService";
 import { listPublishedResources } from "@/services/resourceService";
 import {
   colors,
@@ -82,6 +83,10 @@ export default function Home() {
   const resources = useCardData<Resource[]>(async () =>
     (await listPublishedResources()).slice(0, HOME_RESOURCES),
   );
+  // Only decides whether to offer "Set a reminder"; failing just hides it
+  const reminders = useCardData<number>(async () =>
+    user ? (await listReminders(user.uid)).length : 0,
+  );
 
   // Initial load and every return to Home, so a new check-in or booking shows
   useFocusEffect(
@@ -89,6 +94,7 @@ export default function Home() {
       checkins.load();
       booking.load();
       resources.load();
+      reminders.load();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
   );
@@ -110,6 +116,7 @@ export default function Home() {
   const goToMoodHistory = () => router.navigate("/(student)/mood-history");
   const goToSessions = () => router.navigate("/(student)/session/dashboard");
   const goToExercises = () => router.navigate("/(student)/exercises");
+  const goToReminders = () => router.navigate("/(student)/reminders");
 
   return (
     <Screen>
@@ -172,6 +179,24 @@ export default function Home() {
             </>
           )}
         </CardBody>
+        {reminders.data === 0 && !reminders.error ? (
+          <Pressable
+            onPress={goToReminders}
+            accessibilityRole="link"
+            accessibilityLabel="Set a reminder"
+            accessibilityHint="Choose a time for a gentle daily check-in reminder"
+            style={({ pressed }) => [styles.reminderLink, pressed && styles.pressed]}
+          >
+            <Ionicons
+              name="alarm-outline"
+              size={18}
+              color={colors.primary}
+              accessibilityElementsHidden
+              importantForAccessibility="no"
+            />
+            <Text style={styles.link}>Set a reminder</Text>
+          </Pressable>
+        ) : null}
       </Card>
 
       {/* 3. This week's mood */}
@@ -479,6 +504,15 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, gap: 2 },
   rowTitle: { ...typography.body, fontWeight: "600" },
   link: { fontSize: 14, fontWeight: "600", color: colors.primary },
+  reminderLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    gap: spacing.xs,
+    minHeight: TOUCH_TARGET,
+    paddingHorizontal: spacing.sm,
+    marginTop: spacing.xs,
+  },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",

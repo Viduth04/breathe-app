@@ -2,6 +2,7 @@ import { FloatingHelpButton } from "@/components/crisis/UrgentHelpLink";
 import LoadingScreen from "@/components/navigation/LoadingScreen";
 import { tabIcon, tabScreenOptions } from "@/components/navigation/tabs";
 import { useAuth } from "@/context/AuthContext";
+import { useReminderNotifications } from "@/hooks/useReminderNotifications";
 import { isStaffRequest } from "@/services/authService";
 import { router, Redirect } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
@@ -12,6 +13,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 // Students only: logged-out users go to Welcome, other roles go back to index
 export default function StudentLayout() {
   const { user, profile } = useAuth();
+  // Check-in reminders (FR05): re-sync after login, taps open Check-in
+  const isStudent = !!profile && profile.role === "student" && !isStaffRequest(profile);
+  useReminderNotifications(isStudent ? user?.uid : undefined);
 
   if (!user) return <Redirect href="/(auth)/welcome" />;
   if (!profile) return <LoadingScreen offerLogout />;
@@ -60,6 +64,7 @@ export default function StudentLayout() {
         <Tabs.Screen name="privacy" options={{ href: null }} />
         <Tabs.Screen name="companion" options={{ href: null }} />
         <Tabs.Screen name="mood-history" options={{ href: null }} />
+        <Tabs.Screen name="reminders" options={{ href: null }} />
         <Tabs.Screen name="mood-entry/[id]" options={{ href: null }} />
         <Tabs.Screen name="resource/[id]" options={{ href: null }} />
         
