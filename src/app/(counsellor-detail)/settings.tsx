@@ -102,10 +102,10 @@ export default function CounselorSettingsScreen() {
         setUploadProgress(pct);
       });
 
-      setProfileAvatar(freshUrl);
+      setProfileAvatar?.(freshUrl);
       showToast(POPUP_MESSAGES.toasts.profileSaved, "success");
     } catch (err: any) {
-      console.warn("[settings] Pick image error:", err);
+      console.warn("[settings] Pick image error:", err?.message || err);
       showToast(err?.message || "Could not select photo", "error");
     } finally {
       setIsUploadingAvatar(false);
@@ -126,10 +126,10 @@ export default function CounselorSettingsScreen() {
         setUploadProgress(pct);
       });
 
-      setProfileAvatar(freshUrl);
+      setProfileAvatar?.(freshUrl);
       showToast(POPUP_MESSAGES.toasts.profileSaved, "success");
     } catch (err: any) {
-      console.warn("[settings] Camera photo error:", err);
+      console.warn("[settings] Camera photo error:", err?.message || err);
       showToast(err?.message || "Could not take photo", "error");
     } finally {
       setIsUploadingAvatar(false);
@@ -151,7 +151,7 @@ export default function CounselorSettingsScreen() {
       try {
         const counsellorId = auth.currentUser?.uid || "counselor-anjali";
         await deleteCounsellorAvatar(counsellorId);
-        setProfileAvatar("");
+        setProfileAvatar?.("");
         showToast("Profile picture removed", "info");
       } catch (err: any) {
         showToast("Failed to remove avatar", "error");
@@ -215,7 +215,7 @@ export default function CounselorSettingsScreen() {
       const counsellorId = auth.currentUser?.uid || "counselor-anjali";
 
       // 1. Optimistic store update
-      updateProfile({
+      updateProfile?.({
         fullName: payload.fullName,
         title: payload.title,
         bio: payload.bio,
