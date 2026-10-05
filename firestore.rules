@@ -337,6 +337,21 @@ service cloud.firestore {
         && validOptional(request.resource.data)
         && validSlot(request.resource.data);
 
+      // Counsellor directly schedules an appointment for a student
+      allow create: if isCounsellor()
+        && request.resource.data.keys().hasAll(["studentId", "counsellorId", "studentAnonId",
+             "startAt", "endAt", "sessionType", "status", "createdAt", "updatedAt"])
+        && request.resource.data.counsellorId == request.auth.uid
+        && request.resource.data.status in ["confirmed", "pending"]
+        && request.resource.data.sessionType in ["in-person", "video", "phone", "chat"]
+        && request.resource.data.startAt is timestamp
+        && request.resource.data.endAt is timestamp
+        && request.resource.data.endAt > request.resource.data.startAt
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && validOptional(request.resource.data)
+        && validSlot(request.resource.data);
+
       // The student and the booked counsellor can read it
       allow read: if isOwner(resource.data.studentId)
         || isOwner(resource.data.counsellorId);
@@ -660,6 +675,44 @@ service cloud.firestore {
       allow create, update: if (isOwner(counselorId) && isCounsellor()) || isAdmin();
 
       allow delete: if isOwner(counselorId) || isAdmin();
+    }
+
+    // ---------- sessions ----------
+    // Confirmed / completed sessions for counsellor dashboard and calendar.
+    match /sessions/{sessionId} {
+      allow read: if (isCounsellor() && resource.data.counselorId == request.auth.uid)
+        || isOwner(resource.data.studentId)
+        || isAdmin();
+
+      allow create: if isCounsellor()
+        && request.resource.data.counselorId == request.auth.uid;
+
+      allow update: if isCounsellor()
+        && isOwner(resource.data.counselorId)
+        && request.resource.data.counselorId == resource.data.counselorId;
+
+      allow delete: if (isCounsellor() && isOwner(resource.data.counselorId))
+        || isAdmin();
+    }
+
+    // ---------- requests ----------
+    // Student intake consultation requests awaiting triage.
+    match /requests/{requestId} {
+      allow read: if isSignedIn();
+      allow create: if isStudent();
+      allow update: if (isCounsellor() && (resource.data.counselorId == request.auth.uid || resource.data.counselorId in ["all", "coun_anjali_01"]))
+        || isAdmin();
+      allow delete: if isStudent() || isAdmin();
+    }
+
+    // ---------- notifications ----------
+    // In-app clinical alerts and triage notification logs.
+    match /notifications/{notifId} {
+      allow read: if isOwner(resource.data.recipientId) || isAdmin();
+      allow create: if isSignedIn();
+      allow update: if isOwner(resource.data.recipientId)
+        && changedKeys().hasOnly(["isUnread", "seenAt"]);
+      allow delete: if isOwner(resource.data.recipientId) || isAdmin();
     }
   }
 }

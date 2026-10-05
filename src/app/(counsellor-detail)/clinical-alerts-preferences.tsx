@@ -10,6 +10,7 @@ import {
   ScrollView,
   Switch,
   Alert,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,7 +20,7 @@ import { useCounsellorStore } from "@/services/counsellorStore";
 import { ClinicalAlertPreferences } from "@/types/counsellorDetailScreens";
 
 export default function ClinicalAlertsPreferencesScreen() {
-  const { alertPreferences, updateAlertPreferences } = useCounsellorStore();
+  const { alertPreferences, updateAlertPreferences, profile } = useCounsellorStore();
   const [localPrefs, setLocalPrefs] = useState<ClinicalAlertPreferences>(alertPreferences);
   const [savedFeedback, setSavedFeedback] = useState<string | null>(null);
 
@@ -61,8 +62,13 @@ export default function ClinicalAlertsPreferencesScreen() {
           Clinical Alerts & Preferences
         </Text>
 
-        <View style={styles.avatarCircle}>
-          <Ionicons name="person" size={20} color={colors.white} />
+        <View style={styles.avatarContainer}>
+          <Image
+            source={{ uri: profile.avatarUrl }}
+            style={styles.counselorAvatar}
+            accessibilityLabel="Counselor profile"
+          />
+          <View style={styles.onlineBadge} />
         </View>
       </View>
 
@@ -112,7 +118,7 @@ export default function ClinicalAlertsPreferencesScreen() {
               <Switch
                 value={localPrefs.crisisRiskTriggers}
                 onValueChange={() => toggleField("crisisRiskTriggers")}
-                trackColor={{ false: "#E2E8F0", true: "#065F46" }}
+                trackColor={{ false: "#E2E8F0", true: "#076047" }}
                 thumbColor={colors.white}
                 accessibilityLabel="Crisis and risk triggers toggle"
               />
@@ -132,7 +138,7 @@ export default function ClinicalAlertsPreferencesScreen() {
           <View style={styles.alertCard}>
             <View style={styles.cardMainRow}>
               <View style={styles.mintIconBox}>
-                <Ionicons name="calendar-outline" size={20} color="#065F46" />
+                <Ionicons name="calendar-outline" size={20} color="#076047" />
               </View>
               <View style={styles.cardContent}>
                 <Text style={styles.cardTitle}>New Appointment Requests</Text>
@@ -143,7 +149,7 @@ export default function ClinicalAlertsPreferencesScreen() {
               <Switch
                 value={localPrefs.newAppointmentRequests}
                 onValueChange={() => toggleField("newAppointmentRequests")}
-                trackColor={{ false: "#E2E8F0", true: "#065F46" }}
+                trackColor={{ false: "#E2E8F0", true: "#076047" }}
                 thumbColor={colors.white}
                 accessibilityLabel="New appointment requests toggle"
               />
@@ -159,7 +165,7 @@ export default function ClinicalAlertsPreferencesScreen() {
           <View style={styles.alertCard}>
             <View style={styles.cardMainRow}>
               <View style={styles.mintIconBox}>
-                <Ionicons name="time-outline" size={20} color="#065F46" />
+                <Ionicons name="time-outline" size={20} color="#076047" />
               </View>
               <View style={styles.cardContent}>
                 <Text style={styles.cardTitle}>Upcoming Session Reminders</Text>
@@ -170,7 +176,7 @@ export default function ClinicalAlertsPreferencesScreen() {
               <Switch
                 value={localPrefs.upcomingSessionReminders}
                 onValueChange={() => toggleField("upcomingSessionReminders")}
-                trackColor={{ false: "#E2E8F0", true: "#065F46" }}
+                trackColor={{ false: "#E2E8F0", true: "#076047" }}
                 thumbColor={colors.white}
                 accessibilityLabel="Upcoming session reminders toggle"
               />
@@ -193,7 +199,7 @@ export default function ClinicalAlertsPreferencesScreen() {
           <View style={styles.alertCard}>
             <View style={styles.cardMainRow}>
               <View style={styles.mintIconBox}>
-                <Ionicons name="document-text-outline" size={20} color="#065F46" />
+                <Ionicons name="document-text-outline" size={20} color="#076047" />
               </View>
               <View style={styles.cardContent}>
                 <Text style={styles.cardTitle}>Intake Form Submissions</Text>
@@ -204,7 +210,7 @@ export default function ClinicalAlertsPreferencesScreen() {
               <Switch
                 value={localPrefs.intakeFormSubmissions}
                 onValueChange={() => toggleField("intakeFormSubmissions")}
-                trackColor={{ false: "#E2E8F0", true: "#065F46" }}
+                trackColor={{ false: "#E2E8F0", true: "#076047" }}
                 thumbColor={colors.white}
                 accessibilityLabel="Intake form submissions toggle"
               />
@@ -220,7 +226,7 @@ export default function ClinicalAlertsPreferencesScreen() {
           <View style={styles.alertCard}>
             <View style={styles.cardMainRow}>
               <View style={styles.mintIconBox}>
-                <Ionicons name="chatbubbles-outline" size={20} color="#065F46" />
+                <Ionicons name="chatbubbles-outline" size={20} color="#076047" />
               </View>
               <View style={styles.cardContent}>
                 <Text style={styles.cardTitle}>Secure Chat Messages</Text>
@@ -231,7 +237,7 @@ export default function ClinicalAlertsPreferencesScreen() {
               <Switch
                 value={localPrefs.secureChatMessages}
                 onValueChange={() => toggleField("secureChatMessages")}
-                trackColor={{ false: "#E2E8F0", true: "#065F46" }}
+                trackColor={{ false: "#E2E8F0", true: "#076047" }}
                 thumbColor={colors.white}
                 accessibilityLabel="Secure chat messages toggle"
               />
@@ -254,7 +260,7 @@ export default function ClinicalAlertsPreferencesScreen() {
           <View style={styles.alertCard}>
             <View style={styles.cardMainRow}>
               <View style={styles.mintIconBox}>
-                <Ionicons name="moon-outline" size={20} color="#065F46" />
+                <Ionicons name="moon-outline" size={20} color="#076047" />
               </View>
               <View style={styles.cardContent}>
                 <Text style={styles.cardTitle}>Quiet Hours / Duty Off</Text>
@@ -265,7 +271,7 @@ export default function ClinicalAlertsPreferencesScreen() {
               <Switch
                 value={localPrefs.quietHoursDutyOff}
                 onValueChange={() => toggleField("quietHoursDutyOff")}
-                trackColor={{ false: "#E2E8F0", true: "#065F46" }}
+                trackColor={{ false: "#E2E8F0", true: "#076047" }}
                 thumbColor={colors.white}
                 accessibilityLabel="Quiet hours duty off toggle"
               />
@@ -280,16 +286,16 @@ export default function ClinicalAlertsPreferencesScreen() {
 
         {/* Institutional Compliance Notice */}
         <View style={styles.complianceNoticeCard}>
-          <Ionicons name="shield-checkmark" size={16} color="#065F46" style={{ marginTop: 1 }} />
+          <Ionicons name="shield-checkmark" size={16} color="#076047" style={{ marginTop: 1 }} />
           <Text style={styles.complianceNoticeText}>
-            <Text style={styles.complianceNoticeBold}>MindEase Clinical Portal</Text> adheres strictly to institutional compliance. Emergency escalations bypass quiet hours.
+            <Text style={styles.complianceNoticeBold}>Breathe Clinical Portal</Text> adheres strictly to institutional compliance. Emergency escalations bypass quiet hours.
           </Text>
         </View>
 
         {/* Action Footer Area */}
         <View style={styles.footerArea}>
           <View style={styles.autosaveRow}>
-            <Ionicons name="checkmark-circle" size={14} color="#065F46" />
+            <Ionicons name="checkmark-circle" size={14} color="#076047" />
             <Text style={styles.autosaveText}>Changes saved automatically</Text>
           </View>
 
@@ -311,7 +317,7 @@ export default function ClinicalAlertsPreferencesScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#FFF8E7",
+    backgroundColor: "#FFF9EC",
   },
   header: {
     paddingHorizontal: spacing.md,
@@ -330,23 +336,33 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 17,
     fontWeight: "700",
-    color: "#064E3B",
+    color: "#1B2B24",
     textAlign: "center",
     flex: 1,
     marginHorizontal: 8,
   },
-  avatarCircle: {
-    width: TOUCH_TARGET,
-    height: TOUCH_TARGET,
-    borderRadius: TOUCH_TARGET / 2,
-    backgroundColor: "#065F46",
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+  avatarContainer: {
+    position: "relative",
+    width: 36,
+    height: 36,
+  },
+  counselorAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: "rgba(7, 96, 71, 0.2)",
+  },
+  onlineBadge: {
+    position: "absolute",
+    bottom: -1,
+    right: -1,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#076047",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
   },
   scrollContent: {
     paddingHorizontal: spacing.md,
@@ -367,7 +383,7 @@ const styles = StyleSheet.create({
   toastText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#065F46",
+    color: "#076047",
   },
   overviewCard: {
     backgroundColor: "rgba(255, 255, 255, 0.9)",
@@ -493,9 +509,9 @@ const styles = StyleSheet.create({
     color: "#334155",
   },
   alwaysOnBadge: {
-    backgroundColor: "#FFF8E7",
+    backgroundColor: "#FFF9EC",
     borderWidth: 1,
-    borderColor: "rgba(6, 78, 59, 0.2)",
+    borderColor: "rgba(7, 96, 71, 0.2)",
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
@@ -503,7 +519,7 @@ const styles = StyleSheet.create({
   alwaysOnText: {
     fontSize: 10.5,
     fontWeight: "700",
-    color: "#064E3B",
+    color: "#076047",
   },
   gentleAlertBadge: {
     backgroundColor: "rgba(167, 243, 208, 0.5)",
@@ -514,7 +530,7 @@ const styles = StyleSheet.create({
   gentleAlertText: {
     fontSize: 10.5,
     fontWeight: "700",
-    color: "#064E3B",
+    color: "#076047",
   },
   bluePrivacyStrip: {
     backgroundColor: "rgba(239, 246, 255, 0.8)",
@@ -542,7 +558,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFDF7",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(6, 78, 59, 0.15)",
+    borderColor: "rgba(7, 96, 71, 0.15)",
     padding: 12,
     flexDirection: "row",
     gap: 10,
@@ -557,7 +573,7 @@ const styles = StyleSheet.create({
   },
   complianceNoticeBold: {
     fontWeight: "700",
-    color: "#064E3B",
+    color: "#076047",
   },
   footerArea: {
     paddingVertical: spacing.sm,
@@ -572,17 +588,17 @@ const styles = StyleSheet.create({
   autosaveText: {
     fontSize: 12,
     fontWeight: "500",
-    color: "#064E3B",
+    color: "#076047",
   },
   saveBtn: {
-    backgroundColor: "#065F46",
+    backgroundColor: "#076047",
     height: 48,
     borderRadius: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    shadowColor: "#065F46",
+    shadowColor: "#076047",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,

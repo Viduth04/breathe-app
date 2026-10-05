@@ -1,7 +1,7 @@
 // Counsellor Ready to Join (Pre-call Lobby) - Muaath (Member 4). Supports FR07, NFR01, NFR02.
 // Encrypted video consultation staging room with hardware toggles and connection telemetry.
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -15,6 +15,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { useCounsellorStore } from "@/services/counsellorStore";
+import { useNow } from "@/context/CounsellorTimeContext";
+import { computeSessionRelativeTiming } from "@/utils/counsellorDateUtils";
 import {
   initLobbySession,
   runTelehealthDiagnostics,
@@ -30,6 +32,7 @@ export default function ReadyToJoinScreen() {
   }>();
 
   const { callMediaState, toggleMic, toggleCam } = useCounsellorStore();
+  const { now, todayDateKey } = useNow();
 
   const studentAnonId = params.studentAnonId || "Student #4021";
   const sessionTitle = params.sessionTitle || "Encrypted Video Consultation";
@@ -37,6 +40,14 @@ export default function ReadyToJoinScreen() {
   const duration = params.duration || "45 min session";
 
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
+
+  // Live session timing
+  const sessionTiming = useMemo(() => {
+    const times = timeRange.split("–");
+    const sStart = times[0]?.trim() || "02:00 PM";
+    const sEnd = times[1]?.trim() || "02:45 PM";
+    return computeSessionRelativeTiming(todayDateKey, sStart, sEnd, now);
+  }, [todayDateKey, timeRange, now]);
 
   useEffect(() => {
     const roomId = `mnd-${studentAnonId.replace(/[^0-9]/g, "") || "4021"}-sec`;
@@ -177,7 +188,7 @@ export default function ReadyToJoinScreen() {
         <View style={styles.statusGridRow}>
           <View style={styles.statusPillBox}>
             <Ionicons name="lock-closed-outline" size={15} color="#475569" />
-            <Text style={styles.statusPillText}>End-to-end encrypted</Text>
+            <Text style={styles.statusPillText}>HIPAA · TLS Encrypted</Text>
           </View>
 
           <View style={styles.statusPillBox}>
@@ -242,17 +253,36 @@ export default function ReadyToJoinScreen() {
         </View>
 
         {/* Spacer */}
-        <View style={{ flex: 1, minHeight: 32 }} />
+        <View style={{ flex: 1, minHeight: 24 }} />
+
+        {/* ─── Live Timing / Join Window Chip ─── */}
+        <View style={styles.liveTimingChip}>
+          <Ionicons
+            name={sessionTiming.isJoinable ? "radio-button-on" : "time-outline"}
+            size={14}
+            color={sessionTiming.isJoinable ? "#059669" : "#64748B"}
+          />
+          <Text
+            style={[
+              styles.liveTimingText,
+              sessionTiming.isJoinable && styles.liveTimingTextActive,
+            ]}
+          >
+            {sessionTiming.label}
+          </Text>
+        </View>
 
         {/* ─── Join Now CTA ─── */}
         <Pressable
-          style={styles.joinNowBtn}
+          style={[styles.joinNowBtn, !sessionTiming.isJoinable && styles.joinNowBtnEarly]}
           onPress={handleJoinCall}
           accessibilityRole="button"
           accessibilityLabel="Join Now"
         >
           <Ionicons name="call" size={18} color={colors.white} />
-          <Text style={styles.joinNowBtnText}>Join Now</Text>
+          <Text style={styles.joinNowBtnText}>
+            {sessionTiming.isJoinable ? "Join Now" : "Enter Room Early"}
+          </Text>
         </Pressable>
 
         {/* ─── Diagnostics Link ─── */}
@@ -275,7 +305,7 @@ export default function ReadyToJoinScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#FFF8E7",
+    backgroundColor: "#FFF9EC",
   },
   header: {
     flexDirection: "row",
@@ -571,6 +601,29 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: "#059669",
   },
+  liveTimingChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    alignSelf: "center",
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  liveTimingText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#64748B",
+  },
+  liveTimingTextActive: {
+    color: "#059669",
+    fontWeight: "700",
+  },
   joinNowBtn: {
     backgroundColor: "#064E3B",
     borderRadius: 14,
@@ -580,6 +633,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 10,
     marginBottom: spacing.xs,
+  },
+  joinNowBtnEarly: {
+    backgroundColor: "#065F46",
+    opacity: 0.9,
   },
   joinNowBtnText: {
     fontSize: 16,

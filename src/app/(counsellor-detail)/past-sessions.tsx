@@ -1,7 +1,7 @@
 // Counsellor Past Sessions History Screen - Muaath (Member 4). Supports FR01, FR08.
 // Completed and logged clinical session history matching high-fidelity design.
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -23,12 +23,20 @@ import {
   PastSessionItem,
   PastSessionsStats,
 } from "@/types/counsellorDetailScreens";
+import { useCounsellorStore } from "@/services/counsellorStore";
+import { useNow } from "@/context/CounsellorTimeContext";
+import { formatColomboMonthYear } from "@/utils/counsellorDateUtils";
 
 export default function PastSessionsHistoryScreen() {
   const params = useLocalSearchParams<{
     studentAnonId?: string;
     displayName?: string;
   }>();
+
+  const store = useCounsellorStore();
+  const { now } = useNow();
+
+  const currentMonthLabel = useMemo(() => formatColomboMonthYear(now), [now]);
 
   const [sessions, setSessions] = useState<PastSessionItem[]>(MOCK_PAST_SESSIONS);
   const [stats, setStats] = useState<PastSessionsStats>(MOCK_PAST_SESSIONS_STATS);
@@ -65,8 +73,33 @@ export default function PastSessionsHistoryScreen() {
     });
   };
 
+  // Combine mock past sessions with any completed sessions from store.sessions
+  const allPastSessions = useMemo(() => {
+    const storeCompleted: PastSessionItem[] = store.sessions
+      .filter((s) => s.status === "completed")
+      .map((s) => ({
+        id: s.id,
+        studentId: s.studentId || "std-anon",
+        studentAnonId: s.studentAnonId || "Student #4021",
+        displayName: s.displayName || s.studentAnonId || "Student #4021",
+        idMode: (s.idMode as any) || "anonymous",
+        sessionType: (s.sessionType as any) || "video",
+        sessionTypeLabel: s.sessionTypeLabel || "Encrypted Video Consultation",
+        duration: "45 min",
+        date: s.date || "Today",
+        time: s.timeRange?.split("–")[0]?.trim() || "09:00 AM",
+        concern: s.noteText || "Clinical consultation",
+        status: "completed" as const,
+        monthGroup: currentMonthLabel,
+        privateNotes: s.noteText || "Notes recorded and sealed.",
+      }));
+
+    const existingIds = new Set(sessions.map((s) => s.id));
+    return [...storeCompleted.filter((s) => !existingIds.has(s.id)), ...sessions];
+  }, [store.sessions, sessions, currentMonthLabel]);
+
   // Filter sessions
-  const filteredSessions = sessions.filter((s) => {
+  const filteredSessions = allPastSessions.filter((s) => {
     if (activeStudentFilter) {
       const match =
         s.studentAnonId.toLowerCase() === activeStudentFilter.toLowerCase() ||
@@ -81,8 +114,12 @@ export default function PastSessionsHistoryScreen() {
   });
 
   // Group by month
-  const augustSessions = filteredSessions.filter((s) => s.monthGroup === "August 2026");
-  const julySessions = filteredSessions.filter((s) => s.monthGroup === "July 2026");
+  const currentMonthSessions = filteredSessions.filter(
+    (s) => s.monthGroup === currentMonthLabel || s.monthGroup === "August 2026"
+  );
+  const earlierMonthSessions = filteredSessions.filter(
+    (s) => s.monthGroup !== currentMonthLabel && s.monthGroup !== "August 2026"
+  );
 
   const renderSessionCard = (item: PastSessionItem) => {
     const isExpanded = expandedId === item.id;
@@ -425,35 +462,35 @@ export default function PastSessionsHistoryScreen() {
           </Pressable>
         </ScrollView>
 
-        {/* ─── August 2026 Section ─── */}
-        {augustSessions.length > 0 && (
+        {/* ─── Current Month Section ─── */}
+        {currentMonthSessions.length > 0 && (
           <View style={styles.monthSection}>
             <View style={styles.monthHeaderRow}>
               <View style={styles.monthDotRow}>
                 <View style={styles.greenSectionDot} />
-                <Text style={styles.monthSectionTitle}>August 2026</Text>
+                <Text style={styles.monthSectionTitle}>{currentMonthLabel}</Text>
               </View>
               <Text style={styles.sessionCountText}>
-                {augustSessions.length} Sessions
+                {currentMonthSessions.length} Sessions
               </Text>
             </View>
-            {augustSessions.map(renderSessionCard)}
+            {currentMonthSessions.map(renderSessionCard)}
           </View>
         )}
 
-        {/* ─── July 2026 Section ─── */}
-        {julySessions.length > 0 && (
+        {/* ─── Earlier Months Section ─── */}
+        {earlierMonthSessions.length > 0 && (
           <View style={styles.monthSection}>
             <View style={styles.monthHeaderRow}>
               <View style={styles.monthDotRow}>
                 <View style={styles.greenSectionDot} />
-                <Text style={styles.monthSectionTitle}>July 2026</Text>
+                <Text style={styles.monthSectionTitle}>Previous History</Text>
               </View>
               <Text style={styles.sessionCountText}>
-                {julySessions.length} Sessions
+                {earlierMonthSessions.length} Sessions
               </Text>
             </View>
-            {julySessions.map(renderSessionCard)}
+            {earlierMonthSessions.map(renderSessionCard)}
           </View>
         )}
 

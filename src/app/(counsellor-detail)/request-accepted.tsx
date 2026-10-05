@@ -1,7 +1,7 @@
 // Counsellor Request Accepted Screen - Muaath (Member 4). Supports FR01, FR08.
 // Success state screen showing confirmed booking summary, E2EE status, and next clinical steps.
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -17,17 +17,21 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, TOUCH_TARGET } from "@/theme";
 import { useCounsellorStore } from "@/services/counsellorStore";
+import { useNow } from "@/context/CounsellorTimeContext";
+import { formatColomboFullDate, parseColomboDateKey } from "@/utils/counsellorDateUtils";
 
 export default function RequestAcceptedScreen() {
   const { lastAcceptedSession } = useCounsellorStore();
+  const { now, todayDateKey } = useNow();
   const [prepModalVisible, setPrepModalVisible] = useState(false);
   const [prepNote, setPrepNote] = useState("");
   const [prepSavedToast, setPrepSavedToast] = useState(false);
 
   const studentAnonId = lastAcceptedSession?.studentAnonId || "Student #5104";
+  const tomorrow = useMemo(() => new Date(parseColomboDateKey(todayDateKey).getTime() + 24 * 3600 * 1000), [todayDateKey]);
   const dateText = lastAcceptedSession?.date
     ? `${lastAcceptedSession.date} • ${lastAcceptedSession.timeRange}`
-    : "Tomorrow, Tue 19 Aug • 10:00–10:45 AM";
+    : `Tomorrow, ${formatColomboFullDate(tomorrow)} • 10:00–10:45 AM`;
 
   const handleMessageStudent = () => {
     router.navigate({
@@ -144,7 +148,7 @@ export default function RequestAcceptedScreen() {
                     <Text style={styles.detailPrimaryVal}>Encrypted Video Call (45m)</Text>
                     <View style={styles.e2eeBadge}>
                       <Ionicons name="lock-closed" size={9} color="#4B5563" />
-                      <Text style={styles.e2eeBadgeText}>E2EE</Text>
+                      <Text style={styles.e2eeBadgeText}>TLS</Text>
                     </View>
                   </View>
                   <Text style={styles.detailSubtext}>Direct room link activates 5m prior</Text>

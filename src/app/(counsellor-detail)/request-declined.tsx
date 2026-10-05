@@ -139,7 +139,7 @@ export default function RequestDeclinedScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#FFF8E7",
+    backgroundColor: "#FFF9EC",
   },
   scrollContent: {
     flexGrow: 1,

@@ -1,0 +1,29 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "status": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['state', 'role']) && newData.child('state').isString() && (newData.child('state').val() === 'online' || newData.child('state').val() === 'away' || newData.child('state').val() === 'in-session' || newData.child('state').val() === 'offline')"
+      }
+    },
+    "typing": {
+      "$chatId": {
+        ".read": "auth != null",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['isTyping']) && newData.child('isTyping').isBoolean()"
+        }
+      }
+    },
+    "calls": {
+      "$callId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".validate": "newData.hasChild('status') ? (newData.child('status').val() === 'waiting' || newData.child('status').val() === 'active' || newData.child('status').val() === 'ended') : true"
+      }
+    }
+  }
+}

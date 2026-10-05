@@ -256,7 +256,7 @@ export default function DeclineRequestScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#FFF8E7",
+    backgroundColor: "#FFF9EC",
   },
   header: {
     flexDirection: "row",

@@ -1,7 +1,7 @@
 // Counsellor Confirm Acceptance Popup - Muaath (Member 4). Supports FR01, FR08.
 // Accessible modal dialog summarizing anonymous session details before committing acceptance.
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -16,17 +16,23 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, TOUCH_TARGET } from "@/theme";
 import { useCounsellorStore } from "@/services/counsellorStore";
+import { useNow } from "@/context/CounsellorTimeContext";
+import { formatColomboFullDate, parseColomboDateKey } from "@/utils/counsellorDateUtils";
 
 export default function ConfirmAcceptanceModal() {
   const params = useLocalSearchParams<{ requestId?: string; studentAnonId?: string }>();
   const { confirmAcceptance, requests } = useCounsellorStore();
+  const { now, todayDateKey } = useNow();
 
   const targetReq =
     requests.find((r) => r.id === params.requestId || r.studentAnonId === params.studentAnonId) ||
     requests[0];
 
   const studentAnonId = targetReq?.studentAnonId || "Student #5104";
-  const requestedDate = "Tomorrow, Tue 19 Aug • 10:00–10:45 AM";
+  const tomorrow = useMemo(() => new Date(parseColomboDateKey(todayDateKey).getTime() + 24 * 3600 * 1000), [todayDateKey]);
+  const requestedDate = targetReq?.requestedTime
+    ? targetReq.requestedTime
+    : `Tomorrow, ${formatColomboFullDate(tomorrow)} • 10:00–10:45 AM`;
   const sessionFormat = "Video Consultation (45 min)";
 
   const [note, setNote] = useState("");

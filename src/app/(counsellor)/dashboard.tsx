@@ -20,10 +20,11 @@ import {
   SessionItem,
 } from "@/types/counsellorDashboard";
 import { useCounsellorBadges } from "@/context/CounsellorBadgeContext";
+import { useNow } from "@/context/CounsellorTimeContext";
 import { useCounsellorStore } from "@/services/counsellorStore";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -37,18 +38,32 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function CounsellorDashboard() {
   const { alertsUnread } = useCounsellorBadges();
+  const { now, formattedTodayHeader } = useNow();
   const params = useLocalSearchParams<{
     reviewStudentId?: string;
     sessionCompleted?: string;
   }>();
 
+  const store = useCounsellorStore();
   const {
     requests,
     sessions,
     isAvailable,
     profile,
     toggleAvailability,
-  } = useCounsellorStore();
+  } = store;
+
+  const todaySessions = useMemo(() => {
+    return store.getTodaySessions ? store.getTodaySessions(now) : sessions;
+  }, [store, sessions, now]);
+
+  const nextSession = useMemo(() => {
+    return store.getNextSession ? store.getNextSession(now) : null;
+  }, [store, todaySessions, now]);
+
+  const clinicalTimeMinutes = useMemo(() => {
+    return store.getClinicalTimeTodayMinutes ? store.getClinicalTimeTodayMinutes(now) : 45 * todaySessions.length;
+  }, [store, todaySessions, now]);
 
   const [activeFilter, setActiveFilter] = useState<TimeFilter>("Day");
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -271,7 +286,7 @@ export default function CounsellorDashboard() {
           >
             <StatCard
               title="Sessions"
-              value={sessions.length}
+              value={todaySessions.length}
               subtitle="Scheduled today"
               iconName="calendar-outline"
               iconColor="#0369A1"
@@ -317,11 +332,11 @@ export default function CounsellorDashboard() {
         {/* Today's Sessions Section */}
         <SectionHeader
           title="Today's Sessions"
-          subtitle="Mon, 18 Aug"
-          badgeText={`${sessions.length} scheduled`}
+          subtitle={formattedTodayHeader}
+          badgeText={`${todaySessions.length} scheduled`}
         />
 
-        {sessions.length === 0 ? (
+        {todaySessions.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons
               name="calendar-clear-outline"
@@ -333,7 +348,7 @@ export default function CounsellorDashboard() {
             <Text style={styles.emptyText}>No sessions scheduled for today</Text>
           </View>
         ) : (
-          sessions.map((session) => (
+          todaySessions.map((session) => (
             <SessionCard
               key={session.id}
               session={session}

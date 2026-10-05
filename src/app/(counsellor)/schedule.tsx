@@ -32,6 +32,16 @@ import {
   ScheduleDaySlot,
   useCounsellorStore,
 } from "@/services/counsellorStore";
+import { useNow } from "@/context/CounsellorTimeContext";
+import {
+  generateWeekStrip,
+  generateMonthGrid,
+  formatColomboFullDate,
+  formatColomboMonthYear,
+  formatColomboDashboardDate,
+  toColomboDateKey,
+  parseColomboDateKey,
+} from "@/utils/counsellorDateUtils";
 
 export default function CounsellorScheduleScreen() {
   const params = useLocalSearchParams<{
@@ -40,6 +50,14 @@ export default function CounsellorScheduleScreen() {
   }>();
 
   const store = useCounsellorStore();
+  const { now, todayDateKey, formattedTodayHeader } = useNow();
+
+  // Dynamic Week strip anchored to Colombo time
+  const weekDays = useMemo(() => generateWeekStrip(now), [now]);
+  const todayWeekIndex = useMemo(() => {
+    const idx = weekDays.findIndex((d) => d.isToday);
+    return idx >= 0 ? idx : 0;
+  }, [weekDays]);
 
   // View mode: day, week, month (defaults to 'day' if param specifies day, or 'week')
   const [viewMode, setViewMode] = useState<ViewMode>(
@@ -47,10 +65,18 @@ export default function CounsellorScheduleScreen() {
   );
 
   // Selected day for Week view
-  const [selectedDayWeek, setSelectedDayWeek] = useState<number>(0);
+  const [selectedDayWeek, setSelectedDayWeek] = useState<number>(todayWeekIndex);
+
+  const selectedDateKey = weekDays[selectedDayWeek]?.dateKey || store.selectedDateKey || todayDateKey;
+  const selectedDateObj = useMemo(() => parseColomboDateKey(selectedDateKey), [selectedDateKey]);
+
+  const weekRangeLabel = useMemo(() => {
+    if (weekDays.length === 0) return "This Week";
+    return `${weekDays[0].dayName} ${weekDays[0].dayNumber} – ${weekDays[6].dayName} ${weekDays[6].dayNumber}`;
+  }, [weekDays]);
 
   // Selected calendar day (shared with store: default 19 for Tuesday, Aug 19)
-  const selectedCalendarDay = store.selectedCalendarDay || 19;
+  const selectedCalendarDay = store.selectedCalendarDay || parseInt(selectedDateKey.split("-")[2], 10) || 19;
 
   // Week slots & preferences
   const [slots, setSlots] = useState<TimeSlot[]>(MOCK_TIME_SLOTS);
@@ -363,7 +389,7 @@ export default function CounsellorScheduleScreen() {
             {/* Day Header Subtitle */}
             <View style={styles.daySubtitleRow}>
               <Text style={styles.dayDateTitle}>
-                Tuesday, Aug {selectedCalendarDay}
+                {formatColomboFullDate(selectedDateObj)}
               </Text>
               <Text style={styles.dayStatsSub}>
                 3.5 hrs booked • 4 Sessions
@@ -756,7 +782,7 @@ export default function CounsellorScheduleScreen() {
                 <Pressable
                   style={styles.navArrowBtn}
                   onPress={() => {
-                    if (selectedDayWeek < MOCK_WEEK_DAYS.length - 1)
+                    if (selectedDayWeek < weekDays.length - 1)
                       setSelectedDayWeek(selectedDayWeek + 1);
                   }}
                   accessibilityRole="button"
@@ -766,10 +792,10 @@ export default function CounsellorScheduleScreen() {
                   <Ionicons name="chevron-forward" size={18} color={colors.text} />
                 </Pressable>
               </View>
-              <Text style={styles.dateNavText}>{MOCK_WEEK_RANGE.label}</Text>
+              <Text style={styles.dateNavText}>{weekRangeLabel}</Text>
               <Pressable
                 style={styles.todayBtn}
-                onPress={() => setSelectedDayWeek(0)}
+                onPress={() => setSelectedDayWeek(todayWeekIndex)}
                 accessibilityRole="button"
                 accessibilityLabel="Go to today"
                 hitSlop={8}
@@ -841,18 +867,21 @@ export default function CounsellorScheduleScreen() {
                 </Text>
               </View>
               <View style={styles.dayStrip}>
-                {MOCK_WEEK_DAYS.map((day, idx) => {
+                {weekDays.map((day, idx) => {
                   const isActive = idx === selectedDayWeek;
                   return (
                     <Pressable
-                      key={day.dayShort}
+                      key={day.dateKey}
                       style={[
                         styles.dayItem,
                         isActive && styles.dayItemActive,
                       ]}
-                      onPress={() => setSelectedDayWeek(idx)}
+                      onPress={() => {
+                        setSelectedDayWeek(idx);
+                        store.setSelectedDateKey(day.dateKey);
+                      }}
                       accessibilityRole="button"
-                      accessibilityLabel={`Select ${day.dayShort}, Aug ${day.dateNum}`}
+                      accessibilityLabel={`Select ${day.dayName}, ${day.dayNumber}`}
                     >
                       <Text
                         style={[
@@ -860,7 +889,7 @@ export default function CounsellorScheduleScreen() {
                           isActive && styles.dayItemTextActive,
                         ]}
                       >
-                        {day.dayShort}
+                        {day.dayName}
                       </Text>
                       <Text
                         style={[
@@ -868,7 +897,7 @@ export default function CounsellorScheduleScreen() {
                           isActive && styles.dayItemTextActive,
                         ]}
                       >
-                        {day.dateNum}
+                        {day.dayNumber}
                       </Text>
                       <View
                         style={[
@@ -876,7 +905,9 @@ export default function CounsellorScheduleScreen() {
                           {
                             backgroundColor: isActive
                               ? "#A7F3D0"
-                              : getDayDotColor(day.dotColor),
+                              : day.isToday
+                              ? "#10B981"
+                              : "#CBD5E1",
                           },
                         ]}
                       />
@@ -890,8 +921,7 @@ export default function CounsellorScheduleScreen() {
             <View style={styles.activeDayHeader}>
               <View>
                 <Text style={styles.activeDayTitle}>
-                  {currentWeekDay.dayShort === "Mon" ? "Monday" : currentWeekDay.dayShort},{" "}
-                  Aug {currentWeekDay.dateNum}
+                  {formatColomboFullDate(selectedDateObj)}
                 </Text>
                 <Text style={styles.activeDayStatsRow}>
                   <Text style={styles.statAvailable}>{availableCount} available</Text>

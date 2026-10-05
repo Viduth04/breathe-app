@@ -36,6 +36,16 @@ import {
 } from "@/services/mockDetailScreensData";
 import { MOCK_CHAT_THREADS } from "@/services/mockMessagesData";
 import {
+  getColomboNow,
+  getColomboTodayKey,
+  toColomboDateKey,
+  computeSessionRelativeTiming,
+  hasTimeConflict,
+  computeEndTime,
+  parseTimeParts,
+  RelativeSessionTiming,
+} from "@/utils/counsellorDateUtils";
+import {
   auth,
   db,
   rtdb,
@@ -56,6 +66,7 @@ import {
   getDocs,
   serverTimestamp,
   writeBatch,
+  Timestamp,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -127,7 +138,7 @@ export const INITIAL_CALENDAR_BOOKINGS: CalendarBooking[] = [
     timeRange: "10:00 - 10:45",
     modality: "video",
     modalityLabel: "Consultation (45m)",
-    securityTag: "E2E Encrypted",
+    securityTag: "TLS Encrypted",
     roomOrDetail: "mnd-5104-sec",
     roomId: "mnd-5104-sec",
     isJustAdded: true,
@@ -296,128 +307,136 @@ type State = {
   checkedInSessions: Record<string, boolean>;
   selectedCalendarDay: number;
   selectedCalendarMonth: string;
+  selectedDateKey?: string;
+  selectedViewMode?: "day" | "week" | "month";
   scheduleDaySlots: ScheduleDaySlot[];
   heldScheduleSlots: Record<string, boolean>;
 };
 
-let state: State = {
-  requests: [...MOCK_PENDING_REQUESTS],
-  sessions: [...MOCK_SESSIONS_TODAY],
-  calendarBookings: [...INITIAL_CALENDAR_BOOKINGS],
-  alerts: [...MOCK_ALERTS_TODAY, ...MOCK_ALERTS_EARLIER],
-  alertsUnread: 3,
-  messagesUnread: 3,
-  isAvailable: true,
-  profile: { ...MOCK_COUNSELLOR_PROFILE },
-  settings: {
-    email: "anjali.p@mindease.edu",
-    phoneNumber: "+94 77 123 4567",
-    passwordUpdatedAgo: "Updated 30d ago",
-    credentials: "PhD, MSc Clinical Psych",
-    specialties: ["Anxiety & Stress", "Academic Burnout", "CBT", "Crisis Triage"],
-    bio: "10+ yrs student clinic...",
-    defaultDuration: "45m",
-    workingHours: "Mon–Fri (09:00 – 17:00)",
-    twoFactorEnabled: true,
-    quietHoursEnabled: false,
-    notificationsEnabled: true,
-    licenseNumber: "License #SL-PSY-4820",
-  },
-  lastAcceptedSession: null,
-  lastDeclinedSession: null,
-  callMediaState: {
-    micOn: true,
-    camOn: true,
-  },
-  alertPreferences: { ...DEFAULT_CLINICAL_ALERT_PREFERENCES },
-  patients: [...MOCK_PATIENTS_LIST],
-  threads: [...MOCK_CHAT_THREADS],
-  anonymousSession8812: { ...MOCK_ANONYMOUS_SESSION_8812 },
-  sessionNotes: {
-    "std-maya": { ...MOCK_SESSION_NOTES_MAYA },
-    "Student #3189": { ...MOCK_SESSION_NOTES_MAYA },
-    "Maya Senanayake": { ...MOCK_SESSION_NOTES_MAYA },
-    "session-2": { ...MOCK_SESSION_NOTES_MAYA },
-    "Student #8812": {
-      studentId: "std-8812",
-      studentAnonId: "Student #8812",
-      displayName: "Student #8812",
-      idMode: "anonymous",
-      sessionType: "in-person",
-      sessionTypeLabel: "In-Person Consultation",
-      timeRelative: "In 5h 15m",
-      timeRange: "02:30 PM – 03:15 PM",
-      duration: "45 min",
-      caseRef: "#ME-8812",
-      sessionOrdinal: "Single Intake",
-      followUpPriority: "Somatic Grounding & Exam Prep",
-      followUpAction:
-        "Evaluate routine balance from previous intake note. Practice somatic 4-7-8 breathing exercises.",
-      topics: [
-        { icon: "🎓", name: "Academic Pressure" },
-        { icon: "👥", name: "Social Connection" },
-        { icon: "🧘", name: "Grounding Routine" },
-      ],
-      notes: [
-        {
-          id: "note-8812-1",
-          date: "Aug 15, 2026 • Intake",
-          modality: "In-Person",
-          status: "Completed",
-          content:
-            "Initial intake completed. Elevated tension regarding presentation schedules. High receptivity to breathing practices.",
-          counselorName: "Dr. Anjali Perera",
-          signedStatus: "Signed & Synced",
-        },
-      ],
+function createInitialState(): State {
+  return {
+    requests: [...MOCK_PENDING_REQUESTS],
+    sessions: [...MOCK_SESSIONS_TODAY],
+    calendarBookings: [...INITIAL_CALENDAR_BOOKINGS],
+    alerts: [...MOCK_ALERTS_TODAY, ...MOCK_ALERTS_EARLIER],
+    alertsUnread: 3,
+    messagesUnread: 3,
+    isAvailable: true,
+    profile: { ...MOCK_COUNSELLOR_PROFILE },
+    settings: {
+      email: "anjali.p@mindease.edu",
+      phoneNumber: "+94 77 123 4567",
+      passwordUpdatedAgo: "Updated 30d ago",
+      credentials: "PhD, MSc Clinical Psych",
+      specialties: ["Anxiety & Stress", "Academic Burnout", "CBT", "Crisis Triage"],
+      bio: "10+ yrs student clinic...",
+      defaultDuration: "45m",
+      workingHours: "Mon–Fri (09:00 – 17:00)",
+      twoFactorEnabled: true,
+      quietHoursEnabled: false,
+      notificationsEnabled: true,
+      licenseNumber: "License #SL-PSY-4820",
     },
-    "session-3": {
-      studentId: "std-8812",
-      studentAnonId: "Student #8812",
-      displayName: "Student #8812",
-      idMode: "anonymous",
-      sessionType: "in-person",
-      sessionTypeLabel: "In-Person Consultation",
-      timeRelative: "In 5h 15m",
-      timeRange: "02:30 PM – 03:15 PM",
-      duration: "45 min",
-      caseRef: "#ME-8812",
-      sessionOrdinal: "Single Intake",
-      followUpPriority: "Somatic Grounding & Exam Prep",
-      followUpAction:
-        "Evaluate routine balance from previous intake note. Practice somatic 4-7-8 breathing exercises.",
-      topics: [
-        { icon: "🎓", name: "Academic Pressure" },
-        { icon: "👥", name: "Social Connection" },
-        { icon: "🧘", name: "Grounding Routine" },
-      ],
-      notes: [
-        {
-          id: "note-8812-1",
-          date: "Aug 15, 2026 • Intake",
-          modality: "In-Person",
-          status: "Completed",
-          content:
-            "Initial intake completed. Elevated tension regarding presentation schedules. High receptivity to breathing practices.",
-          counselorName: "Dr. Anjali Perera",
-          signedStatus: "Signed & Synced",
-        },
-      ],
+    lastAcceptedSession: null,
+    lastDeclinedSession: null,
+    callMediaState: {
+      micOn: true,
+      camOn: true,
     },
-  },
-  prepNotes: {
-    "session-3": MOCK_ANONYMOUS_SESSION_8812.prepNotes,
-    "Student #8812": MOCK_ANONYMOUS_SESSION_8812.prepNotes,
-  },
-  checkedInSessions: {
-    "session-3": false,
-    "Student #8812": false,
-  },
-  selectedCalendarDay: 19,
-  selectedCalendarMonth: "August 2026",
-  scheduleDaySlots: [...INITIAL_SCHEDULE_DAY_SLOTS],
-  heldScheduleSlots: {},
-};
+    alertPreferences: { ...DEFAULT_CLINICAL_ALERT_PREFERENCES },
+    patients: [...MOCK_PATIENTS_LIST],
+    threads: [...MOCK_CHAT_THREADS],
+    anonymousSession8812: { ...MOCK_ANONYMOUS_SESSION_8812 },
+    sessionNotes: {
+      "std-maya": { ...MOCK_SESSION_NOTES_MAYA },
+      "Student #3189": { ...MOCK_SESSION_NOTES_MAYA },
+      "Maya Senanayake": { ...MOCK_SESSION_NOTES_MAYA },
+      "session-2": { ...MOCK_SESSION_NOTES_MAYA },
+      "Student #8812": {
+        studentId: "std-8812",
+        studentAnonId: "Student #8812",
+        displayName: "Student #8812",
+        idMode: "anonymous",
+        sessionType: "in-person",
+        sessionTypeLabel: "In-Person Consultation",
+        timeRelative: "In 5h 15m",
+        timeRange: "02:30 PM – 03:15 PM",
+        duration: "45 min",
+        caseRef: "#ME-8812",
+        sessionOrdinal: "Single Intake",
+        followUpPriority: "Somatic Grounding & Exam Prep",
+        followUpAction:
+          "Evaluate routine balance from previous intake note. Practice somatic 4-7-8 breathing exercises.",
+        topics: [
+          { icon: "🎓", name: "Academic Pressure" },
+          { icon: "👥", name: "Social Connection" },
+          { icon: "🧘", name: "Grounding Routine" },
+        ],
+        notes: [
+          {
+            id: "note-8812-1",
+            date: "Aug 15, 2026 • Intake",
+            modality: "In-Person",
+            status: "Completed",
+            content:
+              "Initial intake completed. Elevated tension regarding presentation schedules. High receptivity to breathing practices.",
+            counselorName: "Dr. Anjali Perera",
+            signedStatus: "Signed & Synced",
+          },
+        ],
+      },
+      "session-3": {
+        studentId: "std-8812",
+        studentAnonId: "Student #8812",
+        displayName: "Student #8812",
+        idMode: "anonymous",
+        sessionType: "in-person",
+        sessionTypeLabel: "In-Person Consultation",
+        timeRelative: "In 5h 15m",
+        timeRange: "02:30 PM – 03:15 PM",
+        duration: "45 min",
+        caseRef: "#ME-8812",
+        sessionOrdinal: "Single Intake",
+        followUpPriority: "Somatic Grounding & Exam Prep",
+        followUpAction:
+          "Evaluate routine balance from previous intake note. Practice somatic 4-7-8 breathing exercises.",
+        topics: [
+          { icon: "🎓", name: "Academic Pressure" },
+          { icon: "👥", name: "Social Connection" },
+          { icon: "🧘", name: "Grounding Routine" },
+        ],
+        notes: [
+          {
+            id: "note-8812-1",
+            date: "Aug 15, 2026 • Intake",
+            modality: "In-Person",
+            status: "Completed",
+            content:
+              "Initial intake completed. Elevated tension regarding presentation schedules. High receptivity to breathing practices.",
+            counselorName: "Dr. Anjali Perera",
+            signedStatus: "Signed & Synced",
+          },
+        ],
+      },
+    },
+    prepNotes: {
+      "session-3": MOCK_ANONYMOUS_SESSION_8812.prepNotes,
+      "Student #8812": MOCK_ANONYMOUS_SESSION_8812.prepNotes,
+    },
+    checkedInSessions: {
+      "session-3": false,
+      "Student #8812": false,
+    },
+    selectedDateKey: getColomboTodayKey(),
+    selectedViewMode: "day" as "day" | "week" | "month",
+    selectedCalendarDay: parseInt(getColomboTodayKey().split("-")[2], 10),
+    selectedCalendarMonth: "August 2026",
+    scheduleDaySlots: [...INITIAL_SCHEDULE_DAY_SLOTS],
+    heldScheduleSlots: {},
+  };
+}
+
+let state: State = createInitialState();
 
 const listeners = new Set<() => void>();
 
@@ -721,6 +740,112 @@ export const counsellorStore = {
     return state;
   },
 
+  // ─── Live Calendar & Date Selectors ───
+  setSelectedDateKey(dateKey: string) {
+    const dayNum = parseInt(dateKey.split("-")[2], 10) || 1;
+    state = {
+      ...state,
+      selectedDateKey: dateKey,
+      selectedCalendarDay: dayNum,
+    };
+    notifyListeners();
+  },
+
+  setSelectedViewMode(viewMode: "day" | "week" | "month") {
+    state = {
+      ...state,
+      selectedViewMode: viewMode,
+    };
+    notifyListeners();
+  },
+
+  jumpToToday() {
+    const todayKey = getColomboTodayKey();
+    const dayNum = parseInt(todayKey.split("-")[2], 10) || 1;
+    state = {
+      ...state,
+      selectedDateKey: todayKey,
+      selectedCalendarDay: dayNum,
+    };
+    notifyListeners();
+  },
+
+  getTodaySessions(now: Date = getColomboNow()): SessionItem[] {
+    const todayKey = getColomboTodayKey();
+    return state.sessions.filter((s) => {
+      if (!s.date) {
+        return s.timeRelative?.toLowerCase().includes("today");
+      }
+      return toColomboDateKey(s.date) === todayKey || s.timeRelative?.toLowerCase().includes("today");
+    });
+  },
+
+  getSessionsForDate(dateKey: string): SessionItem[] {
+    return state.sessions.filter((s) => {
+      if (s.date && toColomboDateKey(s.date) === dateKey) return true;
+      if (dateKey === getColomboTodayKey() && s.timeRelative?.toLowerCase().includes("today")) return true;
+      return false;
+    });
+  },
+
+  getNextSession(now: Date = getColomboNow()): (SessionItem & { timing?: RelativeSessionTiming }) | null {
+    const todaySessions = this.getTodaySessions(now);
+    const uncompleted = todaySessions.filter((s) => s.status !== "completed");
+    if (uncompleted.length === 0) return null;
+
+    const sorted = [...uncompleted].sort((a, b) => {
+      const aParts = parseTimeParts(a.timeRange?.split("–")[0] || "09:00 AM");
+      const bParts = parseTimeParts(b.timeRange?.split("–")[0] || "09:00 AM");
+      return (aParts.hours * 60 + aParts.minutes) - (bParts.hours * 60 + bParts.minutes);
+    });
+
+    const next = sorted[0];
+    const times = next.timeRange?.split("–") || ["09:00 AM", "09:45 AM"];
+    const timing = computeSessionRelativeTiming(
+      getColomboTodayKey(),
+      times[0]?.trim() || "09:00 AM",
+      times[1]?.trim() || "09:45 AM",
+      now
+    );
+
+    return {
+      ...next,
+      timing,
+    };
+  },
+
+  getClinicalTimeTodayMinutes(now: Date = getColomboNow()): number {
+    const todaySessions = this.getTodaySessions(now);
+    return todaySessions.reduce((sum, s) => {
+      const times = s.timeRange?.split("–") || [];
+      if (times.length === 2) {
+        const p1 = parseTimeParts(times[0]);
+        const p2 = parseTimeParts(times[1]);
+        const dur = (p2.hours * 60 + p2.minutes) - (p1.hours * 60 + p1.minutes);
+        return sum + (dur > 0 ? dur : 45);
+      }
+      return sum + 45;
+    }, 0);
+  },
+
+  checkCollision(targetDateKey: string, startTime: string, durationMinutes: number = 45): { hasConflict: boolean; conflictingSession?: SessionItem } {
+    const endTime = computeEndTime(startTime, durationMinutes);
+    const daySessions = this.getSessionsForDate(targetDateKey);
+
+    for (const session of daySessions) {
+      if (session.status === "completed") continue;
+      const times = session.timeRange?.split("–") || [];
+      if (times.length === 2) {
+        const sStart = times[0].trim();
+        const sEnd = times[1].trim();
+        if (hasTimeConflict(startTime, endTime, sStart, sEnd)) {
+          return { hasConflict: true, conflictingSession: session };
+        }
+      }
+    }
+    return { hasConflict: false };
+  },
+
   // Confirm request acceptance (e.g. Student #5104)
   confirmAcceptance(requestId: string, counselorNote?: string): AcceptedSessionPayload {
     const targetReq = state.requests.find((r) => r.id === requestId) || state.requests[0];
@@ -763,7 +888,7 @@ export const counsellorStore = {
       timeRange: "10:00 - 10:45",
       modality: targetReq.sessionType || "video",
       modalityLabel: "Consultation (45m)",
-      securityTag: "E2E Encrypted",
+      securityTag: "TLS Encrypted",
       roomOrDetail: "Room ID: mnd-5104-sec",
       roomId: "mnd-5104-sec",
       isJustAdded: true,
@@ -875,7 +1000,7 @@ export const counsellorStore = {
             date: "Tomorrow, Tue 19 Aug",
             status: "confirmed",
             roomId: "brth-5104-sec",
-            securityTag: "E2E Encrypted",
+            securityTag: "TLS Encrypted",
             noteText: counselorNote || targetReq.topic,
             createdAt: serverTimestamp(),
           });
@@ -1361,17 +1486,25 @@ export const counsellorStore = {
 
           // 2. Also write to root bookings collection (aligned with Member 1 rules)
           try {
+            const now = new Date();
+            const startAtDate = new Date(now.getTime() + 60 * 60 * 1000);
+            const endAtDate = new Date(startAtDate.getTime() + 45 * 60 * 1000);
+
             await addDoc(collection(db, FIRESTORE_COLLECTIONS.BOOKINGS), {
               counsellorId: uid,
-              studentId: input.studentId,
-              studentAnonId: input.studentAnonId,
-              sessionType: input.sessionType,
+              studentId: input.studentId || "std-5104",
+              studentAnonId: input.studentAnonId || "Student #5104",
+              startAt: Timestamp.fromDate(startAtDate),
+              endAt: Timestamp.fromDate(endAtDate),
+              sessionType: input.sessionType || "video",
               status: "confirmed",
               notes: input.focus?.trim() || "General Consultation",
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             });
-          } catch (_) {}
+          } catch (bErr) {
+            console.warn("[counsellorStore] Bookings collection dual-write warning:", bErr);
+          }
 
           // 3. Write in-app notification
           await addDoc(collection(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS), {
@@ -1695,6 +1828,12 @@ export const counsellorStore = {
     }
   },
 
+  resetStore() {
+    cleanupFirebaseSync();
+    state = createInitialState();
+    notifyListeners();
+  },
+
   initFirebaseSync,
   cleanupFirebaseSync,
 };
@@ -1748,6 +1887,16 @@ export function useCounsellorStore() {
     sendChatMessage: counsellorStore.sendChatMessage,
     saveScheduleSlots: counsellorStore.saveScheduleSlots,
 
+    // Live Calendar Selectors & Actions
+    setSelectedDateKey: counsellorStore.setSelectedDateKey,
+    setSelectedViewMode: counsellorStore.setSelectedViewMode,
+    jumpToToday: counsellorStore.jumpToToday,
+    getTodaySessions: counsellorStore.getTodaySessions,
+    getSessionsForDate: counsellorStore.getSessionsForDate,
+    getNextSession: counsellorStore.getNextSession,
+    getClinicalTimeTodayMinutes: counsellorStore.getClinicalTimeTodayMinutes,
+    checkCollision: counsellorStore.checkCollision,
+
     // RTDB Real-time signaling
     setTypingIndicator,
     subscribeToTypingIndicators,
@@ -1755,5 +1904,10 @@ export function useCounsellorStore() {
     updateCallMedia,
     subscribeToCallSignaling,
     endCallSignaling,
+
+    // Store Reset
+    resetStore: counsellorStore.resetStore,
   };
 }
+
+export const resetCounsellorStore = counsellorStore.resetStore;
