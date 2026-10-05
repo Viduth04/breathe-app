@@ -28,7 +28,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const today = () =>
-  new Date().toLocaleDateString(undefined, {
+  new Date().toLocaleDateString('en-LK', { timeZone: 'Asia/Colombo',
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -294,7 +294,7 @@ export default function Dashboard() {
             ) : (
               stats.recentSignUps.map((user) => {
                 const joined = user.createdAt
-                  ? user.createdAt.toDate().toLocaleDateString()
+                  ? user.createdAt.toDate().toLocaleDateString('en-LK', { timeZone: 'Asia/Colombo' })
                   : "Date unknown";
                 return (
                   <Card key={user.uid} style={styles.userRow}>

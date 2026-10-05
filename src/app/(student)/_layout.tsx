@@ -61,6 +61,7 @@ export default function StudentLayout() {
           }}
         />
         {/* Reachable from Profile, but not shown in the tab bar */}
+        <Tabs.Screen name="notifications" options={{ href: null, tabBarStyle: { display: "none" } }} />
         <Tabs.Screen name="privacy" options={{ href: null }} />
         <Tabs.Screen name="companion" options={{ href: null }} />
         <Tabs.Screen name="mood-history" options={{ href: null }} />
@@ -77,8 +78,7 @@ export default function StudentLayout() {
         <Tabs.Screen name="session/details" options={{ href: null, tabBarStyle: { display: "none" } }} />
         <Tabs.Screen name="session/cancel" options={{ href: null, tabBarStyle: { display: "none" } }} />
       </Tabs>
-      {/* Crisis support is one tap away on every student screen (F9 / R9) */}
-      <FloatingHelpButton />
+      {/* Crisis support removed to prevent overlap */}
       <FloatingCompanionButton />
     </View>
   );
