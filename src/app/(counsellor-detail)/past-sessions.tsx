@@ -8,7 +8,6 @@ import {
   ScrollView,
   Pressable,
   StyleSheet,
-  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -23,6 +22,7 @@ import {
   PastSessionItem,
   PastSessionsStats,
 } from "@/types/counsellorDetailScreens";
+import { usePopup } from "@/components/common/popup";
 
 export default function PastSessionsHistoryScreen() {
   const params = useLocalSearchParams<{
@@ -30,6 +30,7 @@ export default function PastSessionsHistoryScreen() {
     displayName?: string;
   }>();
 
+  const { alert, showToast } = usePopup();
   const [sessions, setSessions] = useState<PastSessionItem[]>(MOCK_PAST_SESSIONS);
   const [stats, setStats] = useState<PastSessionsStats>(MOCK_PAST_SESSIONS_STATS);
   const [activeFilter, setActiveFilter] = useState<PastSessionFilter>("all");
@@ -289,7 +290,7 @@ export default function PastSessionsHistoryScreen() {
 
           <Pressable
             style={styles.searchIconButton}
-            onPress={() => Alert.alert("Search Records", "Search by student ID, clinical topic, or date")}
+            onPress={() => alert("Search Records", "Search by student ID, clinical topic, or date")}
             accessibilityLabel="Search sessions"
           >
             <Ionicons name="search" size={17} color={colors.textSecondary} />
@@ -297,7 +298,7 @@ export default function PastSessionsHistoryScreen() {
 
           <Pressable
             style={styles.filterButton}
-            onPress={() => Alert.alert("Filter", "Filter by semester, modality, or counselor notes status")}
+            onPress={() => alert("Filter Records", "Filter by semester, modality, or counselor notes status")}
             accessibilityLabel="Filter sessions"
           >
             <Ionicons name="options-outline" size={15} color={colors.text} />
@@ -419,7 +420,7 @@ export default function PastSessionsHistoryScreen() {
 
           <Pressable
             style={styles.filterPill}
-            onPress={() => Alert.alert("No-Show", "0 no-shows recorded in past 6 months.")}
+            onPress={() => alert("No-Show Records", "0 unexcused no-shows recorded in the past 6 months.")}
           >
             <Text style={styles.filterPillText}>No-show 1</Text>
           </Pressable>

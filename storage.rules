@@ -1,0 +1,20 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Counsellor profile avatars
+    match /counsellors/{counsellorId}/{fileName} {
+      // Anyone authenticated can view counsellor avatars (e.g. students browsing, dashboard)
+      allow read: if request.auth != null;
+
+      // The counsellor can upload their own avatar: max 5MB, valid image format
+      allow write: if request.auth != null
+        && request.auth.uid == counsellorId
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+
+      // The counsellor can delete their own avatar
+      allow delete: if request.auth != null
+        && request.auth.uid == counsellorId;
+    }
+  }
+}

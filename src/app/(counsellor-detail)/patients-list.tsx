@@ -9,7 +9,6 @@ import {
   Pressable,
   ScrollView,
   TextInput,
-  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,11 +16,13 @@ import { router } from "expo-router";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { useCounsellorStore } from "@/services/counsellorStore";
 import { PatientItem } from "@/types/counsellorDetailScreens";
+import { usePopup } from "@/components/common/popup";
 
 type FilterTab = "all" | "active" | "anonymous" | "past";
 
 export default function PatientsListScreen() {
   const { patients } = useCounsellorStore();
+  const { alert } = usePopup();
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"recent" | "name">("recent");
@@ -167,7 +168,7 @@ export default function PatientsListScreen() {
           />
           <Pressable
             onPress={() =>
-              Alert.alert(
+              alert(
                 "Filter Options",
                 "Filter by: Active Sessions, Inactive Caseload, Triage Level, or Academic Faculty."
               )
