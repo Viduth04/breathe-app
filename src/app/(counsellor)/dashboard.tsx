@@ -99,19 +99,12 @@ export default function CounsellorDashboard() {
     });
   };
 
-  // View request details in full detail screen or accessible modal
+  // View request details in full detail screen
   const handleViewRequest = (request: BookingRequestItem) => {
-    if (request.studentAnonId === "Student #5104" || request.id === "req-1") {
-      router.navigate("/(counsellor-detail)/request-detail");
-    } else {
-      setActiveModalData({
-        title: `Booking Request: ${request.displayName}`,
-        description: `Mode: ${request.sessionType.toUpperCase()} • Duration: ${request.duration} • Scheduled: ${request.requestedTime}`,
-        details: request.aiMoodBrief
-          ? `Focus Area: ${request.topic}\n\nAI Mood Brief (Supportive Summary):\n${request.aiMoodBrief}`
-          : `Focus Area: ${request.topic}`,
-      });
-    }
+    router.navigate({
+      pathname: "/(counsellor-detail)/request-detail",
+      params: { requestId: request.id, studentAnonId: request.studentAnonId },
+    });
   };
 
   // Action button pressed on a session card: navigate to Confirmed Session for Student #4021

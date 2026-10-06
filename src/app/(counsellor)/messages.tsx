@@ -15,7 +15,6 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import React, { useEffect, useState } from "react";
-import CounsellorChatWrapper from "@/components/chat/CounsellorChatWrapper";
 import { useCounsellorStore } from "@/services/counsellorStore";
 import { useAuth } from "@/context/AuthContext";
 import { query, where, collection, onSnapshot, Timestamp } from "firebase/firestore";
@@ -782,9 +781,194 @@ export default function CounsellorMessagesScreen() {
   // INLINE CHAT DETAIL VIEW
   // ==========================================
   const renderChatDetailView = () => (
-    <View style={styles.chatDetailContainer}>
-      <CounsellorChatWrapper activeThread={activeThread} onBack={() => setActiveChatId(null)} />
-    </View>
+    <KeyboardAvoidingView
+      style={styles.chatDetailContainer}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      {/* 1. Sticky Chat Header */}
+      <View style={styles.chatHeader}>
+        <Pressable
+          style={styles.chatBackBtn}
+          onPress={() => setActiveChatId(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Back to messages list"
+          hitSlop={8}
+        >
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
+        </Pressable>
+
+        <View style={styles.chatHeaderCenter}>
+          <Text style={styles.chatHeaderTitle} numberOfLines={1}>
+            {activeThread?.displayName || "Student Consultation"}{" "}
+            {activeThread?.idMode === "standard" && (
+              <Text style={styles.threadAnonSub}>({activeThread.studentAnonId})</Text>
+            )}
+          </Text>
+          <View style={styles.chatHeaderSubRow}>
+            <View
+              style={[
+                styles.chatHeaderStatusDot,
+                { backgroundColor: activeThread?.isOnline ? "#10B981" : "#94A3B8" },
+              ]}
+            />
+            <Text style={styles.chatHeaderSubtitle}>
+              {activeThread?.isOnline ? "Active now" : "Offline"} · Confidential
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.chatHeaderActions}>
+          <Pressable
+            style={styles.chatHeaderIconBtn}
+            onPress={() => setCaseNotesModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="View case notes"
+            hitSlop={6}
+          >
+            <Ionicons name="document-text-outline" size={18} color={colors.primary} />
+          </Pressable>
+          <Pressable
+            style={styles.chatHeaderIconBtn}
+            onPress={() => router.navigate("/(counsellor-detail)/my-calendar")}
+            accessibilityRole="button"
+            accessibilityLabel="View calendar schedule"
+            hitSlop={6}
+          >
+            <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+          </Pressable>
+        </View>
+      </View>
+
+      {/* 2. Next Consultation Amber Banner */}
+      <View style={styles.consultationBanner}>
+        <Ionicons name="time-outline" size={16} color="#B45309" />
+        <Text style={styles.consultationText}>
+          Next consultation: Tomorrow at 10:00 AM · Intake Review
+        </Text>
+        <Pressable
+          onPress={() => router.navigate("/(counsellor-detail)/anonymous-session-details")}
+          accessibilityRole="button"
+          accessibilityLabel="View student file"
+        >
+          <Text style={styles.consultationLink}>View File</Text>
+        </Pressable>
+      </View>
+
+      {/* 3. Message Stream */}
+      <ScrollView
+        style={styles.chatStream}
+        contentContainerStyle={styles.chatStreamContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {messages.map((bubble) => {
+          const isCounsellor = bubble.senderRole === "counsellor";
+
+          if (bubble.isSystemCard) {
+            return (
+              <View key={bubble.id} style={styles.systemModuleCard}>
+                <View style={styles.systemCardHeader}>
+                  <Ionicons name="fitness-outline" size={16} color={colors.primary} />
+                  <Text style={styles.systemCardLabel}>Prescribed Coping Module</Text>
+                  <View style={styles.ehrBadge}>
+                    <Text style={styles.ehrBadgeText}>EHR ATTACHED</Text>
+                  </View>
+                </View>
+                <Text style={styles.systemCardTitle}>{bubble.systemCardTitle}</Text>
+                <Text style={styles.systemCardSubtitle}>
+                  {bubble.systemCardSubtitle}
+                </Text>
+              </View>
+            );
+          }
+
+          return (
+            <View
+              key={bubble.id}
+              style={[
+                styles.bubbleRow,
+                isCounsellor ? styles.bubbleRowRight : styles.bubbleRowLeft,
+              ]}
+            >
+              {!isCounsellor && (
+                <View style={styles.studentBubbleAvatar}>
+                  <Ionicons name="person" size={14} color="#64748B" />
+                </View>
+              )}
+              <View
+                style={[
+                  styles.bubble,
+                  isCounsellor ? styles.bubbleCounsellor : styles.bubbleStudent,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.bubbleText,
+                    isCounsellor
+                      ? styles.bubbleTextCounsellor
+                      : styles.bubbleTextStudent,
+                  ]}
+                >
+                  {bubble.text}
+                </Text>
+                <View style={styles.bubbleMetaRow}>
+                  <Text
+                    style={[
+                      styles.bubbleTime,
+                      isCounsellor
+                        ? styles.bubbleTimeCounsellor
+                        : styles.bubbleTimeStudent,
+                    ]}
+                  >
+                    {bubble.timestamp}
+                  </Text>
+                  {isCounsellor && (
+                    <Ionicons
+                      name="checkmark-done"
+                      size={14}
+                      color="rgba(255, 255, 255, 0.85)"
+                      style={{ marginLeft: 4 }}
+                    />
+                  )}
+                </View>
+              </View>
+            </View>
+          );
+        })}
+      </ScrollView>
+
+      {/* 4. Chat Input Bar */}
+      <View style={styles.inputBar}>
+        <Pressable
+          style={styles.attachBtn}
+          onPress={() => setCaseNotesModalVisible(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Attach case reference"
+        >
+          <Ionicons name="attach" size={20} color={colors.primary} />
+        </Pressable>
+
+        <View style={styles.textInputBox}>
+          <TextInput
+            style={styles.textInput}
+            placeholder="Type confidential message..."
+            placeholderTextColor={colors.textSecondary}
+            value={chatInput}
+            onChangeText={setChatInput}
+            multiline
+          />
+        </View>
+
+        <Pressable
+          style={[styles.sendBtn, !chatInput.trim() && styles.sendBtnDisabled]}
+          onPress={handleSend}
+          disabled={!chatInput.trim()}
+          accessibilityRole="button"
+          accessibilityLabel="Send message"
+        >
+          <Ionicons name="arrow-up" size={18} color={colors.white} />
+        </Pressable>
+      </View>
+    </KeyboardAvoidingView>
   );
 
   return (
