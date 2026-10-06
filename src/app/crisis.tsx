@@ -10,7 +10,7 @@ import Card from "@/components/common/Card";
 import Screen from "@/components/common/Screen";
 import BreathingGuide from "@/components/crisis/BreathingGuide";
 import CallButton from "@/components/crisis/CallButton";
-import { EMERGENCY, HELPLINES } from "@/constants/helplines";
+import { EMERGENCY, HELPLINES, HELPLINES_CHECKED_ON } from "@/constants/helplines";
 import { useAuth } from "@/context/AuthContext";
 import { colors, radius, spacing, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
@@ -84,6 +84,9 @@ export default function Crisis() {
           <CallButton helpline={line} />
         </Card>
       ))}
+      <Text style={[typography.caption, styles.checkedOn]}>
+        Numbers checked on {HELPLINES_CHECKED_ON}.
+      </Text>
 
       {/* Campus counsellor */}
       <Card>
@@ -125,6 +128,7 @@ const styles = StyleSheet.create({
   lineTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   lineName: { ...typography.body, fontWeight: "600", flexShrink: 1 },
   lineDescription: { marginTop: spacing.xs, marginBottom: spacing.md },
+  checkedOn: { color: colors.textSecondary, textAlign: "center", marginBottom: spacing.md },
   badge: {
     backgroundColor: colors.selected,
     borderRadius: radius.full,

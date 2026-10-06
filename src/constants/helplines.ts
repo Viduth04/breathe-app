@@ -1,8 +1,12 @@
 // Crisis Support - Viduth (Member 1). Fixes Milestone 02 F9 / R9. Supports NFR01.
 //
 // Every phone number the app shows lives here so it's easy to update.
-// Checked against findahelpline.com (Sri Lanka) on 2026-09-29.
-// Re-check all of them before each release.
+// All checked against official sources on HELPLINES_CHECKED_ON (Sumithrayo:
+// srilankasumithrayo.lk). Re-check all of them before each release and update
+// HELPLINES_CHECKED_ON, which the Crisis Support screen shows.
+// Only 1926 and 1333 are confirmed 24/7.
+
+export const HELPLINES_CHECKED_ON = "5 October 2026";
 
 export type Helpline = {
   id: string;
@@ -31,9 +35,7 @@ export const EMERGENCY: Helpline[] = [
   },
 ];
 
-// TODO: verify on findahelpline.com before submission
-// (listed there as +94 707 308 308 on 2026-09-29)
-export const SUMITHRAYO_NUMBER = "+94 707 308 308";
+export const SUMITHRAYO_NUMBER = "0707 308 308";
 
 export const HELPLINES: Helpline[] = [
   {
@@ -64,6 +66,7 @@ export const HELPLINES: Helpline[] = [
     number: SUMITHRAYO_NUMBER,
     dial: SUMITHRAYO_NUMBER.replace(/[^\d+]/g, ""),
     name: "Sri Lanka Sumithrayo",
-    description: "Confidential emotional support from trained volunteers.",
+    description:
+      "Confidential emotional support from trained volunteers. Centres open about 9am to 4pm. WhatsApp 0767 520 620.",
   },
 ];
