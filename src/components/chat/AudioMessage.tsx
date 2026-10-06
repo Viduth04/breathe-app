@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { View, Pressable, Text, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
+// Safe dynamic fallback for Expo Go where ExponentAV native binary is absent
+let Audio: any = null;
+try {
+  Audio = require('expo-av')?.Audio;
+} catch (_) {}
 import { colors } from '@/theme';
 
 const AudioMessage = ({ audioUri, isSent = true }: { audioUri: string, isSent?: boolean }) => {
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [sound, setSound] = useState<any | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -23,6 +27,7 @@ const AudioMessage = ({ audioUri, isSent = true }: { audioUri: string, isSent?: 
     
     const prefetchDuration = async () => {
       try {
+        if (!Audio?.Sound) return;
         if (Platform.OS === 'web') {
           const webAudio = new window.Audio(audioUri);
           webAudio.addEventListener('loadedmetadata', () => {
@@ -41,7 +46,7 @@ const AudioMessage = ({ audioUri, isSent = true }: { audioUri: string, isSent?: 
         }
         if (isMounted) {
           setSound(tempSound);
-          tempSound.setOnPlaybackStatusUpdate((stat) => {
+          tempSound.setOnPlaybackStatusUpdate((stat: any) => {
             if (stat.isLoaded) {
               setPosition(stat.positionMillis);
               if (stat.durationMillis) setDuration(stat.durationMillis);

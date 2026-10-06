@@ -17,8 +17,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system/legacy";
-import { Audio } from "expo-av";
+// Safe dynamic fallback for Expo Go where ExponentAV native binary is absent
+let Audio: any = null;
+try {
+  Audio = require("expo-av")?.Audio;
+} catch (_) {}
 import EmojiPicker from "rn-emoji-keyboard";
 
 import { colors, radius, spacing, typography } from "@/theme";
@@ -92,7 +95,7 @@ export default function ChatUI({
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [recording, setRecording] = useState<any | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [meterings, setMeterings] = useState<number[]>([]);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -142,6 +145,10 @@ export default function ChatUI({
   };
 
   const startRecording = async () => {
+    if (!Audio?.requestPermissionsAsync) {
+      Alert.alert("Voice Notes", "Audio recording requires a native build and is unavailable in Expo Go.");
+      return;
+    }
     try {
       const permission = await Audio.requestPermissionsAsync();
       if (permission.status === "granted") {
