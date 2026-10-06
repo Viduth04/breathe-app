@@ -6,23 +6,55 @@ import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { cancelBooking, getBooking } from "@/services/bookingService";
 import { Booking } from "@/types/booking";
+import { db } from "@/firebase/config";
+import { listCounsellors } from "@/services/adminService";
+import { doc, getDoc } from "firebase/firestore";
 import { ActivityIndicator } from "react-native";
 import { ScrollView, StyleSheet, Text, TextInput, View, Pressable, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Card from "@/components/common/Card";
+import CounsellorAvatar from "@/components/common/CounsellorAvatar";
 
 export default function CancelBookingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [selectedReason, setSelectedReason] = useState("conflict");
+  const [additionalNotes, setAdditionalNotes] = useState("");
   const [modalVisible, setModalVisible] = useState(false);
   const [modalStep, setModalStep] = useState<"confirm" | "success">("confirm");
-  const [cancelLoading, setCancelLoading] = useState(false);
+    const [cancelLoading, setCancelLoading] = useState(false);
+  const [session, setSession] = useState<Booking | null>(null);
+  const [counsellorName, setCounsellorName] = useState("Counselor");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (id) {
+      getBooking(id).then(async (data) => {
+        setSession(data);
+        if (data?.counsellorId) {
+          try {
+            const counsellorsList = await listCounsellors();
+            const found = counsellorsList.find(c => c.uid === data.counsellorId);
+            if (found) {
+              setCounsellorName(found.fullName);
+            }
+          } catch(err) {
+            console.error("Error fetching counsellors", err);
+          }
+        }
+        setLoading(false);
+      });
+    } else {
+      setLoading(false);
+    }
+  }, [id]);
 
   const handleCancel = async () => {
-    if (!id) return;
+    if (!id || !session) return;
     setCancelLoading(true);
     try {
-      await cancelBooking(id, selectedReason);
+      const reasonLabel = reasons.find(r => r.id === selectedReason)?.label || selectedReason;
+      const finalReason = [reasonLabel, additionalNotes.trim()].filter(Boolean).join(" - ");
+      await cancelBooking(session, finalReason);
       setModalStep("success");
     } catch(e) {
       console.error(e);
@@ -41,6 +73,8 @@ export default function CancelBookingScreen() {
     { id: "other", label: "Other reason" },
   ];
 
+  if (loading) { return <SafeAreaView style={styles.container}><ActivityIndicator style={{marginTop: 40}} /></SafeAreaView>; }
+  
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header */}
@@ -55,19 +89,6 @@ export default function CancelBookingScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
-        {/* Policy Notice */}
-        <View style={styles.policyNotice}>
-          <View style={styles.policyIconBox}>
-            <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary} />
-          </View>
-          <View style={styles.policyTextContainer}>
-            <Text style={styles.policyTitle}>Policy & Confidentiality Notice</Text>
-            <Text style={styles.policySub}>
-              Cancellations are free up to 2 hours before your scheduled time. Your counselor will be notified anonymously.
-            </Text>
-          </View>
-        </View>
 
         {/* Session Details */}
         <Card style={styles.detailsCard}>
@@ -79,43 +100,31 @@ export default function CancelBookingScreen() {
           </View>
 
           <View style={styles.sessionInfoRow}>
-            <View style={styles.videoIconBox}>
-              <Ionicons name="videocam-outline" size={24} color={colors.primary} />
-            </View>
-            <View style={styles.sessionInfoRight}>
-              <Text style={styles.counselorName}>Counselor: Dr. Anjali Perera</Text>
-              
-              <View style={styles.infoLine}>
-                <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
-                <Text style={styles.infoText}>Mon, 15 Aug 2026 • 10:00 AM</Text>
+            <View style={{ marginRight: 12 }}>
+                <CounsellorAvatar uid={session?.counsellorId || ""} name={counsellorName !== "Counselor" ? counsellorName : "Counselor"} size={54} />
               </View>
-              
-              <View style={styles.infoLine}>
-                <Ionicons name="lock-closed-outline" size={14} color={colors.textSecondary} />
-                <Text style={styles.infoText}>Video Call (Anonymous)</Text>
+            <View style={styles.sessionInfoRight}>
+              <Text style={styles.counselorName}>Counselor: {counsellorName}</Text>
+                
+                <View style={styles.infoLine}>
+                  <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
+                  <Text style={styles.infoText}>
+                    {session?.startAt && typeof session.startAt.toDate === 'function' 
+                      ? session.startAt.toDate().toLocaleDateString('en-LK', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) + ' • ' + session.startAt.toDate().toLocaleTimeString('en-LK', { hour: "2-digit", minute: "2-digit" })
+                      : 'Date TBD'
+                    }
+                  </Text>
+                </View>
+                
+                <View style={styles.infoLine}>
+                  <Ionicons name="lock-closed-outline" size={14} color={colors.textSecondary} />
+                  <Text style={styles.infoText}>
+                    {session?.sessionType === 'video' ? 'Video Call' : session?.sessionType === 'chat' ? 'Chat Session' : 'Voice Call'} (Anonymous)
+                  </Text>
               </View>
             </View>
           </View>
         </Card>
-
-        {/* Reschedule Suggestion */}
-        <View style={styles.rescheduleCard}>
-          <View style={styles.rescheduleHeader}>
-            <View style={styles.rescheduleIconBox}>
-              <Ionicons name="refresh-circle-outline" size={24} color={colors.primary} />
-            </View>
-            <View style={styles.rescheduleTextContainer}>
-              <Text style={styles.rescheduleTitle}>Need a different time instead?</Text>
-              <Text style={styles.rescheduleSub}>
-                You can reschedule directly without losing your intake notes or assigned counselor.
-              </Text>
-            </View>
-          </View>
-          <Pressable style={styles.rescheduleBtn}>
-            <Ionicons name="calendar-outline" size={18} color={colors.primary} />
-            <Text style={styles.rescheduleBtnText}>Reschedule Instead</Text>
-          </Pressable>
-        </View>
 
         {/* Cancellation Reason */}
         <View style={styles.reasonSection}>
@@ -152,6 +161,8 @@ export default function CancelBookingScreen() {
           <Text style={styles.additionalLabel}>ADDITIONAL DETAILS</Text>
           <TextInput
             style={styles.textInput}
+            value={additionalNotes}
+            onChangeText={setAdditionalNotes}
             placeholder="Add additional notes (optional)..."
             placeholderTextColor={colors.textSecondary}
             multiline
@@ -199,7 +210,7 @@ export default function CancelBookingScreen() {
                 
                 <Text style={styles.modalTitle}>Cancel This Appointment?</Text>
                 <Text style={styles.modalSub}>
-                  Are you sure you want to cancel your session with Dr. Anjali Perera on Mon, 15 Aug 2026 at 10:00 AM?
+                  {session?.startAt && typeof session.startAt.toDate === 'function' ? `Are you sure you want to cancel your session with ${counsellorName} on ${session.startAt.toDate().toLocaleDateString('en-LK', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} at ${session.startAt.toDate().toLocaleTimeString('en-LK', { hour: "2-digit", minute: "2-digit" })}?` : `Are you sure you want to cancel your session with ${counsellorName}?`}
                 </Text>
 
                 <Pressable 
@@ -219,7 +230,7 @@ export default function CancelBookingScreen() {
                   <Text style={styles.modalKeepText}>Keep My Appointment</Text>
                 </Pressable>
 
-                <Text style={styles.modalFooterText}>POLICY §4.2 • REF ID: #99420-CNL</Text>
+                <Text style={styles.modalFooterText}>POLICY §4.2 • REF ID: {session?.id ? `#${session.id.substring(0, 8).toUpperCase()}-CNL` : '#UNKNOWN'}</Text>
               </>
             ) : (
               <>
@@ -236,13 +247,13 @@ export default function CancelBookingScreen() {
                   <View style={styles.modalDetailRow}>
                     <Text style={styles.modalDetailLabel}>Session Type</Text>
                     <View style={styles.modalDetailIconRow}>
-                      <Ionicons name="videocam-outline" size={16} color={colors.primary} />
-                      <Text style={styles.modalDetailValueDark}>Video Call</Text>
+                      <Ionicons name={session?.sessionType === 'chat' ? 'chatbubble-outline' : session?.sessionType === 'voice' ? 'call-outline' : 'videocam-outline'} size={16} color={colors.primary} />
+                        <Text style={styles.modalDetailValueDark}>{session?.sessionType === 'video' ? 'Video Call' : session?.sessionType === 'chat' ? 'Chat Session' : 'Voice Call'}</Text>
                     </View>
                   </View>
                   <View style={styles.modalDetailRow}>
                     <Text style={styles.modalDetailLabelUpperCase}>REFERENCE ID</Text>
-                    <Text style={styles.modalDetailValueDark}>#ME-8041</Text>
+                    <Text style={styles.modalDetailValueDark}>{session?.id ? `#${session.id.substring(0, 8).toUpperCase()}` : '#UNKNOWN'}</Text>
                   </View>
                   <View style={styles.modalDetailRow}>
                     <Text style={styles.modalDetailLabel}>Status</Text>

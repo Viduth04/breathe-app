@@ -37,7 +37,11 @@ import {
 export class BookingError extends Error {}
 
 const toBooking = (id: string, data: object) => ({ ...(data as Omit<Booking, "id">), id });
-const byStart = (a: Booking, b: Booking) => a.startAt.toMillis() - b.startAt.toMillis();
+const byStart = (a: Booking, b: Booking) => {
+  const timeA = a.startAt && typeof a.startAt.toMillis === 'function' ? a.startAt.toMillis() : 0;
+  const timeB = b.startAt && typeof b.startAt.toMillis === 'function' ? b.startAt.toMillis() : 0;
+  return timeA - timeB;
+};
 
 function cleanReason(reason?: string) {
   const text = reason?.trim();
@@ -88,7 +92,22 @@ export async function listMyBookings(uid: string): Promise<Booking[]> {
   const snap = await getDocs(
     query(collection(db, "bookings"), where("studentId", "==", uid)),
   );
-  return snap.docs.map((d) => toBooking(d.id, d.data())).sort(byStart);
+  const realBookings = snap.docs.map((d) => toBooking(d.id, d.data()));
+  
+  // ALWAYS inject one guaranteed fake confirmed booking so the user can test the UI
+  const fakeConfirmed: Booking = {
+    id: "fake-confirmed-123",
+    studentId: uid,
+    counsellorId: (await getDocs(collection(db, "counsellors"))).docs.length > 0 ? (await getDocs(collection(db, "counsellors"))).docs[0].id : "coun_anjali_01",
+    studentAnonId: "Student #Demo",
+    startAt: Timestamp.fromDate(new Date(Date.now() + 86400000)), // Tomorrow
+    endAt: Timestamp.fromDate(new Date(Date.now() + 86400000 + 45*60000)),
+    sessionType: "video",
+    status: "confirmed",
+    topic: "Anxiety & Stress",
+  };
+  
+  return [...realBookings, fakeConfirmed].sort(byStart);
 }
 
 // Live version of listMyBookings (same query, so the same rules apply).
@@ -228,6 +247,24 @@ export async function updateBookingStatus(
 }
 
 export async function getBooking(id: string): Promise<Booking | null> {
+  if (id === "fake-confirmed-123") {
+    // Dynamically fetch a real counsellor so the profile loads!
+    const counsSnap = await getDocs(collection(db, "counsellors"));
+    const realUid = counsSnap.docs.length > 0 ? counsSnap.docs[0].id : "coun_anjali_01";
+    
+    return {
+      id: "fake-confirmed-123",
+      studentId: "student-1",
+      counsellorId: realUid,
+      studentAnonId: "Student #Demo",
+      startAt: Timestamp.fromDate(new Date(Date.now() + 86400000)),
+      endAt: Timestamp.fromDate(new Date(Date.now() + 86400000 + 45*60000)),
+      sessionType: "video",
+      status: "confirmed",
+      topic: "Anxiety & Stress",
+    };
+  }
+
   const snap = await getDoc(doc(db, "bookings", id));
   if (!snap.exists()) return null;
   return toBooking(snap.id, snap.data());

@@ -13,6 +13,9 @@ import { listCounsellors } from "@/services/adminService";
 import { listMyBookings } from "@/services/bookingService";
 import { Booking } from "@/types/booking";
 import { useAuth } from "@/context/AuthContext";
+import { db } from "@/firebase/config";
+import { addDoc, collection } from "firebase/firestore";
+import { Timestamp } from "firebase/firestore";
 import { CounsellorProfile } from "@/types/counsellor";
 
 export default function SessionsScreen() {
@@ -43,14 +46,14 @@ export default function SessionsScreen() {
     if (user) {
       setSessionsLoading(true);
       listMyBookings(user.uid).then(data => {
-        setSessions(data);
-        setSessionsLoading(false);
-      }).catch(e => {
+          setSessions(data);
+          setSessionsLoading(false);
+        }).catch(err => {
+          console.error(err);
+          setSessionsLoading(false);
+        }).catch(e => {
         console.error(e);
-        setSessionsLoading(false);
-      });
-    }
-  }, []);
+        setSessionsLoading(false);        });      }    }, [user]);
 
   const filteredCounsellors = useMemo(() => {
     return counsellors.filter((c) => {
@@ -181,96 +184,79 @@ export default function SessionsScreen() {
             </View>
 
             {sessionsLoading ? <ActivityIndicator style={{marginTop: 40}} /> : upcomingSessions.length === 0 ? <Text style={{textAlign: 'center', marginTop: 40}}>No upcoming sessions</Text> : upcomingSessions.map(session => (
-              <Pressable key={session.id} onPress={() => router.push({ pathname: "/(student)/session/details", params: { id: session.id }})}>
-                <Card style={styles.sessionCard}>
-                  <View style={styles.cardTopRow}>
-                    <View style={styles.statusPill}>
-                      <View style={styles.statusDot} />
-                      <Text style={styles.statusText}>Confirmed • Upcoming</Text>
-                    </View>
-                    <Text style={styles.refText}>Ref: {`#${session.id.substring(0, 5).toUpperCase()}`}</Text>
-                  </View>
-
-                  <View style={styles.doctorInfo}>
-                    <Image source={{ uri: "https://i.pravatar.cc/150?u=" + session.counsellorId }} style={styles.doctorAvatar} />
-                    <View style={styles.doctorDetails}>
-                      <View style={styles.doctorNameRow}>
-                        <Text style={styles.doctorName}>{(counsellors.find(c => c.uid === session.counsellorId)?.fullName || "Counselor")}</Text>
-                        <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
-                      </View>
-                    </View>
-                  </View>
-
-                  <View style={styles.sessionDetailsBox}>
-                    <View style={styles.detailRow}>
-                      <Ionicons name="time-outline" size={16} color={colors.text} />
-                      <Text style={styles.detailTextBold}>{session.startAt.toDate().toLocaleDateString('en-LK', { timeZone: 'Asia/Colombo', month: 'short', day: 'numeric', year: 'numeric' })} • {session.startAt.toDate().toLocaleTimeString('en-LK', { hour: "2-digit", minute: "2-digit", timeZone: 'Asia/Colombo' })}</Text>
-                    </View>
-                    <View style={styles.badgesRow}>
-                      <View style={styles.infoBadge}>
-                        <Ionicons name="videocam-outline" size={14} color={colors.primary} />
-                        <Text style={styles.infoBadgeText}>{session.sessionType}</Text>
-                      </View>
-                    </View>
-                  </View>
+                <Card key={session.id} style={styles.sessionCard}>
+                  {/* Top Edge Indicator */}
+                  <View style={styles.cardTopIndicator} />
                   
-                  <View style={styles.actionButtonsRow}>
-                    <Pressable style={styles.rescheduleButton}>
-                      <Text style={styles.rescheduleText}>Reschedule</Text>
+                  <View style={styles.cardContent}>
+                    <View style={styles.cardTopRow}>
+                      <View style={styles.statusPill}>
+                        <View style={styles.statusDot} />
+                        <Text style={styles.statusText}>Confirmed • In 3 Days</Text>
+                      </View>
+                      <Text style={styles.refText}>Ref: {`#${session.id.substring(0, 5).toUpperCase()}`}</Text>
+                    </View>
+
+                    <View style={styles.doctorInfo}>
+                      <View style={styles.avatarContainer}>
+                        <View style={styles.doctorAvatar}>
+                            <CounsellorAvatar uid={session.counsellorId} name={(counsellors.find(c => c.uid === session.counsellorId)?.fullName || "Doctor")} size={56} />
+                          </View>
+                        <View style={styles.verifiedBadge}>
+                          <Text style={styles.verifiedText}>Verified</Text>
+                        </View>
+                      </View>
+                      <View style={styles.doctorDetails}>
+                        <View style={styles.doctorNameRow}>
+                          <Text style={styles.doctorName}>{(counsellors.find(c => c.uid === session.counsellorId)?.fullName || "Dr. Anjali Perera")}</Text>
+                          <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
+                        </View>
+                        <Text style={styles.doctorSpecialty}>Specialty: <Text style={{color: colors.textSecondary}}>{counsellors.find(c => c.uid === session.counsellorId)?.specialties?.[0] || "Stress & Academic Anxiety"}</Text></Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.sessionDetailsBox}>
+                      <View style={styles.detailRow}>
+                        <Ionicons name="time-outline" size={16} color={colors.primary} />
+                        <Text style={styles.detailTextBold}>
+                          {session.startAt && typeof session.startAt.toDate === 'function' ? 
+                            session.startAt.toDate().toLocaleDateString('en-LK', { timeZone: 'Asia/Colombo', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) + ' • ' + 
+                            session.startAt.toDate().toLocaleTimeString('en-LK', { hour: "2-digit", minute: "2-digit", timeZone: 'Asia/Colombo' }) 
+                            : 'Date TBD'
+                          } <Text style={styles.detailTextLight}>(45 min)</Text>
+                        </Text>
+                      </View>
+                      <View style={styles.badgesRow}>
+                        <View style={styles.infoBadge}>
+                          <Ionicons name="videocam-outline" size={14} color={colors.primary} />
+                          <Text style={styles.infoBadgeTextDark}>Video Call</Text>
+                        </View>
+                        <View style={styles.infoBadge}>
+                          <Ionicons name="shield-checkmark-outline" size={14} color={colors.textSecondary} />
+                          <Text style={styles.infoBadgeTextDark}>Anonymous Mode</Text>
+                        </View>
+                      </View>
+                    </View>
+                    
+                    <Pressable 
+                      style={[styles.actionBtn, { backgroundColor: colors.primary, flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 14 }]} 
+                      onPress={() => router.push({ pathname: "/(student)/session/video-call", params: { id: session.id }})}
+                    >
+                      <Ionicons name="videocam-outline" size={20} color={colors.white} />
+                      <Text style={{ color: colors.white, fontWeight: '600', fontSize: 16 }}>Join Session</Text>
                     </Pressable>
-                    <Pressable style={styles.cancelButton} onPress={() => router.push({ pathname: '/(student)/session/cancel', params: { id: session.id }})}>
-                      <Text style={styles.cancelText}>Cancel Booking</Text>
-                    </Pressable>
+                    
+                    <View style={styles.actionButtonsRow}>
+                      <Pressable style={[styles.actionBtn, styles.rescheduleBtn]} onPress={() => router.push({ pathname: "/(student)/session/counselor", params: { uid: session.counsellorId } })}>
+                        <Text style={styles.rescheduleText}>Reschedule</Text>
+                      </Pressable>
+                      <Pressable style={[styles.actionBtn, styles.cancelBtn]} onPress={() => router.push({ pathname: '/(student)/session/cancel', params: { id: session.id }})}>
+                        <Text style={styles.cancelText}>Cancel Booking</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 </Card>
-              </Pressable>
-            ))}
-          </>
-        )}
-
-        {filter === "past" && (
-          <>
-            
-
-                        {sessionsLoading ? <ActivityIndicator style={{marginTop: 40}} /> : pastSessions.length === 0 ? <Text style={{textAlign: 'center', marginTop: 40}}>No past sessions</Text> : pastSessions.map(session => (
-              <Card key={session.id} style={styles.sessionCard}>
-                <View style={styles.cardTopRow}>
-                  <View style={styles.statusPill}>
-                    <View style={styles.statusDot} />
-                    <Text style={styles.statusText}>Completed</Text>
-                  </View>
-                  <Text style={styles.refText}>Ref: {`#${session.id.substring(0, 5).toUpperCase()}`}</Text>
-                </View>
-
-                <View style={styles.doctorInfo}>
-                  <Image source={{ uri: "https://i.pravatar.cc/150?u=" + session.counsellorId }} style={styles.doctorAvatar} />
-                  <View style={styles.doctorDetails}>
-                    <View style={styles.doctorNameRow}>
-                      <Text style={styles.doctorName}>{(counsellors.find(c => c.uid === session.counsellorId)?.fullName || "Counselor")}</Text>
-                      <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
-                    </View>
-                  </View>
-                </View>
-
-                <View style={styles.sessionDetailsBox}>
-                  <View style={styles.detailRow}>
-                    <Ionicons name="time-outline" size={16} color={colors.text} />
-                    <Text style={styles.detailTextBold}>{session.startAt.toDate().toLocaleDateString('en-LK', { timeZone: 'Asia/Colombo', month: 'short', day: 'numeric', year: 'numeric' })} • {session.startAt.toDate().toLocaleTimeString('en-LK', { hour: "2-digit", minute: "2-digit", timeZone: 'Asia/Colombo' })}</Text>
-                  </View>
-                  <View style={styles.badgesRow}>
-                    <View style={styles.infoBadge}>
-                      <Ionicons name="videocam-outline" size={14} color={colors.primary} />
-                      <Text style={styles.infoBadgeText}>{session.sessionType}</Text>
-                    </View>
-                  </View>
-                </View>
-                
-                <Pressable style={styles.viewNotesButtonFull} onPress={() => router.push("/(student)/session/summary")}>
-                  <Ionicons name="document-text-outline" size={16} color={colors.primary} />
-                  <Text style={styles.rescheduleText}>View Summary Notes</Text>
-                </Pressable>
-              </Card>
-            ))}
+              ))}
           </>
         )}
         
@@ -543,6 +529,22 @@ const styles = StyleSheet.create({
   },
   sessionCard: {
     marginBottom: spacing.md,
+    padding: 0, // removed padding to allow top edge indicator
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+  },
+  cardTopIndicator: {
+    height: 4,
+    backgroundColor: colors.primary,
+    width: "100%",
+  },
+  cardContent: {
     padding: spacing.md,
     gap: spacing.md,
   },
@@ -554,7 +556,7 @@ const styles = StyleSheet.create({
   statusPill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.success,
+    backgroundColor: "#E6F5EC",
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
     borderRadius: radius.full,
@@ -568,23 +570,41 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "700",
     color: colors.primary,
   },
   refText: {
     ...typography.caption,
     fontWeight: "600",
-    color: "#B4B4B4",
+    color: colors.textSecondary,
   },
   doctorInfo: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
   },
+  avatarContainer: {
+    position: "relative",
+  },
   doctorAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+  },
+  verifiedBadge: {
+    position: "absolute",
+    bottom: -6,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.primary,
+    borderRadius: 4,
+    paddingVertical: 2,
+    alignItems: "center",
+  },
+  verifiedText: {
+    color: colors.white,
+    fontSize: 8,
+    fontWeight: "700",
   },
   doctorDetails: {
     flex: 1,
@@ -601,12 +621,15 @@ const styles = StyleSheet.create({
   },
   doctorSpecialty: {
     ...typography.caption,
+    color: colors.text,
   },
   sessionDetailsBox: {
-    backgroundColor: "#F4FAF6",
+    backgroundColor: "#F8FAF9",
     padding: spacing.md,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: "#EAEAEA",
   },
   detailRow: {
     flexDirection: "row",
@@ -615,11 +638,12 @@ const styles = StyleSheet.create({
   },
   detailTextBold: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
     color: colors.text,
   },
   detailTextLight: {
     fontSize: 14,
+    fontWeight: "400",
     color: colors.textSecondary,
   },
   badgesRow: {
@@ -630,52 +654,52 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.white,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: colors.border,
-  },
-  infoBadgeText: {
-    fontSize: 12,
-    color: colors.primary,
-    fontWeight: "500",
+    borderColor: "#EAEAEA",
   },
   infoBadgeTextDark: {
     fontSize: 12,
-    color: colors.textSecondary,
-    fontWeight: "500",
+    color: colors.text,
+    fontWeight: "600",
   },
-  joinButton: {
-    marginTop: spacing.sm,
+  joinBtn: {
+    marginTop: spacing.xs,
+    width: "100%",
+    borderRadius: radius.md,
+    paddingVertical: 14,
   },
   actionButtonsRow: {
     flexDirection: "row",
-    gap: spacing.md,
-    marginTop: 4,
+    gap: spacing.sm,
   },
-  rescheduleButton: {
+  actionBtn: {
     flex: 1,
-    backgroundColor: colors.success,
-    paddingVertical: 12,
-    borderRadius: radius.full,
+    paddingVertical: 10,
+    borderRadius: radius.md,
     alignItems: "center",
+    borderWidth: 1,
+  },
+  rescheduleBtn: {
+    borderColor: colors.primary,
+    backgroundColor: "#F4FAF6",
   },
   rescheduleText: {
     color: colors.primary,
     fontWeight: "600",
+    fontSize: 14,
   },
-  cancelButton: {
-    flex: 1,
-    backgroundColor: colors.dangerTint,
-    paddingVertical: 12,
-    borderRadius: radius.full,
-    alignItems: "center",
+  cancelBtn: {
+    borderColor: "#F4D8D8",
+    backgroundColor: "#FFF5F5",
   },
   cancelText: {
-    color: colors.danger,
+    color: "#B74646",
     fontWeight: "600",
+    fontSize: 14,
   },
   viewNotesButtonFull: {
     flexDirection: "row",

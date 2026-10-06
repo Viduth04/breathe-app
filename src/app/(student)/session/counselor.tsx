@@ -88,6 +88,24 @@ export default function CounselorProfileScreen() {
       </SafeAreaView>;
   }
 
+  
+  if (!counsellor && !loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color={colors.primary} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Counselor Not Found</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
+          <Text>We couldn't find this counselor's profile.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header */}
@@ -104,7 +122,7 @@ export default function CounselorProfileScreen() {
         {/* Profile Info (Centered) */}
         <View style={styles.profileHeader}>
           <View style={styles.avatarContainer}>
-            <CounsellorAvatar uid={counsellor.uid} name={counsellor.fullName} size={100} />
+            <CounsellorAvatar uid={counsellor?.uid || uid} name={counsellor?.fullName || "Counselor"} size={100} />
             <View style={styles.verifiedBadge}>
               <Ionicons name="checkmark" size={12} color="#FFF" />
             </View>

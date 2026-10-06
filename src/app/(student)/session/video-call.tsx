@@ -6,10 +6,12 @@ import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { getBooking } from "@/services/bookingService";
 import { Booking } from "@/types/booking";
-import { ActivityIndicator, StyleSheet, Text, View, Pressable, StatusBar, Modal, TextInput } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View, Pressable, StatusBar, Modal, TextInput, Platform } from "react-native";
 import { router } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
+import React from "react";
 import { getCounsellorPhoto } from "@/services/counsellorPhotoService";
 import { db } from "@/firebase/config";
 import { collection, addDoc } from "firebase/firestore";
@@ -110,87 +112,41 @@ export default function VideoCallScreen() {
       {/* Main Content Area */}
       <View style={styles.content}>
         
-        {/* Main Video Feed (Counselor) */}
-        <View style={styles.mainVideoContainer}>
-          {counsellorPhoto ? (
-            <Image 
-              source={{ uri: counsellorPhoto }}
-              style={styles.mainVideoImage}
-              contentFit="cover"
-            />
-          ) : (
-            <View style={styles.placeholderContainer}>
-              <Ionicons name="person" size={80} color="#E2E8F0" />
-            </View>
-          )}
-
-          {/* Top Overlay Pills */}
-          <View style={styles.overlayTop}>
-            <View style={styles.overlayPillDark}>
-              <View style={styles.greenDot} />
-              <Text style={styles.overlayText}>{counsellorName} • Clinical Psychologist</Text>
-            </View>
-            <View style={styles.overlayPillDark}>
-              <Ionicons name="lock-closed-outline" size={14} color="#FFF" />
-              <Text style={styles.overlayText}>End-to-End Encrypted</Text>
-            </View>
-          </View>
-
-          {/* Bottom Left Overlay */}
-          <View style={styles.overlayBottomLeft}>
-            <View style={styles.overlayPillLight}>
-              <Ionicons name="mic-outline" size={16} color={colors.text} />
-              <Text style={styles.overlayTextDark}>Audio Active</Text>
-            </View>
-          </View>
-
-          {/* PIP Video (Student) */}
-          <View style={styles.pipContainer}>
-            <View style={styles.pipPlaceholder}>
-              <Text style={styles.pipInitial}>{profile?.fullName?.charAt(0) || "Y"}</Text>
-            </View>
-            <View style={styles.pipBottomOverlay}>
-              <View style={styles.pipLivePill}>
-                <View style={styles.greenDot} />
-                <Text style={styles.pipText}>Live</Text>
+        {/* Telehealth Launch UI */}
+          <View style={[styles.mainVideoContainer, { backgroundColor: '#1F2937', marginBottom: 20, alignItems: 'center', justifyContent: 'center', padding: 20 }]}>
+            {counsellorPhoto ? (
+              <Image source={{ uri: counsellorPhoto }} style={{ width: 120, height: 120, borderRadius: 60, marginBottom: 20 }} />
+            ) : (
+              <View style={{ width: 120, height: 120, borderRadius: 60, backgroundColor: '#374151', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+                <Ionicons name="person" size={60} color="#9CA3AF" />
               </View>
-            </View>
+            )}
+            
+            <Text style={{ color: '#FFF', fontSize: 24, fontWeight: 'bold', marginBottom: 8, textAlign: 'center' }}>
+              Consultation Ready
+            </Text>
+            <Text style={{ color: '#9CA3AF', fontSize: 14, textAlign: 'center', marginBottom: 30 }}>
+              Your secure video room has been generated. Launch the room to connect with {counsellorName}.
+            </Text>
+
+            <Pressable 
+              style={{ backgroundColor: colors.primary, paddingHorizontal: 32, paddingVertical: 16, borderRadius: radius.full, flexDirection: 'row', alignItems: 'center', gap: 10, width: '100%', justifyContent: 'center' }}
+              onPress={async () => {
+                const url = `https://meet.jit.si/BreatheApp_Consultation_${id || 'demo'}#config.prejoinPageEnabled=false&userInfo.displayName="Student"`;
+                if (Platform.OS === 'web') {
+                  window.open(url, '_blank');
+                } else {
+                  await WebBrowser.openBrowserAsync(url);
+                }
+              }}
+            >
+              <Ionicons name="videocam" size={24} color="#FFF" />
+              <Text style={{ color: '#FFF', fontSize: 18, fontWeight: 'bold' }}>Enter Video Room</Text>
+            </Pressable>
           </View>
         </View>
 
-        {/* Controls Dock */}
-        <View style={styles.controlsDock}>
-          <View style={styles.controlItem}>
-            <Pressable style={styles.controlButton}>
-              <Ionicons name="videocam-outline" size={24} color="#FFF" />
-            </Pressable>
-            <Text style={styles.controlLabel}>Video</Text>
-          </View>
-
-          <View style={styles.controlItem}>
-            <Pressable style={styles.controlButton}>
-              <Ionicons name="mic-outline" size={24} color="#FFF" />
-            </Pressable>
-            <Text style={styles.controlLabel}>Mute</Text>
-          </View>
-
-          <View style={styles.controlItem}>
-            <Pressable style={styles.controlButton} onPress={() => router.push({ pathname: "/(student)/session/chat", params: { uid: session?.counsellorId } })}>
-              <Ionicons name="chatbubble-outline" size={24} color="#FFF" />
-            </Pressable>
-            <Text style={styles.controlLabel}>Chat</Text>
-          </View>
-
-          <View style={styles.controlItem}>
-            <Pressable style={styles.endButton} onPress={handleEndCall}>
-              <Ionicons name="call" size={24} color="#FFF" style={{ transform: [{ rotate: "135deg" }] }} />
-            </Pressable>
-            <Text style={styles.controlLabel}>End</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Review Modal */}
+        {/* Review Modal */}
       <Modal visible={showReview} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
