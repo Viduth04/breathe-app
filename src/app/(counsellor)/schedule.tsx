@@ -394,13 +394,30 @@ export default function CounsellorScheduleScreen() {
                 Tuesday, Aug {selectedCalendarDay}
               </Text>
               <Text style={styles.dayStatsSub}>
-                3.5 hrs booked • 4 Sessions
+                {store.scheduleDaySlots.filter((s) => s.isBooked).length} Sessions • {store.scheduleDaySlots.filter((s) => !s.isBooked).length} Open Slots
               </Text>
             </View>
 
             {/* List of Day Slots */}
             <View style={styles.daySlotsList}>
-              {store.scheduleDaySlots.map((slot) => {
+              {store.scheduleDaySlots.length === 0 ? (
+                <View style={{ padding: 24, alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="calendar-outline" size={36} color={colors.textSecondary} />
+                  <Text style={{ marginTop: 8, fontSize: 15, fontWeight: "600", color: colors.text }}>
+                    No Slots Published Yet
+                  </Text>
+                  <Text style={{ marginTop: 4, fontSize: 13, color: colors.textSecondary, textAlign: "center" }}>
+                    Publish availability slots so students can view and request counselling sessions.
+                  </Text>
+                  <Pressable
+                    style={{ marginTop: 16, backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20 }}
+                    onPress={() => router.push("/(counsellor-detail)/add-session")}
+                  >
+                    <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }}>+ Add Availability Slots</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                store.scheduleDaySlots.map((slot) => {
                 const isHeld = !!store.heldScheduleSlots[slot.id];
 
                 if (!slot.isBooked) {
@@ -539,7 +556,7 @@ export default function CounsellorScheduleScreen() {
                       <Pressable
                         style={styles.intakeNoteBanner}
                         onPress={() =>
-                          router.navigate("/(counsellor-detail)/request-detail?id=req-5104")
+                          router.navigate(`/(counsellor-detail)/request-detail?requestId=${slot.id}`)
                         }
                         accessibilityRole="button"
                         accessibilityLabel="Review Intake Form"
@@ -555,7 +572,7 @@ export default function CounsellorScheduleScreen() {
                     )}
                   </Pressable>
                 );
-              })}
+              }))}
             </View>
 
             {/* 15-Minute Automated Buffer Notice Card */}

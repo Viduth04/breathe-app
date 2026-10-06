@@ -24,10 +24,10 @@ export default function RequestAcceptedScreen() {
   const [prepNote, setPrepNote] = useState("");
   const [prepSavedToast, setPrepSavedToast] = useState(false);
 
-  const studentAnonId = lastAcceptedSession?.studentAnonId || "Student #5104";
+  const studentAnonId = lastAcceptedSession?.studentAnonId || "Student #ANON";
   const dateText = lastAcceptedSession?.date
     ? `${lastAcceptedSession.date} • ${lastAcceptedSession.timeRange}`
-    : "Tomorrow, Tue 19 Aug • 10:00–10:45 AM";
+    : "Scheduled Session Slot";
 
   const handleMessageStudent = () => {
     router.navigate({
@@ -39,7 +39,7 @@ export default function RequestAcceptedScreen() {
   const handleViewInCalendar = () => {
     router.navigate({
       pathname: "/(counsellor-detail)/my-calendar",
-      params: { highlightId: "brth-5104-sec" },
+      params: { highlightId: lastAcceptedSession?.requestId || "confirmed-session" },
     });
   };
 

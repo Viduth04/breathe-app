@@ -27,9 +27,16 @@ export default function ConfirmAcceptanceModal() {
     requests.find((r) => r.id === params.requestId || r.studentAnonId === params.studentAnonId) ||
     requests[0];
 
-  const studentAnonId = targetReq?.studentAnonId || "Student #5104";
-  const requestedDate = "Tomorrow, Tue 19 Aug • 10:00–10:45 AM";
-  const sessionFormat = "Video Consultation (45 min)";
+  const studentAnonId = targetReq?.studentAnonId || params.studentAnonId || "Anonymous Student";
+  const requestedDate = targetReq?.date
+    ? `${targetReq.date} • ${targetReq.requestedTime}`
+    : targetReq?.requestedTime || "Upcoming Consultation";
+  const sessionFormat =
+    targetReq?.sessionType === "video"
+      ? "Video Consultation (45 min)"
+      : targetReq?.sessionType === "chat"
+      ? "Secured Chat Session (45 min)"
+      : "In-Person Consultation (45 min)";
 
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -38,7 +45,9 @@ export default function ConfirmAcceptanceModal() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      confirmAcceptance(targetReq?.id || "req-1", note.trim());
+      if (targetReq?.id) {
+        confirmAcceptance(targetReq.id, note.trim());
+      }
       router.replace("/(counsellor-detail)/request-accepted");
     } catch (e) {
       setIsSubmitting(false);

@@ -58,7 +58,7 @@ export default function MyCalendarScreen() {
     router.navigate({
       pathname: "/(counsellor-detail)/ready-to-join",
       params: {
-        studentAnonId: booking.studentAnonId || "Student #5104",
+        studentAnonId: booking.studentAnonId || "Student #ANON",
         sessionTitle: booking.subInfo || "Encrypted Video Consultation",
         timeRange: booking.timeRange || "10:00 - 10:45",
         duration: "45 min session",
@@ -72,7 +72,7 @@ export default function MyCalendarScreen() {
       return;
     }
 
-    if (booking.studentAnonId === "Student #5104") {
+    if (booking.modality === "video") {
       router.navigate({
         pathname: "/(counsellor-detail)/ready-to-join",
         params: {

@@ -1,7 +1,7 @@
 // Counsellor Notification Detail Screen - Muaath (Member 4). Supports FR05, FR08.
 // Full alert detail view for Student #5104 Clinical Triage Alert matching high-fidelity design.
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -26,25 +26,55 @@ export default function NotificationDetailScreen() {
     (a) => a.id === params.notificationId || a.id === params.id
   );
 
-  const [data] = useState<NotificationDetailData>(() => {
+  const targetReq = store.requests.find(
+    (r) => r.id === matchedAlert?.refId || r.studentAnonId === matchedAlert?.studentAnonId
+  );
+
+  const [data, setData] = useState<NotificationDetailData>(() => {
     if (matchedAlert) {
       return {
         ...MOCK_NOTIFICATION_DETAIL,
         id: matchedAlert.id,
+        studentAnonId: matchedAlert.studentAnonId || targetReq?.studentAnonId || "Student #ANON",
         title: matchedAlert.title,
         timestamp: matchedAlert.timestamp,
         clinicalSummary: matchedAlert.description,
-        primaryConcernTopic: matchedAlert.title,
+        primaryConcernTopic: targetReq?.topic || matchedAlert.title,
+        proposedDate: targetReq?.date || "Scheduled Slot",
+        proposedTime: targetReq?.requestedTime || "10:00–10:45 AM",
       };
     }
-    return MOCK_NOTIFICATION_DETAIL;
+    return {
+      ...MOCK_NOTIFICATION_DETAIL,
+      studentAnonId: "Student #ANON",
+      proposedDate: "Scheduled Slot",
+      clinicalSummary: "Clinical notification details.",
+    };
   });
+
+  useEffect(() => {
+    if (matchedAlert) {
+      setData((prev) => ({
+        ...prev,
+        id: matchedAlert.id,
+        studentAnonId: matchedAlert.studentAnonId || targetReq?.studentAnonId || prev.studentAnonId,
+        title: matchedAlert.title,
+        timestamp: matchedAlert.timestamp,
+        clinicalSummary: matchedAlert.description,
+        primaryConcernTopic: targetReq?.topic || matchedAlert.title,
+        proposedDate: targetReq?.date || prev.proposedDate,
+        proposedTime: targetReq?.requestedTime || prev.proposedTime,
+      }));
+    }
+  }, [matchedAlert, targetReq]);
+
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const handleReviewAndAccept = () => {
+    const reqId = targetReq?.id || matchedAlert?.refId || data.id;
     router.navigate({
       pathname: "/(counsellor-detail)/confirm-acceptance",
-      params: { requestId: "req-1", studentAnonId: data.studentAnonId },
+      params: { requestId: reqId, studentAnonId: data.studentAnonId },
     });
   };
 
@@ -53,14 +83,15 @@ export default function NotificationDetailScreen() {
   };
 
   const handleDecline = () => {
+    const reqId = targetReq?.id || matchedAlert?.refId || data.id;
     router.push({
       pathname: "/(counsellor-detail)/decline-request",
       params: {
-        requestId: "req-1",
+        requestId: reqId,
         studentAnonId: data.studentAnonId,
-        proposedDate: "Tomorrow, Tue 19 Aug",
-        proposedTime: "10:00–10:45 AM",
-        sessionTypeLabel: "Encrypted Video Call (45m)",
+        proposedDate: targetReq?.date || data.proposedDate || "Scheduled Slot",
+        proposedTime: targetReq?.requestedTime || data.proposedTime || "10:00–10:45 AM",
+        sessionTypeLabel: targetReq?.sessionType === "chat" ? "Secured Chat Session" : "Video Consultation (45 min)",
       },
     });
   };
