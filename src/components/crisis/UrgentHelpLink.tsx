@@ -29,6 +29,11 @@ export default function UrgentHelpLink() {
   );
 }
 
+// Right padding a full-width top bar needs (measured from the screen edge) so
+// nothing in it sits under FloatingHelpButton: its 16px inset, the 48px
+// button and an 8px gap
+export const FLOATING_HELP_CLEARANCE = spacing.md + TOUCH_TARGET + spacing.sm;
+
 // Small round help button floating in the top-right corner of the student
 // area (rendered by the (student) layout, so it's on every student screen)
 export function FloatingHelpButton() {

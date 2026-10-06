@@ -78,7 +78,8 @@ export default function StudentLayout() {
         <Tabs.Screen name="session/details" options={{ href: null, tabBarStyle: { display: "none" } }} />
         <Tabs.Screen name="session/cancel" options={{ href: null, tabBarStyle: { display: "none" } }} />
       </Tabs>
-      {/* Crisis support removed to prevent overlap */}
+      {/* Crisis support is one tap away on every student screen (F9 / R9) */}
+      <FloatingHelpButton />
       <FloatingCompanionButton />
     </View>
   );

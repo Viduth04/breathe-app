@@ -11,6 +11,7 @@ import {
 } from "@/services/companionService";
 import { containsCrisisLanguage } from "@/utils/crisisCheck";
 import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
+import { FLOATING_HELP_CLEARANCE } from "@/components/crisis/UrgentHelpLink";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
@@ -316,7 +317,8 @@ const styles = StyleSheet.create({
   consentText: { marginTop: spacing.sm, lineHeight: 24 },
   backButton: { minHeight: TOUCH_TARGET, alignItems: "center", justifyContent: "center" },
   backText: { ...typography.body, color: colors.primary, textDecorationLine: "underline" },
-  topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
+  // Right padding keeps "Clear" clear of the floating crisis help button
+  topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingRight: FLOATING_HELP_CLEARANCE, paddingVertical: spacing.sm },
   titleBlock: { flex: 1, gap: 2 },
   clearButton: { minHeight: TOUCH_TARGET, paddingHorizontal: spacing.sm, flexDirection: "row", alignItems: "center", gap: spacing.xs },
   clearText: { color: colors.primary, fontSize: 13, fontWeight: "600" },

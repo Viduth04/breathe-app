@@ -3,12 +3,24 @@
 //
 // Each card loads on its own and fails on its own, so one error never blanks
 // the whole Home. Everything refreshes when the student comes back to Home.
+// Notification bell and panel: restores Minhaj's (Member 3) notifications,
+// reusing his card design (components/notifications/NotificationItem).
 
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
+import { InlineBanner } from "@/components/common/popup/InlineBanner";
 import Screen from "@/components/common/Screen";
+import NotificationItem from "@/components/notifications/NotificationItem";
 import { openResource, resourceMeta } from "@/components/resources/ResourceCard";
 import { useAuth } from "@/context/AuthContext";
+import {
+  BANNER_TEXT,
+  BookingUpdate,
+  timeAgo,
+  updateMessage,
+  updateTitle,
+  useBookingUpdates,
+} from "@/hooks/useBookingUpdates";
 import { getAuthErrorMessage } from "@/services/authService";
 import { listMyCheckins, moodByDay } from "@/services/checkinService";
 import { getUpcomingBooking, UpcomingBooking } from "@/services/homeService";
@@ -27,10 +39,33 @@ import type { Resource } from "@/types/resource";
 import { dateKey, weekStartDate } from "@/utils/week";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
-import { ReactNode, useCallback, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 const HOME_RESOURCES = 2;
+const PANEL_UPDATES = 10; // Newest booking updates shown in the bell panel
+
+const announce = (message: string) => {
+  if (Platform.OS !== "web") AccessibilityInfo.announceForAccessibility(message);
+};
+
+// Icon per booking update, in Minhaj's notification card style
+const UPDATE_ICONS: Record<
+  BookingUpdate["status"],
+  { icon: "checkmark-circle-outline" | "close-circle-outline" | "calendar-clear-outline"; color: string }
+> = {
+  confirmed: { icon: "checkmark-circle-outline", color: colors.primary },
+  declined: { icon: "close-circle-outline", color: colors.textSecondary },
+  cancelled: { icon: "calendar-clear-outline", color: colors.textSecondary },
+};
 
 type CardState<T> = { data?: T; loading: boolean; error?: string };
 
@@ -88,16 +123,47 @@ export default function Home() {
     user ? (await listReminders(user.uid)).length : 0,
   );
 
-  // Initial load and every return to Home, so a new check-in or booking shows
+  // Bell: live booking updates, badge and the confirmed/declined banner
+  const notifications = useBookingUpdates(user?.uid);
+  const [panelOpen, setPanelOpen] = useState(false);
+  // Updates that were new when the panel opened keep their dot while it's open
+  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
+  // Where the header (greeting, panel, banner) ends; taps below it close the panel
+  const [headerBottom, setHeaderBottom] = useState(0);
+
+  // Initial load and every return to Home, so a new check-in or booking shows.
+  // Leaving Home closes the panel.
   useFocusEffect(
     useCallback(() => {
       checkins.load();
       booking.load();
       resources.load();
       reminders.load();
+      return () => setPanelOpen(false);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
   );
+
+  const { banner, updates, unread } = notifications;
+  useEffect(() => {
+    if (!banner) return;
+    announce(BANNER_TEXT[banner.status]);
+    booking.load(); // The Upcoming session card shows the new status too
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [banner]);
+
+  const openPanel = () => {
+    setFreshIds(new Set(updates.filter(notifications.isUnread).map((u) => u.id)));
+    notifications.markSeen(); // Clears the badge (and any banner)
+    setPanelOpen(true);
+    announce(
+      `Notifications panel opened. ${
+        unread ? `${unread} new ${unread === 1 ? "update" : "updates"}.` : "No new updates."
+      }`,
+    );
+  };
+  const closePanel = () => setPanelOpen(false);
+  const togglePanel = () => (panelOpen ? closePanel() : openPanel());
 
   const todayKey = dateKey(new Date());
   const today = checkins.data?.find((c) => c.dateKey === todayKey) ?? null;
@@ -117,17 +183,116 @@ export default function Home() {
   const goToSessions = () => router.navigate("/(student)/session/dashboard");
   const goToExercises = () => router.navigate("/(student)/exercises");
   const goToReminders = () => router.navigate("/(student)/reminders");
+  const openSession = (id: string) => {
+    closePanel();
+    router.push({ pathname: "/(student)/session/details", params: { id } });
+  };
 
   return (
     <Screen>
-      {/* 1. Greeting */}
-      <View style={styles.greeting}>
-        <Text style={typography.title} accessibilityRole="header">
-          Hi, {firstName}
-        </Text>
-        <Text style={[typography.body, styles.muted]}>
-          How are you feeling today?
-        </Text>
+      <View
+        style={styles.top}
+        onLayout={(e) => setHeaderBottom(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}
+      >
+        {/* 1. Greeting and notification bell */}
+        <View style={styles.greeting}>
+          <View style={styles.greetingText}>
+            <Text style={typography.title} accessibilityRole="header">
+              Hi, {firstName}
+            </Text>
+            <Text style={[typography.body, styles.muted]}>
+              How are you feeling today?
+            </Text>
+          </View>
+          <Pressable
+            onPress={togglePanel}
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+            accessibilityHint={panelOpen ? "Hides your notifications" : "Shows your notifications"}
+            accessibilityState={{ expanded: panelOpen }}
+            accessibilityValue={unread ? { text: `${unread} new` } : undefined}
+            style={({ pressed }) => [
+              styles.bell,
+              panelOpen && styles.bellOpen,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Ionicons
+              name={panelOpen ? "notifications" : "notifications-outline"}
+              size={24}
+              color={colors.primary}
+            />
+            {unread > 0 ? (
+              <View
+                style={styles.bellBadge}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              >
+                <Text style={styles.bellBadgeText}>{unread > 9 ? "9+" : unread}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        </View>
+
+        {/* Notifications panel, inline under the header */}
+        {panelOpen ? (
+          <View style={styles.panel}>
+            <Text style={typography.heading} accessibilityRole="header">
+              Notifications
+            </Text>
+            <NotificationItem
+              icon="alarm-outline"
+              iconColor={colors.primary}
+              title="Check-in reminders"
+              body="Choose when Breathe gently reminds you to check in"
+              onPress={() => {
+                closePanel();
+                goToReminders();
+              }}
+              accessibilityHint="Opens your check-in reminders"
+            />
+            <Text style={styles.panelSection} accessibilityRole="header">
+              Session updates
+            </Text>
+            {notifications.loading ? (
+              <ActivityIndicator
+                color={colors.primary}
+                style={styles.cardSpinner}
+                accessibilityLabel="Loading session updates"
+              />
+            ) : notifications.error ? (
+              <Text style={[typography.body, styles.muted]}>
+                Couldn't load session updates. Check your connection.
+              </Text>
+            ) : updates.length ? (
+              updates.slice(0, PANEL_UPDATES).map((update) => (
+                <NotificationItem
+                  key={update.id}
+                  icon={UPDATE_ICONS[update.status].icon}
+                  iconColor={UPDATE_ICONS[update.status].color}
+                  title={updateTitle(update)}
+                  body={updateMessage(update)}
+                  time={timeAgo(update.updatedAt)}
+                  unread={freshIds.has(update.id)}
+                  onPress={() => openSession(update.id)}
+                  accessibilityHint="Opens the session details"
+                />
+              ))
+            ) : (
+              <Text style={[typography.body, styles.muted]}>No updates yet</Text>
+            )}
+          </View>
+        ) : null}
+
+        {/* Calm banner when a booking is confirmed or declined while the app is open */}
+        {banner && !panelOpen ? (
+          <InlineBanner
+            variant={banner.status === "confirmed" ? "success" : "info"}
+            message={BANNER_TEXT[banner.status]}
+            action={{ label: "View", onPress: openPanel }}
+            onDismiss={notifications.dismissBanner}
+          />
+        ) : null}
       </View>
 
       {/* 2. Mood check-in: the one dominant action on this screen (R1, fixes F1) */}
@@ -376,6 +541,16 @@ export default function Home() {
           </Text>
         </Card>
       )}
+
+      {/* Tap anywhere below the header to close the panel (screen readers use the bell) */}
+      {panelOpen ? (
+        <Pressable
+          onPress={closePanel}
+          style={[styles.backdrop, { top: headerBottom }]}
+          accessible={false}
+          importantForAccessibility="no-hide-descendants"
+        />
+      ) : null}
     </Screen>
   );
 }
@@ -413,11 +588,62 @@ function CardBody({
 }
 
 const styles = StyleSheet.create({
-  // Right padding keeps the greeting clear of the floating crisis help button
+  top: { gap: spacing.md, marginBottom: spacing.lg },
+  // Right padding keeps the greeting and bell clear of the floating crisis help button
   greeting: {
-    gap: spacing.xs,
-    marginBottom: spacing.lg,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
     paddingRight: TOUCH_TARGET + spacing.sm,
+  },
+  greetingText: { flex: 1, gap: spacing.xs },
+  bell: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bellOpen: { backgroundColor: colors.selected, borderColor: colors.selected },
+  bellBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: radius.full,
+    backgroundColor: colors.danger,
+    borderWidth: 2,
+    borderColor: colors.background,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bellBadgeText: { color: colors.white, fontSize: 10, fontWeight: "700" },
+  panel: {
+    backgroundColor: colors.background,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  panelSection: {
+    ...typography.caption,
+    fontWeight: "600",
+    marginTop: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  backdrop: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+    elevation: 10,
   },
   muted: { color: colors.textSecondary },
   cardSubtitle: { marginTop: spacing.xs },

@@ -17,6 +17,12 @@ export type UpcomingBooking = {
   startAt: Date;
 };
 
+// Counsellor profiles are readable by any signed-in user
+export async function getCounsellorName(counsellorId: string): Promise<string> {
+  const counsellor = await getDoc(doc(db, "counsellors", counsellorId));
+  return counsellor.exists() ? (counsellor.data().fullName as string) : "Your counsellor";
+}
+
 // The soonest pending or confirmed booking that hasn't started, or null
 export async function getUpcomingBooking(uid: string): Promise<UpcomingBooking | null> {
   const now = Date.now();
@@ -29,11 +35,7 @@ export async function getUpcomingBooking(uid: string): Promise<UpcomingBooking |
     );
   if (!next) return null;
 
-  // Counsellor profiles are readable by any signed-in user
-  const counsellor = await getDoc(doc(db, "counsellors", next.counsellorId));
-  const counsellorName = counsellor.exists()
-    ? (counsellor.data().fullName as string)
-    : "Your counsellor";
+  const counsellorName = await getCounsellorName(next.counsellorId);
   return {
     id: next.id,
     counsellorId: next.counsellorId,
