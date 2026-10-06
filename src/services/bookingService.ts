@@ -24,6 +24,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   serverTimestamp,
   Timestamp,
@@ -88,6 +89,26 @@ export async function listMyBookings(uid: string): Promise<Booking[]> {
     query(collection(db, "bookings"), where("studentId", "==", uid)),
   );
   return snap.docs.map((d) => toBooking(d.id, d.data())).sort(byStart);
+}
+
+// Live version of listMyBookings (same query, so the same rules apply).
+// "local" lists bookings whose latest change is this device's own pending write.
+// Returns the unsubscribe function.
+export function subscribeToMyBookings(
+  uid: string,
+  onChange: (bookings: Booking[], local: Set<string>) => void,
+  onError: (error: unknown) => void,
+) {
+  return onSnapshot(
+    query(collection(db, "bookings"), where("studentId", "==", uid)),
+    (snap) => {
+      const local = new Set(
+        snap.docs.filter((d) => d.metadata.hasPendingWrites).map((d) => d.id),
+      );
+      onChange(snap.docs.map((d) => toBooking(d.id, d.data())).sort(byStart), local);
+    },
+    onError,
+  );
 }
 
 // Pending or confirmed -> cancelled, with an optional reason

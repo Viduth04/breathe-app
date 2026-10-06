@@ -74,6 +74,8 @@ export interface ChatUIProps {
   onSendMessage: (text: string, audio?: string, image?: string, video?: string, document?: any) => Promise<void>;
   onDeleteMessages: (messageIds: string[], forEveryone: boolean) => Promise<void>;
   onBack: () => void;
+  // Extra right padding for the header (the student area's floating crisis button)
+  headerRightInset?: number;
 }
 
 export default function ChatUI({
@@ -84,6 +86,7 @@ export default function ChatUI({
   onSendMessage,
   onDeleteMessages,
   onBack,
+  headerRightInset,
 }: ChatUIProps) {
   const [inputText, setInputText] = useState("");
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
@@ -358,7 +361,7 @@ export default function ChatUI({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         {selectedMessages.length > 0 ? (
-          <View style={[styles.doctorInfoCard, { marginTop: 8 }]}>
+          <View style={[styles.doctorInfoCard, { marginTop: 8 }, headerRightInset ? { paddingRight: headerRightInset } : null]}>
             <View style={styles.doctorInfoLeft}>
               <Pressable onPress={() => setSelectedMessages([])} style={[styles.backButton, { borderWidth: 0, backgroundColor: 'transparent' }]}>
                 <Ionicons name="close" size={24} color={colors.text} />
@@ -370,7 +373,7 @@ export default function ChatUI({
             </Pressable>
           </View>
         ) : (
-          <View style={[styles.doctorInfoCard, { marginTop: 8 }]}>
+          <View style={[styles.doctorInfoCard, { marginTop: 8 }, headerRightInset ? { paddingRight: headerRightInset } : null]}>
             <View style={styles.doctorInfoLeft}>
               <Pressable onPress={onBack} style={[styles.backButton, { borderWidth: 0, backgroundColor: 'transparent' }]}>
                 <Ionicons name="chevron-back" size={24} color={colors.text} />

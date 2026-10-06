@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { db } from "@/firebase/config";
 import { getOrCreateChat, subscribeToMessages, sendMessage, deleteMessages, Message } from "@/services/chatService";
 import ChatUI from "@/components/chat/ChatUI";
+import { FLOATING_HELP_CLEARANCE } from "@/components/crisis/UrgentHelpLink";
 
 export default function ChatScreen() {
   const { uid } = useLocalSearchParams<{ uid: string }>();
@@ -124,6 +125,7 @@ export default function ChatScreen() {
       loading={loading}
       onSendMessage={handleSendMessage}
       onDeleteMessages={handleDeleteMessages}
+      headerRightInset={FLOATING_HELP_CLEARANCE}
       onBack={() => {
         if (router.canGoBack()) {
           router.back();

@@ -1,3 +1,4 @@
+import { FLOATING_HELP_CLEARANCE } from "@/components/crisis/UrgentHelpLink";
 import { colors, radius, spacing, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -256,6 +257,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: spacing.md,
+    // Keeps the right-hand icon clear of the floating crisis help button
+    paddingRight: FLOATING_HELP_CLEARANCE,
     paddingVertical: spacing.md,
     backgroundColor: "#FFF",
     borderBottomWidth: 1,
