@@ -524,10 +524,20 @@ service cloud.firestore {
           && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
           && request.resource.data.senderId == request.auth.uid;
 
-        // Sent messages can't be edited. Only the student in the chat can
-        // delete messages (Delete My Data), including the counsellor's replies.
-        allow delete: if isStudent()
-          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        // Participants can mark messages as deleted for themselves
+        allow update: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+          && (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedFor'])
+            || (request.auth.uid == resource.data.senderId 
+                && request.resource.data.isDeleted == true 
+                && (request.time.toMillis() - resource.data.createdAt.toMillis() <= 86400000))
+          );
+
+        // The sender can delete their own message (Delete for everyone).
+        // The student in the chat can also delete messages (Delete My Data).
+        allow delete: if (isSignedIn() && request.auth.uid == resource.data.senderId)
+          || (isStudent() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants);
       }
     }
 

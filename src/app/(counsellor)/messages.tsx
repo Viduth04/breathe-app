@@ -13,15 +13,18 @@ import {
   MessageFilter,
 } from "@/types/counsellorMessages";
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import React, { useEffect, useState } from "react";
+import CounsellorChatWrapper from "@/components/chat/CounsellorChatWrapper";
 import { useCounsellorStore } from "@/services/counsellorStore";
+import { useAuth } from "@/context/AuthContext";
+import { query, where, collection, onSnapshot, Timestamp } from "firebase/firestore";
 import {
   auth,
   db,
   isFirebaseConfigured,
 } from "@/services/counsellorFirebaseConfig";
-import { collection, onSnapshot } from "firebase/firestore";
+
 import {
   FlatList,
   Image,
@@ -45,19 +48,64 @@ export default function CounsellorMessagesScreen() {
     resetConversations,
     sendChatMessage,
   } = useCounsellorStore();
+  const { user } = useAuth();
 
   const params = useLocalSearchParams<{ studentAnonId?: string; fromAcceptance?: string }>();
   const [activeFilter, setActiveFilter] = useState<MessageFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const navigation = useNavigation();
+
+  useEffect(() => {
+    navigation.setOptions({
+      tabBarStyle: activeChatId ? { display: 'none' } : { backgroundColor: colors.surface, borderTopColor: colors.border }
+    });
+  }, [activeChatId, navigation]);
   const [chatInput, setChatInput] = useState("");
   const [threads, setThreads] = useState<ChatThread[]>(storeThreads);
   const [messages, setMessages] = useState<ChatBubble[]>(MOCK_CHAT_BUBBLES);
 
-  // Sync threads whenever store updates
+  // Sync real threads from Firestore
   useEffect(() => {
-    setThreads(storeThreads);
-  }, [storeThreads]);
+    if (!user?.uid) return;
+    const q = query(collection(db, "chats"), where("participants", "array-contains", user.uid));
+    const unsub = onSnapshot(q, (snap) => {
+      const realThreads = snap.docs.map(docSnap => {
+        const data = docSnap.data();
+        const otherParticipantId = data.participants.find((p: string) => p !== user.uid) || "Unknown";
+        
+        // Let's see if we have mock styling for this thread, otherwise generate generic
+        const mockBase = MOCK_CHAT_THREADS.find(m => m.id === docSnap.id) || MOCK_CHAT_THREADS.find(m => m.studentId === otherParticipantId);
+        
+        let timeStr = "Now";
+        let sortTime = 0;
+        if (data.updatedAt) {
+          const date = (data.updatedAt as Timestamp).toDate();
+          sortTime = date.getTime();
+          timeStr = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: 'numeric', hour12: true }).format(date);
+        }
+
+        return {
+          id: docSnap.id,
+          studentId: otherParticipantId,
+          studentAnonId: `Student #${otherParticipantId.substring(0, 4)}`,
+          displayName: mockBase ? mockBase.displayName : `Student #${otherParticipantId.substring(0, 4)}`,
+          idMode: mockBase ? mockBase.idMode : "anonymous",
+          avatarUrl: mockBase ? mockBase.avatarUrl : `https://ui-avatars.com/api/?name=Student+${otherParticipantId.substring(0, 4)}&background=random`, // Fallback generic avatar
+          isOnline: false,
+          lastMessage: data.lastMessage || "No messages yet",
+          lastMessageTime: timeStr,
+          unreadCount: 0,
+          deliveryStatus: "read" as const,
+          _sortTime: sortTime
+        };
+      });
+      
+      realThreads.sort((a, b) => b._sortTime - a._sortTime);
+      setThreads(realThreads as any[]);
+    });
+    return () => unsub();
+  }, [user?.uid]);
 
   // Outreach Modal state (with Anonymous Student ID search bar)
   const [outreachModalVisible, setOutreachModalVisible] = useState(false);
@@ -735,217 +783,7 @@ export default function CounsellorMessagesScreen() {
   // ==========================================
   const renderChatDetailView = () => (
     <View style={styles.chatDetailContainer}>
-      {/* Sticky Top Header */}
-      <View style={styles.chatHeader}>
-        <Pressable
-          style={styles.chatBackBtn}
-          onPress={() => setActiveChatId(null)}
-          accessibilityRole="button"
-          accessibilityLabel="Back to messages inbox"
-        >
-          <Ionicons name="arrow-back" size={22} color={colors.text} />
-        </Pressable>
-
-        <View style={styles.chatHeaderCenter}>
-          <Text style={styles.chatHeaderTitle} numberOfLines={1}>
-            {activeThread?.displayName || "Student"}{" "}
-            {activeThread?.idMode === "standard" && activeThread?.studentAnonId && (
-              <Text style={{ fontSize: 13, fontWeight: "500" }}>
-                ({activeThread.studentAnonId})
-              </Text>
-            )}
-          </Text>
-          <View style={styles.chatHeaderSubRow}>
-            <View style={styles.chatHeaderStatusDot} />
-            <Text style={styles.chatHeaderSubtitle}>
-              Active Session · Encrypted
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.chatHeaderActions}>
-          <Pressable
-            style={styles.chatHeaderIconBtn}
-            onPress={() => setCaseNotesModalVisible(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Open Case Notes"
-          >
-            <Ionicons
-              name="document-text-outline"
-              size={22}
-              color={colors.primary}
-            />
-          </Pressable>
-          <Pressable
-            style={styles.chatHeaderIconBtn}
-            onPress={() => router.navigate("/(counsellor)/schedule")}
-            accessibilityRole="button"
-            accessibilityLabel="View Clinical Schedule"
-          >
-            <Ionicons
-              name="calendar-outline"
-              size={22}
-              color={colors.primary}
-            />
-          </Pressable>
-        </View>
-      </View>
-
-      {/* Next Consultation Reminder Banner */}
-      <View style={styles.consultationBanner} accessibilityRole="summary">
-        <Ionicons name="time" size={18} color="#D97706" />
-        <Text style={styles.consultationText}>
-          Next Consultation: Tomorrow, 2:00 PM (Counseling Suite 304B)
-        </Text>
-        <Pressable
-          onPress={() => setCaseNotesModalVisible(true)}
-          accessibilityRole="button"
-          accessibilityLabel="View File"
-        >
-          <Text style={styles.consultationLink}>View File</Text>
-        </Pressable>
-      </View>
-
-      {/* Chat Messages Stream */}
-      <ScrollView
-        style={styles.chatStream}
-        contentContainerStyle={styles.chatStreamContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {messages.map((bubble) => {
-          if (bubble.isSystemCard) {
-            return (
-              <View
-                key={bubble.id}
-                style={styles.systemModuleCard}
-                accessibilityRole="summary"
-              >
-                <View style={styles.systemCardHeader}>
-                  <Ionicons name="sparkles" size={16} color={colors.primary} />
-                  <Text style={styles.systemCardLabel}>
-                    Prescribed Coping Module
-                  </Text>
-                  <View style={styles.ehrBadge}>
-                    <Text style={styles.ehrBadgeText}>Auto-logged to EHR</Text>
-                  </View>
-                </View>
-                <Text style={styles.systemCardTitle}>
-                  {bubble.systemCardTitle}
-                </Text>
-                <Text style={styles.systemCardSubtitle}>
-                  {bubble.systemCardSubtitle}
-                </Text>
-              </View>
-            );
-          }
-
-          const isCounsellor = bubble.senderRole === "counsellor";
-
-          return (
-            <View
-              key={bubble.id}
-              style={[
-                styles.bubbleRow,
-                isCounsellor ? styles.bubbleRowRight : styles.bubbleRowLeft,
-              ]}
-            >
-              {!isCounsellor && (
-                <View style={styles.studentBubbleAvatar}>
-                  <Ionicons name="person" size={14} color={colors.textSecondary} />
-                </View>
-              )}
-
-              <View
-                style={[
-                  styles.bubble,
-                  isCounsellor ? styles.bubbleCounsellor : styles.bubbleStudent,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.bubbleText,
-                    isCounsellor
-                      ? styles.bubbleTextCounsellor
-                      : styles.bubbleTextStudent,
-                  ]}
-                >
-                  {bubble.text}
-                </Text>
-                <View style={styles.bubbleMetaRow}>
-                  <Text
-                    style={[
-                      styles.bubbleTime,
-                      isCounsellor
-                        ? styles.bubbleTimeCounsellor
-                        : styles.bubbleTimeStudent,
-                    ]}
-                  >
-                    {bubble.timestamp}
-                    {isCounsellor ? " · Sent as Lead Counselor" : ""}
-                  </Text>
-                  {isCounsellor && (
-                    <Ionicons
-                      name="checkmark-done"
-                      size={14}
-                      color="#A7F3D0"
-                      style={{ marginLeft: 4 }}
-                    />
-                  )}
-                </View>
-              </View>
-            </View>
-          );
-        })}
-      </ScrollView>
-
-      {/* Message Input Bar */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-      >
-        <View style={styles.inputBar}>
-          <Pressable
-            style={styles.attachBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Attach coping exercise or assessment"
-            onPress={() => setCaseNotesModalVisible(true)}
-          >
-            <Ionicons name="add" size={26} color={colors.primary} />
-          </Pressable>
-
-          <View style={styles.textInputBox}>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Type confidential message..."
-              placeholderTextColor={colors.textSecondary}
-              value={chatInput}
-              onChangeText={setChatInput}
-              multiline
-            />
-            <Pressable
-              style={styles.quickPhrasesBtn}
-              onPress={() => setChatInput("Remember to take slow, 4-7-8 breaths.")}
-              accessibilityRole="button"
-              accessibilityLabel="Insert quick clinical phrases"
-            >
-              <Ionicons name="flash-outline" size={18} color={colors.primary} />
-            </Pressable>
-          </View>
-
-          <Pressable
-            style={[
-              styles.sendBtn,
-              !chatInput.trim() && styles.sendBtnDisabled,
-            ]}
-            onPress={handleSend}
-            disabled={!chatInput.trim()}
-            accessibilityRole="button"
-            accessibilityLabel="Send confidential message"
-          >
-            <Ionicons name="arrow-up" size={20} color={colors.white} />
-          </Pressable>
-        </View>
-      </KeyboardAvoidingView>
+      <CounsellorChatWrapper activeThread={activeThread} onBack={() => setActiveChatId(null)} />
     </View>
   );
 

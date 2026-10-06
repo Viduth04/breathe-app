@@ -16,6 +16,7 @@ export default function CounselorProfileScreen() {
   const [showCalendar, setShowCalendar] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date().getDate().toString());
+  const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
   const getMockData = (cId: string) => {
     const charCode = cId.charCodeAt(0) || 0;
@@ -234,10 +235,14 @@ export default function CounselorProfileScreen() {
               
               {(counsellor?.availableSlots && counsellor.availableSlots.length > 0) ? (
                 counsellor.availableSlots.map((time, idx) => (
-                  <View key={idx} style={styles.slotBox}>
-                    <Ionicons name="time-outline" size={16} color={colors.primary} />
-                    <Text style={styles.slotText}>{time}</Text>
-                  </View>
+                  <Pressable 
+                    key={idx} 
+                    style={[styles.slotBox, selectedTime === time && styles.slotBoxActive]}
+                    onPress={() => setSelectedTime(time)}
+                  >
+                    <Ionicons name="time-outline" size={16} color={selectedTime === time ? "#FFF" : colors.primary} />
+                    <Text style={[styles.slotText, selectedTime === time && styles.slotTextActive]}>{time}</Text>
+                  </Pressable>
                 ))
               ) : (
                 <View style={{ width: '100%', alignItems: 'center', paddingVertical: 24 }}><Text style={{ color: colors.textSecondary, fontSize: 14 }}>No slots available for this day.</Text></View>
@@ -297,10 +302,14 @@ export default function CounselorProfileScreen() {
           <Ionicons name="chatbubble-outline" size={20} color={colors.primary} />
           <Text style={styles.chatFirstText}>Chat First</Text>
         </Pressable>
-        <Pressable style={styles.bookSessionBtn} onPress={() => router.push({ pathname: "/(student)/session/book", params: { uid: counsellor?.id } })}>
-          <Ionicons name="calendar-outline" size={20} color="#FFF" />
-          <Text style={styles.bookSessionText}>Book Session</Text>
-        </Pressable>
+        <Pressable 
+            style={[styles.bookSessionBtn, !selectedTime && { opacity: 0.5 }]} 
+            disabled={!selectedTime}
+            onPress={() => router.push({ pathname: "/(student)/session/book", params: { uid: counsellor?.id, time: selectedTime } })}
+          >
+            <Ionicons name="calendar-outline" size={20} color="#FFF" />
+            <Text style={styles.bookSessionText}>Book Session</Text>
+          </Pressable>
       </View>
     
       {/* Reviews Modal */}
