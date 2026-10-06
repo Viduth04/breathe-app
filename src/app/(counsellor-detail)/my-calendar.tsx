@@ -136,19 +136,6 @@ export default function MyCalendarScreen() {
       31: ["video"],
     };
 
-    // Augment with real-time bookings from store
-    store.calendarBookings.forEach((b) => {
-      if (!b.isOpenSlot && !b.isBlocked) {
-        const mod = (b.modality || "video") as "video" | "chat" | "in-person";
-        const day = store.selectedCalendarDay || 19;
-        if (!bookedMap[day]) {
-          bookedMap[day] = [mod];
-        } else if (!bookedMap[day].includes(mod)) {
-          bookedMap[day].push(mod);
-        }
-      }
-    });
-
     for (let d = 1; d <= 31; d++) {
       days.push({
         day: d,
@@ -163,7 +150,7 @@ export default function MyCalendarScreen() {
     }
 
     return days;
-  }, [store.calendarBookings, store.selectedCalendarDay]);
+  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
@@ -287,27 +274,8 @@ export default function MyCalendarScreen() {
                   {store.calendarBookings.filter((b) => !b.isOpenSlot).length} Bookings
                 </Text>
               </View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Pressable
-                  onPress={() => router.navigate("/(counsellor-detail)/add-session")}
-                  style={{
-                    backgroundColor: "#076047",
-                    paddingHorizontal: 8,
-                    paddingVertical: 4,
-                    borderRadius: 12,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 3,
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add availability slots"
-                >
-                  <Ionicons name="add" size={14} color="#FFF" />
-                  <Text style={{ fontSize: 11, fontWeight: "700", color: "#FFF" }}>+ Slot</Text>
-                </Pressable>
-                <View style={styles.timezoneBadge}>
-                  <Text style={styles.timezoneText}>GMT+5:30</Text>
-                </View>
+              <View style={styles.timezoneBadge}>
+                <Text style={styles.timezoneText}>UTC-4</Text>
               </View>
             </View>
 

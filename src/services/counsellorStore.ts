@@ -27,12 +27,7 @@ import {
   NewSessionFormInput,
 } from "@/types/counsellorDetailScreens";
 import { ChatThread, ChatBubble } from "@/types/counsellorMessages";
-import {
-  FirestoreSlot,
-  TimeSlot,
-  NewSlotBatchInput,
-  SlotPublishResult,
-} from "@/types/counsellorSchedule";
+import { TimeSlot } from "@/types/counsellorSchedule";
 import {
   DEFAULT_CLINICAL_ALERT_PREFERENCES,
   MOCK_PATIENTS_LIST,
@@ -49,7 +44,6 @@ import {
   getCounselorAuthIdentity,
   isRtdbConfigured,
 } from "@/services/counsellorFirebaseConfig";
-import { isTodayColombo } from "@/services/counsellorNotificationService";
 import {
   collection,
   doc,
@@ -59,11 +53,9 @@ import {
   setDoc,
   updateDoc,
   addDoc,
-  getDoc,
   getDocs,
   serverTimestamp,
   writeBatch,
-  Timestamp,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -306,7 +298,6 @@ type State = {
   selectedCalendarMonth: string;
   scheduleDaySlots: ScheduleDaySlot[];
   heldScheduleSlots: Record<string, boolean>;
-  slots: FirestoreSlot[];
 };
 
 let state: State = {
@@ -426,7 +417,6 @@ let state: State = {
   selectedCalendarMonth: "August 2026",
   scheduleDaySlots: [...INITIAL_SCHEDULE_DAY_SLOTS],
   heldScheduleSlots: {},
-  slots: [],
 };
 
 const listeners = new Set<() => void>();
@@ -517,260 +507,6 @@ export function initFirebaseSync() {
       unsubscribers.push(unsubRequests);
     } catch (err) {
       // Graceful fallback to mock data
-    }
-
-    // 1b. Sync Bookings collection (Student booking pipeline - Member 2 / Ishara contract)
-    try {
-      const bookingsQuery = query(
-        collection(db, FIRESTORE_COLLECTIONS.BOOKINGS),
-        where("counsellorId", "==", counselorUid)
-      );
-      const unsubBookings = onSnapshot(
-        bookingsQuery,
-        (snapshot) => {
-          if (!snapshot.empty) {
-            const rawBookings = snapshot.docs.map((docSnap) => ({
-              id: docSnap.id,
-              ...docSnap.data(),
-            })) as any[];
-
-            // Extract pending requests
-            const pendingBookings = rawBookings.filter(
-              (b) => b.status === "pending"
-            );
-            if (pendingBookings.length > 0) {
-              const normalizedRequests: BookingRequestItem[] = pendingBookings.map(
-                (b) => {
-                  const studentAnon = b.studentAnonId || "Student #anon";
-                  const startMs = b.startAt?.toMillis
-                    ? b.startAt.toMillis()
-                    : b.startAt?.seconds
-                    ? b.startAt.seconds * 1000
-                    : Date.now();
-                  const endMs = b.endAt?.toMillis
-                    ? b.endAt.toMillis()
-                    : b.endAt?.seconds
-                    ? b.endAt.seconds * 1000
-                    : startMs + 45 * 60000;
-                  const startDate = new Date(startMs);
-                  const endDate = new Date(endMs);
-
-                  const startTimeStr = startDate.toLocaleTimeString("en-US", {
-                    hour: "numeric",
-                    minute: "2-digit",
-                    hour12: true,
-                    timeZone: "Asia/Colombo",
-                  });
-                  const dateStr = startDate.toLocaleDateString("en-US", {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                    timeZone: "Asia/Colombo",
-                  });
-
-                  const durationMins = Math.max(15, Math.round((endMs - startMs) / 60000));
-
-                  return {
-                    id: b.id,
-                    studentId: b.studentId || "std-anon",
-                    studentAnonId: studentAnon,
-                    displayName: studentAnon,
-                    idMode: "anonymous" as const,
-                    requestedTime: `${dateStr}, ${startTimeStr}`,
-                    sessionType: b.sessionType === "virtual" ? "video" : (b.sessionType || "video"),
-                    duration: `${durationMins}m`,
-                    topic: b.notes || "General Consultation",
-                    aiMoodBrief: b.aiMoodBrief,
-                    status: "pending" as const,
-                  };
-                }
-              );
-
-              state = {
-                ...state,
-                requests: normalizedRequests,
-              };
-              notifyListeners();
-            }
-
-            // Extract confirmed bookings -> sessions & calendarBookings
-            const confirmedBookings = rawBookings.filter(
-              (b) => b.status === "confirmed"
-            );
-            if (confirmedBookings.length > 0) {
-              const normalizedSessions: SessionItem[] = confirmedBookings.map(
-                (b) => {
-                  const studentAnon = b.studentAnonId || "Student #anon";
-                  const startMs = b.startAt?.toMillis
-                    ? b.startAt.toMillis()
-                    : b.startAt?.seconds
-                    ? b.startAt.seconds * 1000
-                    : Date.now();
-                  const endMs = b.endAt?.toMillis
-                    ? b.endAt.toMillis()
-                    : b.endAt?.seconds
-                    ? b.endAt.seconds * 1000
-                    : startMs + 45 * 60000;
-                  const startDate = new Date(startMs);
-                  const endDate = new Date(endMs);
-
-                  const startTimeStr = startDate.toLocaleTimeString("en-US", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    hour12: true,
-                    timeZone: "Asia/Colombo",
-                  });
-                  const endTimeStr = endDate.toLocaleTimeString("en-US", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    hour12: true,
-                    timeZone: "Asia/Colombo",
-                  });
-
-                  const isToday = isTodayColombo(b.startAt);
-
-                  return {
-                    id: b.id,
-                    studentId: b.studentId || "std-anon",
-                    studentAnonId: studentAnon,
-                    displayName: studentAnon,
-                    idMode: "anonymous" as const,
-                    timeRange: `${startTimeStr} – ${endTimeStr}`,
-                    timeRelative: isToday ? "Today" : "Upcoming",
-                    isNext: false,
-                    sessionType: b.sessionType === "virtual" ? "video" : (b.sessionType || "video"),
-                    sessionTypeLabel:
-                      b.sessionType === "video" || b.sessionType === "virtual"
-                        ? "Encrypted Video Consultation"
-                        : b.sessionType === "chat"
-                        ? "Secured Chat Session"
-                        : "In-Person Consultation",
-                    noteType: "Focus" as const,
-                    noteText: b.notes || "Confirmed Student Consultation",
-                    status: "confirmed" as const,
-                  };
-                }
-              );
-
-              const normalizedCalendar: CalendarBooking[] = confirmedBookings.map(
-                (b) => {
-                  const studentAnon = b.studentAnonId || "Student #anon";
-                  const startMs = b.startAt?.toMillis
-                    ? b.startAt.toMillis()
-                    : b.startAt?.seconds
-                    ? b.startAt.seconds * 1000
-                    : Date.now();
-                  const endMs = b.endAt?.toMillis
-                    ? b.endAt.toMillis()
-                    : b.endAt?.seconds
-                    ? b.endAt.seconds * 1000
-                    : startMs + 45 * 60000;
-                  const startDate = new Date(startMs);
-                  const endDate = new Date(endMs);
-
-                  const startTimeStr = startDate.toLocaleTimeString("en-US", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    hour12: true,
-                    timeZone: "Asia/Colombo",
-                  });
-                  const endTimeStr = endDate.toLocaleTimeString("en-US", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    hour12: true,
-                    timeZone: "Asia/Colombo",
-                  });
-
-                  return {
-                    id: b.id,
-                    timeSlot: startTimeStr,
-                    studentId: b.studentId || "std-anon",
-                    studentAnonId: studentAnon,
-                    displayName: studentAnon,
-                    idMode: "anonymous" as const,
-                    subInfo: "Anonymous Profile",
-                    timeRange: `${startTimeStr} - ${endTimeStr}`,
-                    modality: (b.sessionType === "virtual" ? "video" : (b.sessionType || "video")) as "video" | "chat" | "in-person",
-                    modalityLabel: "Consultation",
-                    securityTag: "Encrypted",
-                    statusText: "Confirmed",
-                    isOpenSlot: false,
-                  };
-                }
-              );
-
-              state = {
-                ...state,
-                sessions: normalizedSessions,
-                calendarBookings: normalizedCalendar,
-              };
-              notifyListeners();
-            }
-          }
-        },
-        (err: any) => {
-          if (!isFirestorePermissionError(err)) {
-            console.warn("[counsellorStore] Bookings onSnapshot error:", err?.message || err);
-          }
-        }
-      );
-      unsubscribers.push(unsubBookings);
-    } catch (err) {
-      // Graceful fallback
-    }
-
-    // 1c. Sync Slots collection (Availability slots published to students)
-    try {
-      const slotsQuery = query(
-        collection(db, FIRESTORE_COLLECTIONS.SLOTS),
-        where("counsellorId", "==", counselorUid)
-      );
-      const unsubSlots = onSnapshot(
-        slotsQuery,
-        (snapshot) => {
-          if (!snapshot.empty) {
-            const rawSlots = snapshot.docs.map((docSnap) => ({
-              id: docSnap.id,
-              ...docSnap.data(),
-            })) as FirestoreSlot[];
-
-            const updatedScheduleSlots = state.scheduleDaySlots.map((ds) => {
-              const matched = rawSlots.find(
-                (s) => s.timeRange === ds.timeRange || s.id.includes(ds.timeRange.replace(/[^a-zA-Z0-9]/g, ""))
-              );
-              if (matched) {
-                const isBooked = matched.isBooked || matched.status === "booked";
-                return {
-                  ...ds,
-                  isBooked,
-                  isHeld: matched.status === "closed" || matched.status === "held",
-                  studentName: isBooked
-                    ? matched.bookedStudentAnonId || ds.studentName || "Booked Student"
-                    : "Open for booking",
-                  statusBadge: (isBooked ? "Confirmed" : "Open") as "Confirmed" | "Open",
-                  modalityType: (isBooked ? ds.modalityType : "open") as any,
-                };
-              }
-              return ds;
-            });
-
-            state = {
-              ...state,
-              slots: rawSlots,
-              scheduleDaySlots: updatedScheduleSlots,
-            };
-            notifyListeners();
-          }
-        },
-        (err: any) => {
-          if (!isFirestorePermissionError(err)) {
-            console.warn("[counsellorStore] Slots onSnapshot error:", err?.message || err);
-          }
-        }
-      );
-      unsubscribers.push(unsubSlots);
-    } catch (err) {
-      // Graceful fallback
     }
 
     // 2. Sync Sessions
@@ -1088,68 +824,44 @@ export const counsellorStore = {
           const studentId = targetReq.studentId || "std-5104";
           const batch = writeBatch(db);
 
-          // 1. Check if document exists in bookings collection (Student booking pipeline)
-          let isRealBooking = false;
+          // 1. Update Request status
           if (targetReq.id && !targetReq.id.startsWith("mock-") && !targetReq.id.startsWith("req-5104")) {
+            const reqRef = doc(db, FIRESTORE_COLLECTIONS.REQUESTS, targetReq.id);
+            batch.update(reqRef, {
+              status: "accepted",
+              counselorNote: counselorNote || null,
+              acceptedAt: serverTimestamp(),
+            });
+
+            // 2. Also update status in bookings collection if it exists
             const bookingRef = doc(db, FIRESTORE_COLLECTIONS.BOOKINGS, targetReq.id);
-            const bookingSnap = await getDoc(bookingRef);
-            if (bookingSnap.exists()) {
-              isRealBooking = true;
-              batch.update(bookingRef, {
-                status: "confirmed",
-                updatedAt: serverTimestamp(),
-              });
-
-              // Lock linked slot if slotId exists
-              const slotId = bookingSnap.data()?.slotId;
-              if (slotId) {
-                const slotRef = doc(db, "slots", slotId);
-                const slotSnap = await getDoc(slotRef);
-                if (slotSnap.exists()) {
-                  batch.update(slotRef, {
-                    isBooked: true,
-                    status: "booked",
-                    bookingId: targetReq.id,
-                    bookedStudentAnonId: studentAnonId,
-                    updatedAt: serverTimestamp(),
-                  });
-                }
-              }
-
-              // Atomically create careLinks/{counsellorId}_{studentId}
-              // Doc ID is strictly "<counsellorUid>_<studentUid>" per firestore.rules
-              const careLinkId = `${uid}_${studentId}`;
-              const existingLinks = await getDocs(
-                query(
-                  collection(db, "careLinks"),
-                  where("counsellorId", "==", uid),
-                  where("studentId", "==", studentId)
-                )
-              );
-              if (existingLinks.empty) {
-                const careLinkRef = doc(db, "careLinks", careLinkId);
-                batch.set(careLinkRef, {
-                  counsellorId: uid,
-                  studentId: studentId,
-                  bookingId: targetReq.id,
-                  createdAt: serverTimestamp(),
-                });
-              }
-            } else {
-              // Legacy requests collection check
-              const reqRef = doc(db, FIRESTORE_COLLECTIONS.REQUESTS, targetReq.id);
-              const reqSnap = await getDoc(reqRef);
-              if (reqSnap.exists()) {
-                batch.update(reqRef, {
-                  status: "accepted",
-                  counselorNote: counselorNote || null,
-                  acceptedAt: serverTimestamp(),
-                });
-              }
-            }
+            batch.update(bookingRef, {
+              status: "confirmed",
+              updatedAt: serverTimestamp(),
+            });
           }
 
-          // 2. Create confirmed session in sessions collection
+          // 3. Atomically create careLinks/{counsellorId}_{studentId}
+          // Doc ID is strictly "<counsellorUid>_<studentUid>" per firestore.rules
+          const careLinkId = `${uid}_${studentId}`;
+          const existingLinks = await getDocs(
+            query(
+              collection(db, "careLinks"),
+              where("counsellorId", "==", uid),
+              where("studentId", "==", studentId)
+            )
+          );
+          if (existingLinks.empty) {
+            const careLinkRef = doc(db, "careLinks", careLinkId);
+            batch.set(careLinkRef, {
+              counsellorId: uid,
+              studentId: studentId,
+              bookingId: targetReq.id || `booking-${Date.now()}`,
+              createdAt: serverTimestamp(),
+            });
+          }
+
+          // 4. Create confirmed session in sessions collection
           const sessionRef = doc(collection(db, FIRESTORE_COLLECTIONS.SESSIONS));
           batch.set(sessionRef, {
             counselorId: uid,
@@ -1168,7 +880,7 @@ export const counsellorStore = {
             createdAt: serverTimestamp(),
           });
 
-          // 3. Create confirmation notification
+          // 5. Create confirmation notification
           const notifRef = doc(collection(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS));
           batch.set(notifRef, {
             recipientId: uid,
@@ -1405,37 +1117,12 @@ export const counsellorStore = {
       (async () => {
         try {
           if (targetReq.id && !targetReq.id.startsWith("mock-") && !targetReq.id.startsWith("req-5104")) {
-            const bookingRef = doc(db, FIRESTORE_COLLECTIONS.BOOKINGS, targetReq.id);
-            const bookingSnap = await getDoc(bookingRef);
-            if (bookingSnap.exists()) {
-              await updateDoc(bookingRef, {
-                status: "declined",
-                cancelReason: (reason || "Schedule conflict").slice(0, 200),
-                updatedAt: serverTimestamp(),
-              });
-              const slotId = bookingSnap.data()?.slotId;
-              if (slotId) {
-                const slotRef = doc(db, "slots", slotId);
-                await updateDoc(slotRef, {
-                  isBooked: false,
-                  status: "open",
-                  bookingId: null,
-                  bookedStudentAnonId: null,
-                  updatedAt: serverTimestamp(),
-                }).catch(() => {});
-              }
-            } else {
-              const reqRef = doc(db, FIRESTORE_COLLECTIONS.REQUESTS, targetReq.id);
-              const reqSnap = await getDoc(reqRef);
-              if (reqSnap.exists()) {
-                await updateDoc(reqRef, {
-                  status: "declined",
-                  declineReason: reason,
-                  declineNote: note || null,
-                  declinedAt: serverTimestamp(),
-                });
-              }
-            }
+            await updateDoc(doc(db, FIRESTORE_COLLECTIONS.REQUESTS, targetReq.id), {
+              status: "declined",
+              declineReason: reason,
+              declineNote: note || null,
+              declinedAt: serverTimestamp(),
+            });
           }
           await addDoc(collection(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS), {
             recipientId: uid,
@@ -1900,32 +1587,11 @@ export const counsellorStore = {
       (async () => {
         try {
           if (sessionIdOrAnonId && !sessionIdOrAnonId.startsWith("session-")) {
-            const bookingRef = doc(db, FIRESTORE_COLLECTIONS.BOOKINGS, sessionIdOrAnonId);
-            const bookingSnap = await getDoc(bookingRef);
-            if (bookingSnap.exists()) {
-              await updateDoc(bookingRef, {
-                status: "cancelled",
-                cancelReason: (reason || "Cancelled by counsellor").slice(0, 200),
-                updatedAt: serverTimestamp(),
-              });
-              const slotId = bookingSnap.data()?.slotId;
-              if (slotId) {
-                const slotRef = doc(db, "slots", slotId);
-                await updateDoc(slotRef, {
-                  isBooked: false,
-                  status: "open",
-                  bookingId: null,
-                  bookedStudentAnonId: null,
-                  updatedAt: serverTimestamp(),
-                }).catch(() => {});
-              }
-            } else {
-              await updateDoc(doc(db, FIRESTORE_COLLECTIONS.SESSIONS, sessionIdOrAnonId), {
-                status: "cancelled",
-                cancelReason: reason,
-                cancelledAt: serverTimestamp(),
-              });
-            }
+            await updateDoc(doc(db, FIRESTORE_COLLECTIONS.SESSIONS, sessionIdOrAnonId), {
+              status: "cancelled",
+              cancelReason: reason,
+              cancelledAt: serverTimestamp(),
+            });
           }
           await addDoc(collection(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS), {
             recipientId: uid,
@@ -2030,11 +1696,7 @@ export const counsellorStore = {
   },
 
   // Save availability slots to root slots collection (aligned with firestore.rules)
-  async saveScheduleSlots(slots: TimeSlot[], selectedDateKey?: string) {
-    const colomboDateKey =
-      selectedDateKey ||
-      new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Colombo" });
-
+  async saveScheduleSlots(slots: TimeSlot[]) {
     state = {
       ...state,
       scheduleDaySlots: state.scheduleDaySlots.map((ds) => {
@@ -2050,18 +1712,15 @@ export const counsellorStore = {
         const batch = writeBatch(db);
         slots.forEach((slot) => {
           const timeSlug = slot.timeRange.replace(/[^a-zA-Z0-9]/g, "");
-          const dateSlug = (slot.dateKey || colomboDateKey).replace(/-/g, "");
-          const slotDocRef = doc(db, "slots", `slot_${uid}_${dateSlug}_${timeSlug}`);
+          const slotDocRef = doc(db, "slots", `slot_${uid}_${timeSlug}`);
           batch.set(
             slotDocRef,
             {
               counsellorId: uid,
-              dateKey: slot.dateKey || colomboDateKey,
               timeRange: slot.timeRange,
               status: slot.status,
               isBooked: slot.status === "booked",
               bookedStudentAnonId: slot.bookedStudentAnonId || null,
-              bookingId: slot.bookingId || null,
               updatedAt: serverTimestamp(),
             },
             { merge: true }
@@ -2074,170 +1733,6 @@ export const counsellorStore = {
         }
       }
     }
-  },
-
-  // Multi-slot availability publisher (supports single, multi-time, date range, recurring)
-  async publishAvailabilityBatch(batchInputs: NewSlotBatchInput[]): Promise<SlotPublishResult> {
-    if (!batchInputs || batchInputs.length === 0) {
-      return { success: false, createdCount: 0, skippedCount: 0, message: "No slots to publish." };
-    }
-
-    if (batchInputs.length > 100) {
-      return { success: false, createdCount: 0, skippedCount: 0, message: "Maximum batch limit is 100 slots." };
-    }
-
-    const uid = auth?.currentUser?.uid || "coun_anjali_01";
-    let createdCount = 0;
-    let skippedCount = 0;
-
-    const newFirestoreSlots: FirestoreSlot[] = [];
-    const newCalendarBookings: CalendarBooking[] = [];
-    const validBatchInputs: NewSlotBatchInput[] = [];
-
-    // Filter out conflicts with already booked slots in state
-    for (const input of batchInputs) {
-      const isConflictingWithBooked = state.slots.some(
-        (s) => s.dateKey === input.dateKey && s.timeRange === input.timeRange && (s.isBooked || s.status === "booked")
-      );
-      if (isConflictingWithBooked) {
-        skippedCount++;
-      } else {
-        validBatchInputs.push(input);
-      }
-    }
-
-    validBatchInputs.forEach((input) => {
-      const timeSlug = input.timeRange.replace(/[^a-zA-Z0-9]/g, "");
-      const dateSlug = input.dateKey.replace(/-/g, "");
-      const slotId = `slot_${uid}_${dateSlug}_${timeSlug}`;
-
-      const fSlot: FirestoreSlot = {
-        id: slotId,
-        counsellorId: uid,
-        dateKey: input.dateKey,
-        timeRange: input.timeRange,
-        startAt: input.startAt || null,
-        endAt: input.endAt || null,
-        status: input.status || "open",
-        isBooked: false,
-        bookingId: null,
-        bookedStudentAnonId: null,
-        updatedAt: new Date().toISOString(),
-      };
-      newFirestoreSlots.push(fSlot);
-
-      const [startStr] = input.timeRange.split("–").map((s) => s.trim());
-      const calBooking: CalendarBooking = {
-        id: `cal-${slotId}`,
-        timeSlot: startStr || input.timeRange,
-        studentId: "",
-        studentAnonId: "Open for booking",
-        displayName: "Open Slot",
-        idMode: "anonymous",
-        subInfo: `${input.durationMin}m ${input.format} slot`,
-        timeRange: input.timeRange,
-        modality: input.format === "in-person" ? "in-person" : input.format === "chat" ? "chat" : "video",
-        modalityLabel: `Open ${input.format}`,
-        securityTag: "Published",
-        statusText: "Open",
-        isOpenSlot: true,
-        isBlocked: input.status === "blocked" || input.status === "closed",
-      };
-      newCalendarBookings.push(calBooking);
-      createdCount++;
-    });
-
-    // Update local store immediately for instant UI responsiveness across Schedule & My Calendar
-    const existingIds = new Set(newFirestoreSlots.map((s) => s.id));
-    const mergedSlots = [
-      ...state.slots.filter((s) => !existingIds.has(s.id)),
-      ...newFirestoreSlots,
-    ];
-
-    state = {
-      ...state,
-      slots: mergedSlots,
-      calendarBookings: [
-        ...state.calendarBookings.filter(
-          (b) => !b.isOpenSlot || !existingIds.has(b.id.replace("cal-", ""))
-        ),
-        ...newCalendarBookings,
-      ],
-    };
-    notifyListeners();
-
-    // Persist to Firestore if configured
-    if (isFirebaseConfigured() && auth.currentUser) {
-      try {
-        const CHUNK_SIZE = 450;
-        for (let i = 0; i < validBatchInputs.length; i += CHUNK_SIZE) {
-          const chunk = validBatchInputs.slice(i, i + CHUNK_SIZE);
-          const batch = writeBatch(db);
-
-          chunk.forEach((input) => {
-            const timeSlug = input.timeRange.replace(/[^a-zA-Z0-9]/g, "");
-            const dateSlug = input.dateKey.replace(/-/g, "");
-            const slotDocRef = doc(db, "slots", `slot_${uid}_${dateSlug}_${timeSlug}`);
-
-            batch.set(
-              slotDocRef,
-              {
-                counsellorId: uid,
-                dateKey: input.dateKey,
-                timeRange: input.timeRange,
-                startAt: input.startAt ? Timestamp.fromDate(new Date(input.startAt)) : serverTimestamp(),
-                endAt: input.endAt ? Timestamp.fromDate(new Date(input.endAt)) : serverTimestamp(),
-                durationMin: input.durationMin,
-                format: input.format,
-                room: input.format === "in-person" ? (input.room || "Room 302") : null,
-                topicTag: input.topicTag || "General Consultation",
-                status: input.status || "open",
-                isBooked: false,
-                bookingId: null,
-                bookedStudentAnonId: null,
-                source: input.seriesId ? "recurring" : "manual",
-                seriesId: input.seriesId || null,
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp(),
-              },
-              { merge: true }
-            );
-          });
-
-          await batch.commit();
-        }
-
-        // Dual-write: Also sync unique time ranges to counsellors/{uid}.availableSlots
-        // This ensures the student profile screen (counselor.tsx:236) immediately sees them!
-        const distinctTimes = Array.from(
-          new Set([
-            ...state.scheduleDaySlots
-              .filter((s) => !s.isBooked && !s.isHeld)
-              .map((s) => s.timeRange.split("–")[0].trim()),
-            ...validBatchInputs.map((b) => b.timeRange.split("–")[0].trim()),
-          ])
-        ).slice(0, 8);
-
-        await updateDoc(doc(db, "counsellors", uid), {
-          isAvailable: true,
-          availableSlots: distinctTimes,
-          updatedAt: serverTimestamp(),
-        }).catch(() => {});
-      } catch (err: any) {
-        if (!isFirestorePermissionError(err)) {
-          console.warn("[counsellorStore] publishAvailabilityBatch Firestore error:", err);
-        }
-      }
-    }
-
-    return {
-      success: true,
-      createdCount,
-      skippedCount,
-      message: `${createdCount} availability slot${createdCount === 1 ? "" : "s"} successfully published${
-        skippedCount > 0 ? ` (${skippedCount} booked slots skipped)` : ""
-      }.`,
-    };
   },
 
   initFirebaseSync,
@@ -2295,7 +1790,6 @@ export function useCounsellorStore() {
     toggleHoldScheduleSlot: counsellorStore.toggleHoldScheduleSlot,
     sendChatMessage: counsellorStore.sendChatMessage,
     saveScheduleSlots: counsellorStore.saveScheduleSlots,
-    publishAvailabilityBatch: counsellorStore.publishAvailabilityBatch,
 
     // RTDB Real-time signaling
     setTypingIndicator,

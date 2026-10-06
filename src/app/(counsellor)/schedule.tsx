@@ -13,7 +13,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import { useAuth } from "@/context/AuthContext";
 import { router, useLocalSearchParams } from "expo-router";
@@ -74,29 +74,6 @@ export default function CounsellorScheduleScreen() {
       setViewMode(params.view as ViewMode);
     }
   }, [params.view]);
-
-  // Synchronize local slots with live store.slots from Firestore
-  useEffect(() => {
-    if (store.slots && store.slots.length > 0) {
-      setSlots((prev) =>
-        prev.map((slot) => {
-          const match = store.slots.find(
-            (s) =>
-              s.timeRange === slot.timeRange ||
-              s.id.includes(slot.timeRange.replace(/[^a-zA-Z0-9]/g, ""))
-          );
-          if (match) {
-            return {
-              ...slot,
-              status: match.status,
-              bookedStudentAnonId: match.bookedStudentAnonId || slot.bookedStudentAnonId,
-            };
-          }
-          return slot;
-        })
-      );
-    }
-  }, [store.slots]);
 
   const showToast = (msg: string) => {
     setFeedbackMessage(msg);
@@ -169,30 +146,31 @@ export default function CounsellorScheduleScreen() {
   };
 
   const handleSave = async () => {
-    // 1. Calculate Asia/Colombo date key for selected day
-    const now = new Date();
-    const colomboYear = now.toLocaleDateString("en-US", { year: "numeric", timeZone: "Asia/Colombo" });
-    const colomboMonth = now.toLocaleDateString("en-US", { month: "2-digit", timeZone: "Asia/Colombo" });
-    const selectedDayNum = store.selectedCalendarDay || 19;
-    const formattedDay = String(selectedDayNum).padStart(2, "0");
-    const dateKey = `${colomboYear}-${colomboMonth}-${formattedDay}`;
 
-    // 2. Save canonical slots to Firestore /slots collection
-    await store.saveScheduleSlots(slots, dateKey);
+    // Run upstream batch saving logic
+    store.saveScheduleSlots(slots);
 
-    // 3. Update counsellor profile availability status (adhering strictly to validCounsellorProfile)
+    // Run simple string-based saving logic for the student dashboard display
+
+
     try {
       if (user?.uid) {
+        const availableTimes = store.scheduleDaySlots
+          .filter(s => !s.isBooked && !store.heldScheduleSlots[s.id])
+          .map(s => {
+             const m = s.timeRange.match(/^(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
+             return m ? m[1] : s.timeRange;
+          });
+        
         await updateDoc(doc(db, "counsellors", user.uid), {
-          isAvailable: true,
-          updatedAt: serverTimestamp(),
-        }).catch(() => {
-          // Non-blocking catch to prevent permission-denied if profile lacks other fields
+          availableSlots: availableTimes,
+          availableDate: String(store.selectedCalendarDay || 15)
         });
       }
       showToast("Availability saved. Changes reflected instantly.");
     } catch (e) {
-      showToast("Availability saved locally.");
+      console.warn("Failed to save to DB:", e);
+      showToast("Error saving availability.");
     }
   };
 
@@ -833,9 +811,10 @@ export default function CounsellorScheduleScreen() {
               <Pressable
                 style={styles.quickRuleCard}
                 onPress={() =>
-                  router.navigate({
-                    pathname: "/(counsellor-detail)/add-session",
-                    params: { mode: "recurring" },
+                  setModalData({
+                    title: "Set Recurring Rules",
+                    description:
+                      "Define default weekly working shifts, lunch hours, and routine buffers.",
                   })
                 }
                 accessibilityRole="button"

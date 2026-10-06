@@ -17,7 +17,6 @@ export const FIRESTORE_COLLECTIONS = {
   COUNSELOR_PREFERENCES: "counselorPreferences",
   COUNSELOR_AVAILABILITY: "counselorAvailability",
   BOOKINGS: "bookings",
-  SLOTS: "slots",
 } as const;
 
 export const RTDB_PATHS = {

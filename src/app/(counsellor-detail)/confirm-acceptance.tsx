@@ -28,13 +28,8 @@ export default function ConfirmAcceptanceModal() {
     requests[0];
 
   const studentAnonId = targetReq?.studentAnonId || "Student #5104";
-  const requestedDate = targetReq?.requestedTime || "Tomorrow, Tue 19 Aug • 10:00–10:45 AM";
-  const sessionFormat =
-    targetReq?.sessionType === "chat"
-      ? "Secured Chat Session (45 min)"
-      : targetReq?.sessionType === "in-person"
-      ? "In-Person Consultation (45 min)"
-      : "Video Consultation (45 min)";
+  const requestedDate = "Tomorrow, Tue 19 Aug • 10:00–10:45 AM";
+  const sessionFormat = "Video Consultation (45 min)";
 
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
