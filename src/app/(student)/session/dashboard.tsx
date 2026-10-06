@@ -62,7 +62,10 @@ export default function SessionsScreen() {
       if (selectedCategory !== "All") {
         if (!c.specialties.includes(selectedCategory as any)) return false;
       }
-      if (availableNow && !c.isAvailable) return false;
+      if (availableNow) {
+          if (!c.isAvailable) return false;
+          if (!c.availableSlots || c.availableSlots.length === 0) return false;
+        }
       return true;
     });
   }, [counsellors, searchQuery, selectedCategory, availableNow]);
@@ -88,13 +91,7 @@ export default function SessionsScreen() {
       <View style={styles.header}>
         
         <Text style={styles.headerTitle}>Counselor Booking</Text>
-        <View>
-          <Image
-            source={{ uri: "https://i.pravatar.cc/150?img=47" }}
-            style={styles.avatar}
-          />
-          <View style={styles.onlineBadge} />
-        </View>
+        
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -232,10 +229,7 @@ export default function SessionsScreen() {
 
         {filter === "past" && (
           <>
-            <View style={[styles.sectionHeader, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
-              <Text style={[typography.caption, { color: colors.primary, fontWeight: '700', letterSpacing: 0.5 }]}>COMPLETED HISTORY (4)</Text>
-              <Text style={typography.caption}>Auto-archived</Text>
-            </View>
+            
 
                         {sessionsLoading ? <ActivityIndicator style={{marginTop: 40}} /> : pastSessions.length === 0 ? <Text style={{textAlign: 'center', marginTop: 40}}>No past sessions</Text> : pastSessions.map(session => (
               <Card key={session.id} style={styles.sessionCard}>
@@ -282,17 +276,6 @@ export default function SessionsScreen() {
 {filter === "cancelled" && (
           <>
             {/* Notice Card */}
-            <View style={styles.noticeCard}>
-              <View style={styles.noticeIconBox}>
-                <Ionicons name="information-circle-outline" size={20} color={colors.primary} />
-              </View>
-              <View style={styles.noticeTextContainer}>
-                <Text style={styles.noticeTitle}>Cancellation Policy Notice</Text>
-                <Text style={styles.noticeBody}>
-                  Cancelled sessions are archived for your records. No charges apply for sessions cancelled {">"}24 hrs in advance.
-                </Text>
-              </View>
-            </View>
 
             {sessionsLoading ? <ActivityIndicator style={{marginTop: 40}} /> : cancelledSessions.length === 0 ? <Text style={{textAlign: 'center', marginTop: 40}}>No cancelled sessions</Text> : cancelledSessions.map(session => (
               <Card key={session.id} style={styles.sessionCard}>
@@ -353,9 +336,14 @@ export default function SessionsScreen() {
 
             {/* Sort Row */}
             <View style={styles.sortRow}>
-              <Text style={styles.showingText}>Showing <Text style={{fontWeight: '700'}}>{filteredCounsellors.length} matching counselor{filteredCounsellors.length !== 1 ? 's' : ''}</Text></Text>
-              
-            </View>
+                <Text style={styles.showingText}>
+                  {filteredCounsellors.length === counsellors.length ? 'Total ' : 'Showing '}
+                  <Text style={{fontWeight: '700'}}>
+                    {filteredCounsellors.length}
+                    {filteredCounsellors.length !== counsellors.length ? ` of ${counsellors.length}` : ''} counselor{filteredCounsellors.length !== 1 ? 's' : ''}
+                  </Text>
+                </Text>
+              </View>
 
             {loading ? (
               <View style={{ padding: 40, alignItems: 'center' }}>
@@ -381,15 +369,12 @@ export default function SessionsScreen() {
     <Text style={styles.findAvailability}>{counselor.isAvailable ? 'Available' : 'Currently Unavailable'}</Text>
   </View>
                       </View>
-                      <Ionicons name="bookmark-outline" size={20} color={colors.textSecondary} style={styles.bookmarkIcon} />
                     </View>
                     <View style={styles.findCardBottom}>
                       <View style={styles.nextTimeRow}>
                           <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
                           <Text style={styles.nextTimeText}>
-                            {counselor.isAvailable && counselor.availableSlots?.length > 0 
-                              ? `Next: ${counselor.availableSlots[0]}` 
-                              : 'No upcoming slots'}
+                            {counselor.isAvailable && counselor.availableSlots && counselor.availableSlots.length > 0 ? `Next: ${counselor.availableSlots[0]}` : 'No upcoming slots'}
                           </Text>
                         </View>
                       <Pressable style={styles.viewProfileBtn} onPress={() => router.push({ pathname: "/(student)/session/counselor", params: { uid: counselor.uid } })}>
@@ -401,20 +386,6 @@ export default function SessionsScreen() {
                 );
               })
             )}
-
-            {/* Urgent Support */}
-            <View style={styles.urgentSupportBox}>
-              <View style={styles.urgentSupportLeft}>
-                <Ionicons name="accessibility-outline" size={20} color={colors.text} style={styles.urgentIcon} />
-                <View>
-                  <Text style={styles.urgentTitle}>Need urgent support?</Text>
-                  <Text style={styles.urgentBody}>Our peer mental wellness{"\n"}helpline is open 24/7 with zero{"\n"}waiting.</Text>
-                </View>
-              </View>
-              <Pressable style={styles.talkNowBtn}>
-                <Text style={styles.talkNowText}>Talk Now</Text>
-              </Pressable>
-            </View>
           </View>
         )}
 
@@ -962,9 +933,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.text,
     marginLeft: spacing.md,
-  },
-  bookmarkIcon: {
-    marginLeft: "auto",
   },
   findCardBottom: {
     flexDirection: "row",

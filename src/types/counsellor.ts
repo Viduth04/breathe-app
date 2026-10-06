@@ -37,6 +37,8 @@ export type CounsellorProfile = {
   bio: string; // Max COUNSELLOR_BIO_MAX characters
   isAvailable: boolean; // Shown to students as bookable
   updatedAt: Timestamp | null; // null only while a local write is pending
+  availableSlots?: string[];
+  availableDate?: string;
 };
 
 // What the admin form edits (updatedAt is set by the service)
