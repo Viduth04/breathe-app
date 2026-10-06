@@ -1,7 +1,7 @@
 // Counsellor Request Detail Screen - Muaath (Member 4). Supports FR01, FR08.
 // Full pending booking request view for Student #5104 matching high-fidelity design.
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -33,8 +33,8 @@ export default function RequestDetailScreen() {
         ...MOCK_REQUEST_DETAIL,
         id: matchedReq.id,
         studentAnonId: matchedReq.studentAnonId,
-        displayName: matchedReq.displayName,
-        idMode: matchedReq.idMode,
+        displayName: matchedReq.displayName || matchedReq.studentAnonId,
+        idMode: matchedReq.idMode || "anon",
         sessionType: matchedReq.sessionType,
         sessionTypeLabel:
           matchedReq.sessionType === "video"
@@ -42,12 +42,47 @@ export default function RequestDetailScreen() {
             : matchedReq.sessionType === "chat"
             ? "Secured Chat Session"
             : "In-Person Consultation",
+        proposedDate: matchedReq.date || "Scheduled Slot",
         proposedTime: matchedReq.requestedTime || "10:00–10:45 AM",
-        primaryConcernTopic: matchedReq.topic || "Academic Burnout & Fatigue",
+        primaryConcernTopic: matchedReq.topic || "General Wellbeing",
+        concern: matchedReq.topic || "General Wellbeing",
+        personalNote: matchedReq.notes ? matchedReq.notes.replace(/^ANONYMOUS:\s*/, "") : "No additional note provided by student.",
+        status: matchedReq.status === "confirmed" ? "accepted" : (matchedReq.status === "declined" ? "declined" : "pending"),
       };
     }
-    return MOCK_REQUEST_DETAIL;
+    return {
+      ...MOCK_REQUEST_DETAIL,
+      id: params.requestId || "req-pending",
+      studentAnonId: params.studentAnonId || "Student #ANON",
+      proposedDate: "Scheduled Slot",
+      personalNote: "No additional note provided by student.",
+    };
   });
+
+  useEffect(() => {
+    if (matchedReq) {
+      setData((prev) => ({
+        ...prev,
+        id: matchedReq.id,
+        studentAnonId: matchedReq.studentAnonId,
+        displayName: matchedReq.displayName || matchedReq.studentAnonId,
+        idMode: matchedReq.idMode || "anon",
+        sessionType: matchedReq.sessionType,
+        sessionTypeLabel:
+          matchedReq.sessionType === "video"
+            ? "Encrypted Video Call (45m)"
+            : matchedReq.sessionType === "chat"
+            ? "Secured Chat Session"
+            : "In-Person Consultation",
+        proposedDate: matchedReq.date || prev.proposedDate,
+        proposedTime: matchedReq.requestedTime || prev.proposedTime,
+        primaryConcernTopic: matchedReq.topic || "General Wellbeing",
+        concern: matchedReq.topic || "General Wellbeing",
+        personalNote: matchedReq.notes ? matchedReq.notes.replace(/^ANONYMOUS:\s*/, "") : "No additional note provided by student.",
+        status: matchedReq.status === "confirmed" ? "accepted" : (matchedReq.status === "declined" ? "declined" : "pending"),
+      }));
+    }
+  }, [matchedReq]);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [rescheduleModalVisible, setRescheduleModalVisible] = useState(false);
 

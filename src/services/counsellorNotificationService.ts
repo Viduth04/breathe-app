@@ -227,9 +227,12 @@ export function notificationDocToAlertItem(docId: string, data: any): AlertItem 
   };
 }
 
+// Track locally marked read alert IDs in session
+const readAlertIds = new Set<string>();
+
 /**
- * Subscribes to counsellor alerts from Firestore `notifications` collection
- * scoped strictly to `recipientId == counselorUid`.
+ * Subscribes to counsellor alerts synthesized directly from Firestore `bookings` collection
+ * scoped strictly to `counsellorId == counselorUid` (per firestore.rules lines 94-96).
  */
 export function subscribeToCounsellorAlertsRealtime(
   counselorUid: string,
@@ -240,115 +243,118 @@ export function subscribeToCounsellorAlertsRealtime(
     return () => {};
   }
 
-  let unsubNotifications: (() => void) | null = null;
-  let unsubBookingsBridge: (() => void) | null = null;
-
   try {
-    const notificationsQuery = query(
-      collection(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS),
-      where("recipientId", "==", counselorUid)
+    const bookingsQuery = query(
+      collection(db, FIRESTORE_COLLECTIONS.BOOKINGS),
+      where("counsellorId", "==", counselorUid)
     );
 
-    unsubNotifications = onSnapshot(
-      notificationsQuery,
+    return onSnapshot(
+      bookingsQuery,
       (snapshot) => {
-        const firestoreAlerts: AlertItem[] = snapshot.docs.map((docSnap) =>
-          notificationDocToAlertItem(docSnap.id, docSnap.data())
-        );
+        const alerts: AlertItem[] = [];
+        snapshot.docs.forEach((docSnap) => {
+          const data = docSnap.data();
+          const docId = docSnap.id;
+          const studentAnonId = data.studentAnonId || "Anonymous Student";
+          const createdAt = data.createdAt;
+          const updatedAt = data.updatedAt;
+
+          if (data.status === "pending") {
+            const alertId = `alert-req-${docId}`;
+            alerts.push({
+              id: alertId,
+              title: "New Session Request",
+              description: `${studentAnonId} requested a ${data.sessionType || "video"} consultation.`,
+              timestamp: formatNotificationTime(createdAt || data.startAt),
+              isUnread: !readAlertIds.has(alertId),
+              category: "request",
+              priority: "urgent",
+              iconName: "send-outline",
+              actionLabel: "Review Request",
+              badgeLabel: "Urgent / Triage",
+              refType: "request",
+              refId: docId,
+              studentAnonId,
+              type: "new_request",
+              createdAt,
+            });
+          } else if (data.status === "confirmed") {
+            const alertId = `alert-conf-${docId}`;
+            alerts.push({
+              id: alertId,
+              title: "Upcoming Session Confirmed",
+              description: `Confirmed consultation with ${studentAnonId}.`,
+              timestamp: formatNotificationTime(updatedAt || createdAt),
+              isUnread: !readAlertIds.has(alertId) && false,
+              category: "session",
+              priority: "normal",
+              iconName: "videocam-outline",
+              actionLabel: "Enter Room",
+              badgeLabel: "Confirmed",
+              refType: "session",
+              refId: docId,
+              studentAnonId,
+              type: "session_reminder",
+              createdAt: updatedAt || createdAt,
+            });
+          } else if (data.status === "declined") {
+            const alertId = `alert-dec-${docId}`;
+            alerts.push({
+              id: alertId,
+              title: "Request Declined",
+              description: `Booking request for ${studentAnonId} declined (${data.cancelReason || "Schedule conflict"}).`,
+              timestamp: formatNotificationTime(updatedAt || createdAt),
+              isUnread: !readAlertIds.has(alertId) && false,
+              category: "reschedule",
+              priority: "normal",
+              iconName: "close-circle-outline",
+              badgeLabel: "Declined",
+              refType: "request",
+              refId: docId,
+              studentAnonId,
+              type: "request_declined",
+              createdAt: updatedAt || createdAt,
+            });
+          }
+        });
 
         // Sort descending by timestamp/createdAt
-        firestoreAlerts.sort((a, b) => {
+        alerts.sort((a, b) => {
           const timeA = a.createdAt?.toMillis?.() || (a.createdAt instanceof Date ? a.createdAt.getTime() : 0);
           const timeB = b.createdAt?.toMillis?.() || (b.createdAt instanceof Date ? b.createdAt.getTime() : 0);
           return timeB - timeA;
         });
 
-        onUpdate(firestoreAlerts);
+        onUpdate(alerts);
       },
       (err) => {
-        console.warn("[counsellorNotificationService] notifications onSnapshot error:", err);
+        console.warn("[counsellorNotificationService] bookings onSnapshot error:", err);
         onError?.(err);
       }
     );
   } catch (err) {
     console.warn("[counsellorNotificationService] query setup error:", err);
     onError?.(err);
+    return () => {};
   }
-
-  return () => {
-    if (unsubNotifications) {
-      unsubNotifications();
-    }
-  };
 }
 
 /**
- * Marks a single notification as read in Firestore
+ * Marks a single notification as read
  */
 export async function markNotificationAsRead(notificationId: string): Promise<void> {
-  if (!isFirebaseConfigured() || !db || !notificationId) return;
-
-  try {
-    const notifRef = doc(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS, notificationId);
-    await updateDoc(notifRef, {
-      read: true,
-      isUnread: false,
-      readAt: serverTimestamp(),
-    });
-  } catch (err: any) {
-    // If local mock or rule rejects, log safely
-    if (err?.code !== "permission-denied") {
-      console.warn("[counsellorNotificationService] markNotificationAsRead error:", err);
-    }
-  }
+  readAlertIds.add(notificationId);
 }
 
 /**
- * Marks all notifications for a counsellor as read in Firestore
+ * Marks all notifications for a counsellor as read
  */
 export async function markAllNotificationsAsRead(
-  counselorUid: string,
+  _counselorUid: string,
   alertIds?: string[]
 ): Promise<void> {
-  if (!isFirebaseConfigured() || !db || !counselorUid) return;
-
-  try {
-    const batch = writeBatch(db);
-
-    if (alertIds && alertIds.length > 0) {
-      alertIds.forEach((id) => {
-        const notifRef = doc(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS, id);
-        batch.update(notifRef, {
-          read: true,
-          isUnread: false,
-          readAt: serverTimestamp(),
-        });
-      });
-      await batch.commit();
-      return;
-    }
-
-    const unreadSnap = await getDocs(
-      query(
-        collection(db, FIRESTORE_COLLECTIONS.NOTIFICATIONS),
-        where("recipientId", "==", counselorUid),
-        where("read", "==", false)
-      )
-    );
-
-    if (!unreadSnap.empty) {
-      unreadSnap.forEach((d) => {
-        batch.update(d.ref, {
-          read: true,
-          isUnread: false,
-          readAt: serverTimestamp(),
-        });
-      });
-      await batch.commit();
-    }
-  } catch (err: any) {
-    if (err?.code !== "permission-denied") {
-      console.warn("[counsellorNotificationService] markAllNotificationsAsRead error:", err);
-    }
+  if (alertIds && alertIds.length > 0) {
+    alertIds.forEach((id) => readAlertIds.add(id));
   }
 }

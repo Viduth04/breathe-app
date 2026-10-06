@@ -37,14 +37,14 @@ export default function DeclineRequestScreen() {
   const { declineRequest, requests } = useCounsellorStore();
 
   const targetRequest =
-    requests.find((r) => r.id === params.requestId) || requests[0];
+    requests.find((r) => r.id === params.requestId) || (params.requestId ? undefined : requests[0]);
 
   const studentAnonId =
-    params.studentAnonId || targetRequest?.studentAnonId || "Student #5104";
+    params.studentAnonId || targetRequest?.studentAnonId || "Student #ANON";
   const dateFormatted =
-    params.proposedDate || "Tomorrow, Tue 19 Aug";
+    params.proposedDate || targetRequest?.date || "Scheduled Slot";
   const timeFormatted =
-    params.proposedTime || targetRequest?.requestedTime || "10:00–10:45 AM";
+    params.proposedTime || targetRequest?.requestedTime || "Time TBD";
   const sessionModality =
     params.sessionTypeLabel ||
     (targetRequest?.sessionType === "chat"
@@ -57,10 +57,15 @@ export default function DeclineRequestScreen() {
 
   const handleConfirmDecline = () => {
     if (isSubmitting) return;
+    const reqId = targetRequest?.id || params.requestId || "";
+    if (!reqId) {
+      router.back();
+      return;
+    }
     setIsSubmitting(true);
 
     declineRequest(
-      targetRequest?.id || params.requestId || "req-1",
+      reqId,
       selectedReason,
       supportiveNote.trim() || undefined
     );

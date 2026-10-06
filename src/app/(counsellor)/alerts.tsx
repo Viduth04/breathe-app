@@ -70,10 +70,7 @@ export default function CounsellorAlertsScreen() {
     return true;
   };
 
-  const allAlerts =
-    storeAlerts && storeAlerts.length > 0
-      ? storeAlerts
-      : [...MOCK_ALERTS_TODAY, ...MOCK_ALERTS_EARLIER];
+  const allAlerts = storeAlerts || [];
 
   const isTodayAlert = (a: AlertItem) =>
     a.timestamp?.includes("ago") ||
@@ -316,18 +313,36 @@ export default function CounsellorAlertsScreen() {
                   </Text>
                 </View>
 
-                {/* Card 1: New Session Request */}
-                {visibleTodayAlerts.some((a) => a.id === "alert-1") && (
+                {/* Dynamic Today Alerts Feed */}
+                {visibleTodayAlerts.map((alert) => (
                   <Pressable
+                    key={alert.id}
                     style={styles.card}
                     accessibilityRole="button"
-                    accessibilityLabel="View triage notification for Student #5104"
-                    onPress={() => router.navigate("/(counsellor-detail)/notification-detail")}
+                    accessibilityLabel={alert.title}
+                    onPress={() => {
+                      if (alert.refType === "request") {
+                        router.navigate({
+                          pathname: "/(counsellor-detail)/request-detail",
+                          params: { requestId: alert.refId, studentAnonId: alert.studentAnonId },
+                        });
+                      } else if (alert.category === "session") {
+                        router.navigate({
+                          pathname: "/(counsellor-detail)/confirmed-session",
+                          params: { sessionId: alert.refId },
+                        });
+                      } else {
+                        router.navigate({
+                          pathname: "/(counsellor-detail)/notification-detail",
+                          params: { notificationId: alert.id, requestId: alert.refId, studentAnonId: alert.studentAnonId },
+                        });
+                      }
+                    }}
                   >
                     <View style={styles.cardMainRow}>
                       <View style={styles.iconBox}>
                         <Ionicons
-                          name="send-outline"
+                          name={(alert.iconName as any) || "notifications-outline"}
                           size={20}
                           color={colors.text}
                         />
@@ -336,33 +351,59 @@ export default function CounsellorAlertsScreen() {
                       <View style={styles.cardContent}>
                         <View style={styles.cardTitleRow}>
                           <Text style={styles.cardTitle} numberOfLines={1}>
-                            New Session Request
+                            {alert.title}
                           </Text>
                           <View style={styles.timeRow}>
-                            <Text style={styles.timeText}>10m ago</Text>
-                            {!isAllRead && <View style={styles.unreadDot} />}
+                            <Text style={alert.priority === "urgent" ? styles.timeTextUrgent : styles.timeText}>
+                              {alert.timestamp}
+                            </Text>
+                            {alert.isUnread && !isAllRead && <View style={styles.unreadDot} />}
                           </View>
                         </View>
                         <Text style={styles.cardBody} numberOfLines={2}>
-                          Student #5104 requested a 45-min Anxiety Consultation for...
+                          {alert.description}
                         </Text>
 
-                        {/* Badges & Actions Row (Side by Side per PNG) */}
+                        {/* Badges & Actions Row */}
                         <View style={styles.actionRowInline}>
-                          <View style={styles.badgeMint}>
-                            <Text style={styles.badgeMintText}>Urgent / Triage</Text>
-                          </View>
-                          <Pressable
-                            style={styles.actionBtnFilled}
-                            onPress={(e) => {
-                              e.stopPropagation();
-                              handleReviewRequest();
-                            }}
-                            accessibilityRole="button"
-                            accessibilityLabel="Review Request for Student #5104"
-                          >
-                            <Text style={styles.actionBtnFilledText}>Review Request</Text>
-                          </Pressable>
+                          {alert.badgeLabel ? (
+                            <View style={styles.badgeMint}>
+                              <Text style={styles.badgeMintText}>{alert.badgeLabel}</Text>
+                            </View>
+                          ) : null}
+                          {alert.actionLabel ? (
+                            <Pressable
+                              style={alert.priority === "urgent" ? styles.actionBtnFilled : styles.actionBtnGray}
+                              onPress={(e) => {
+                                e.stopPropagation();
+                                if (alert.refType === "request") {
+                                  router.navigate({
+                                    pathname: "/(counsellor-detail)/request-detail",
+                                    params: { requestId: alert.refId, studentAnonId: alert.studentAnonId },
+                                  });
+                                } else if (alert.category === "session") {
+                                  router.navigate({
+                                    pathname: "/(counsellor-detail)/ready-to-join",
+                                    params: { studentAnonId: alert.studentAnonId },
+                                  });
+                                } else if (alert.category === "message") {
+                                  router.navigate({
+                                    pathname: "/(counsellor)/messages",
+                                    params: { studentAnonId: alert.studentAnonId },
+                                  });
+                                } else {
+                                  router.navigate("/(counsellor)/schedule");
+                                }
+                              }}
+                              accessibilityRole="button"
+                              accessibilityLabel={alert.actionLabel}
+                            >
+                              {alert.priority === "urgent" && <View style={styles.pulseDot} />}
+                              <Text style={alert.priority === "urgent" ? styles.actionBtnFilledText : styles.actionBtnGrayText}>
+                                {alert.actionLabel}
+                              </Text>
+                            </Pressable>
+                          ) : null}
                         </View>
                       </View>
 
@@ -375,126 +416,7 @@ export default function CounsellorAlertsScreen() {
                       </View>
                     </View>
                   </Pressable>
-                )}
-
-                {/* Card 2: Intake Questionnaire Submitted */}
-                {visibleTodayAlerts.some((a) => a.id === "alert-2") && (
-                  <View style={styles.card} accessibilityRole="summary">
-                    <View style={styles.cardMainRow}>
-                      <View style={styles.iconBox}>
-                        <Ionicons
-                          name="checkmark-circle-outline"
-                          size={20}
-                          color={colors.text}
-                        />
-                      </View>
-
-                      <View style={styles.cardContent}>
-                        <View style={styles.cardTitleRow}>
-                          <Text style={styles.cardTitle} numberOfLines={1}>
-                            Intake Questionnaire Submitted
-                          </Text>
-                          <View style={styles.timeRow}>
-                            <Text style={styles.timeText}>45m ago</Text>
-                            {!isAllRead && <View style={styles.unreadDot} />}
-                          </View>
-                        </View>
-                        <Text style={styles.cardBody} numberOfLines={2}>
-                          Sarah Jenkins completed her pre-session PHQ-9 assessment
-                        </Text>
-
-                        {/* Badges & Actions Row (Side by Side per PNG) */}
-                        <View style={styles.actionRowInline}>
-                          <View style={styles.badgeMint}>
-                            <Text style={styles.badgeMintText}>PHQ-9 • Moderate</Text>
-                          </View>
-                          <Pressable
-                            style={styles.actionBtnGray}
-                            onPress={() =>
-                              setModalData({
-                                title: "PHQ-9 Intake Assessment",
-                                description:
-                                  "Sarah Jenkins (Student #4810) · Score: 12 (Moderate Depression/Anxiety)\n\nPre-session clinical questionnaire completed. Notes flagged for follow-up review.",
-                              })
-                            }
-                            accessibilityRole="button"
-                            accessibilityLabel="View Assessment for Sarah Jenkins"
-                          >
-                            <Text style={styles.actionBtnGrayText}>View Assessment</Text>
-                          </Pressable>
-                        </View>
-                      </View>
-
-                      <View style={styles.chevronBox}>
-                        <Ionicons
-                          name="chevron-forward"
-                          size={18}
-                          color={colors.textSecondary}
-                        />
-                      </View>
-                    </View>
-                  </View>
-                )}
-
-                {/* Card 3: Session in 15 Minutes */}
-                {visibleTodayAlerts.some((a) => a.id === "alert-3") && (
-                  <View style={styles.card} accessibilityRole="summary">
-                    <View style={styles.cardMainRow}>
-                      <View style={styles.iconBox}>
-                        <Ionicons
-                          name="videocam-outline"
-                          size={20}
-                          color={colors.text}
-                        />
-                      </View>
-
-                      <View style={styles.cardContent}>
-                        <View style={styles.cardTitleRow}>
-                          <Text style={styles.cardTitle} numberOfLines={1}>
-                            Session in 15 Minutes
-                          </Text>
-                          <View style={styles.timeRow}>
-                            <Text style={styles.timeTextUrgent}>Just now</Text>
-                            {!isAllRead && <View style={styles.unreadDot} />}
-                          </View>
-                        </View>
-                        <Text style={styles.cardBody} numberOfLines={2}>
-                          Upcoming Video Consultation with Alex Rivera at 10:00 AM....
-                        </Text>
-
-                        <View style={styles.actionRowInline}>
-                          <Pressable
-                            style={styles.actionBtnFilled}
-                            onPress={() =>
-                              router.navigate({
-                                pathname: "/(counsellor-detail)/ready-to-join",
-                                params: {
-                                  studentAnonId: "Alex Rivera",
-                                  sessionTitle: "Encrypted Video Consultation",
-                                  timeRange: "10:00 AM – 10:45 AM",
-                                  duration: "45 min session",
-                                },
-                              })
-                            }
-                            accessibilityRole="button"
-                            accessibilityLabel="Enter Consultation Room with Alex Rivera"
-                          >
-                            <View style={styles.pulseDot} />
-                            <Text style={styles.actionBtnFilledText}>Enter Room</Text>
-                          </Pressable>
-                        </View>
-                      </View>
-
-                      <View style={styles.chevronBox}>
-                        <Ionicons
-                          name="chevron-forward"
-                          size={18}
-                          color={colors.textSecondary}
-                        />
-                      </View>
-                    </View>
-                  </View>
-                )}
+                ))}
               </View>
             )}
 
@@ -503,13 +425,31 @@ export default function CounsellorAlertsScreen() {
               <View style={styles.section}>
                 <Text style={styles.sectionTitleBold}>Earlier this week</Text>
 
-                {/* Card 4: Message from Student */}
-                {visibleEarlierAlerts.some((a) => a.id === "alert-4") && (
-                  <View style={styles.card} accessibilityRole="summary">
+                {/* Dynamic Earlier Alerts Feed */}
+                {visibleEarlierAlerts.map((alert) => (
+                  <Pressable
+                    key={alert.id}
+                    style={styles.card}
+                    accessibilityRole="button"
+                    accessibilityLabel={alert.title}
+                    onPress={() => {
+                      if (alert.refType === "request") {
+                        router.navigate({
+                          pathname: "/(counsellor-detail)/request-detail",
+                          params: { requestId: alert.refId, studentAnonId: alert.studentAnonId },
+                        });
+                      } else {
+                        router.navigate({
+                          pathname: "/(counsellor-detail)/notification-detail",
+                          params: { notificationId: alert.id, requestId: alert.refId, studentAnonId: alert.studentAnonId },
+                        });
+                      }
+                    }}
+                  >
                     <View style={styles.cardMainRow}>
                       <View style={styles.iconBox}>
                         <Ionicons
-                          name="chatbubble-outline"
+                          name={(alert.iconName as any) || "notifications-outline"}
                           size={20}
                           color={colors.text}
                         />
@@ -518,23 +458,40 @@ export default function CounsellorAlertsScreen() {
                       <View style={styles.cardContent}>
                         <View style={styles.cardTitleRow}>
                           <Text style={styles.cardTitle} numberOfLines={1}>
-                            Message from Student
+                            {alert.title}
                           </Text>
-                          <Text style={styles.timeText}>Yesterday</Text>
+                          <Text style={styles.timeText}>{alert.timestamp}</Text>
                         </View>
                         <Text style={styles.cardBody} numberOfLines={2}>
-                          Student #4021 sent a message in secure chat regarding breathing
+                          {alert.description}
                         </Text>
 
                         <View style={styles.actionRowInline}>
-                          <Pressable
-                            style={styles.actionBtnGray}
-                            onPress={handleSecureChat}
-                            accessibilityRole="button"
-                            accessibilityLabel="Secure Chat with Student #4021"
-                          >
-                            <Text style={styles.actionBtnGrayText}>Secure Chat</Text>
-                          </Pressable>
+                          {alert.badgeLabel ? (
+                            <View style={styles.badgeMint}>
+                              <Text style={styles.badgeMintText}>{alert.badgeLabel}</Text>
+                            </View>
+                          ) : null}
+                          {alert.actionLabel ? (
+                            <Pressable
+                              style={styles.actionBtnGray}
+                              onPress={(e) => {
+                                e.stopPropagation();
+                                if (alert.category === "message") {
+                                  router.navigate({
+                                    pathname: "/(counsellor)/messages",
+                                    params: { studentAnonId: alert.studentAnonId },
+                                  });
+                                } else {
+                                  router.navigate("/(counsellor)/schedule");
+                                }
+                              }}
+                              accessibilityRole="button"
+                              accessibilityLabel={alert.actionLabel}
+                            >
+                              <Text style={styles.actionBtnGrayText}>{alert.actionLabel}</Text>
+                            </Pressable>
+                          ) : null}
                         </View>
                       </View>
 
@@ -546,55 +503,8 @@ export default function CounsellorAlertsScreen() {
                         />
                       </View>
                     </View>
-                  </View>
-                )}
-
-                {/* Card 5: Session Cancelled / Rescheduled */}
-                {visibleEarlierAlerts.some((a) => a.id === "alert-5") && (
-                  <View style={styles.card} accessibilityRole="summary">
-                    <View style={styles.cardMainRow}>
-                      <View style={styles.iconBox}>
-                        <Ionicons
-                          name="calendar-outline"
-                          size={20}
-                          color={colors.text}
-                        />
-                      </View>
-
-                      <View style={styles.cardContent}>
-                        <View style={styles.cardTitleRow}>
-                          <Text style={styles.cardTitle} numberOfLines={1}>
-                            Session Cancelled / Resch
-                          </Text>
-                          <Text style={styles.timeText}>Tuesday</Text>
-                        </View>
-                        <Text style={styles.cardBody} numberOfLines={2}>
-                          Student #8821 requested to reschedule Thursday's slot to...
-                        </Text>
-
-                        {/* Actionable Reschedule Link to Schedule per Fix #5 */}
-                        <View style={styles.actionRowInline}>
-                          <Pressable
-                            style={styles.actionBtnGray}
-                            onPress={() => router.navigate("/(counsellor)/schedule")}
-                            accessibilityRole="button"
-                            accessibilityLabel="View in Schedule"
-                          >
-                            <Text style={styles.actionBtnGrayText}>View in Schedule</Text>
-                          </Pressable>
-                        </View>
-                      </View>
-
-                      <View style={styles.chevronBox}>
-                        <Ionicons
-                          name="chevron-forward"
-                          size={18}
-                          color={colors.textSecondary}
-                        />
-                      </View>
-                    </View>
-                  </View>
-                )}
+                  </Pressable>
+                ))}
               </View>
             )}
           </>
