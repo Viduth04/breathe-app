@@ -1,7 +1,7 @@
 // Counsellor Request Detail Screen - Muaath (Member 4). Supports FR01, FR08.
 // Full pending booking request view for Student #5104 matching high-fidelity design.
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -96,7 +96,35 @@ export default function RequestDetailScreen() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [rescheduleModalVisible, setRescheduleModalVisible] = useState(false);
 
+  // Strict validation: check if slot has already been booked by another session or by the counselor
+  const isSlotAlreadyBooked = useMemo(() => {
+    if (!matchedReq) return false;
+    const slotConflict = Boolean(
+      matchedReq.slotId &&
+      store.scheduleDaySlots.some((s) => s.id === matchedReq.slotId && s.isBooked)
+    );
+    const sessionConflict = store.sessions.some(
+      (s) =>
+        s.id !== matchedReq.id &&
+        s.date === matchedReq.date &&
+        s.timeRange === matchedReq.requestedTime &&
+        s.status === "confirmed"
+    );
+    return slotConflict || sessionConflict;
+  }, [matchedReq, store.scheduleDaySlots, store.sessions]);
+
+  // Real available open slots from Firestore /slots
+  const availableOpenSlots = useMemo(() => {
+    return store.scheduleDaySlots.filter(
+      (s) => !s.isBooked && !store.heldScheduleSlots[s.id]
+    ).slice(0, 6);
+  }, [store.scheduleDaySlots, store.heldScheduleSlots]);
+
   const handleAccept = () => {
+    if (isSlotAlreadyBooked) {
+      setFeedback("This time slot is already booked. Counselor validation prevents booking it again. Please reschedule.");
+      return;
+    }
     router.navigate({
       pathname: "/(counsellor-detail)/confirm-acceptance",
       params: { requestId: data.id, studentAnonId: data.studentAnonId },
@@ -107,10 +135,37 @@ export default function RequestDetailScreen() {
     setRescheduleModalVisible(true);
   };
 
-  const confirmReschedule = () => {
+  const confirmRescheduleToSlot = async (slot: any) => {
     setRescheduleModalVisible(false);
-    setData((prev) => ({ ...prev, status: "rescheduled" }));
-    setFeedback("Alternative slot proposed to student via secure notification.");
+    try {
+      await store.rescheduleBooking(
+        data.id,
+        slot.dateDisplay || slot.dateKey,
+        slot.timeRange,
+        slot.id
+      );
+      setData((prev) => ({
+        ...prev,
+        status: "rescheduled",
+        proposedDate: slot.dateDisplay || slot.dateKey,
+        proposedTime: slot.timeRange,
+      }));
+      setFeedback(
+        `Alternative slot on ${slot.dateDisplay || slot.dateKey} (${slot.timeRange}) scheduled in database. Rescheduling is allowed multiple times.`
+      );
+    } catch (e: any) {
+      setFeedback(`Failed to update schedule: ${e?.message || "Check connection"}`);
+    }
+  };
+
+  const confirmReschedule = () => {
+    if (availableOpenSlots.length > 0) {
+      confirmRescheduleToSlot(availableOpenSlots[0]);
+    } else {
+      setRescheduleModalVisible(false);
+      setData((prev) => ({ ...prev, status: "rescheduled" }));
+      setFeedback("Alternative slot proposed to student via secure notification.");
+    }
   };
 
   const handleJoin = () => {
@@ -474,29 +529,54 @@ export default function RequestDetailScreen() {
                 </View>
               )}
 
+              {!matchedReq?.isExpired && isSlotAlreadyBooked && (
+                <View style={[styles.expiredNoticeCard, { backgroundColor: "#FEF2F2", borderColor: "#FCA5A5" }]}>
+                  <Ionicons name="lock-closed" size={18} color="#DC2626" />
+                  <Text style={[styles.expiredNoticeText, { color: "#7F1D1D" }]}>
+                    Slot Already Booked: This time slot ({data.proposedDate} • {data.proposedTime}) is already booked by another confirmed session. Counselor validation prevents duplicate bookings. Please use Reschedule to select an alternative slot (rescheduling is allowed multiple times).
+                  </Text>
+                </View>
+              )}
+
               {/* Accept Button */}
               <Pressable
                 style={[
                   styles.primaryBtn,
-                  matchedReq?.isExpired && { backgroundColor: "#CBD5E1" },
+                  (matchedReq?.isExpired || isSlotAlreadyBooked) && { backgroundColor: "#CBD5E1" },
                 ]}
-                disabled={Boolean(matchedReq?.isExpired)}
+                disabled={Boolean(matchedReq?.isExpired || isSlotAlreadyBooked)}
                 onPress={handleAccept}
-                accessibilityLabel={matchedReq?.isExpired ? "Slot Expired" : "Accept Request"}
+                accessibilityLabel={
+                  matchedReq?.isExpired
+                    ? "Slot Expired"
+                    : isSlotAlreadyBooked
+                    ? "Slot Already Booked"
+                    : "Accept Request"
+                }
                 accessibilityRole="button"
               >
                 <Ionicons
-                  name={matchedReq?.isExpired ? "time-outline" : "checkmark-circle-outline"}
+                  name={
+                    matchedReq?.isExpired
+                      ? "time-outline"
+                      : isSlotAlreadyBooked
+                      ? "lock-closed-outline"
+                      : "checkmark-circle-outline"
+                  }
                   size={20}
-                  color={matchedReq?.isExpired ? "#64748B" : colors.white}
+                  color={matchedReq?.isExpired || isSlotAlreadyBooked ? "#64748B" : colors.white}
                 />
                 <Text
                   style={[
                     styles.primaryBtnText,
-                    matchedReq?.isExpired && { color: "#64748B" },
+                    (matchedReq?.isExpired || isSlotAlreadyBooked) && { color: "#64748B" },
                   ]}
                 >
-                  {matchedReq?.isExpired ? "Slot Expired (Cannot Accept)" : "Accept Request"}
+                  {matchedReq?.isExpired
+                    ? "Slot Expired (Cannot Accept)"
+                    : isSlotAlreadyBooked
+                    ? "Slot Already Booked (Use Reschedule)"
+                    : "Accept Request"}
                 </Text>
               </Pressable>
 
@@ -537,22 +617,32 @@ export default function RequestDetailScreen() {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Propose Alternative Slot</Text>
             <Text style={styles.modalDesc}>
-              Select an open availability slot from your clinical schedule for {data.studentAnonId}.
+              Select an open availability slot from your clinical schedule for {data.studentAnonId}. Rescheduling is allowed multiple times.
             </Text>
-            <Pressable
-              style={styles.modalSlotBtn}
-              onPress={confirmReschedule}
-            >
-              <Ionicons name="time-outline" size={16} color={colors.primary} />
-              <Text style={styles.modalSlotText}>Tomorrow, 02:00 PM – 02:45 PM</Text>
-            </Pressable>
-            <Pressable
-              style={styles.modalSlotBtn}
-              onPress={confirmReschedule}
-            >
-              <Ionicons name="time-outline" size={16} color={colors.primary} />
-              <Text style={styles.modalSlotText}>Wednesday, 11:00 AM – 11:45 AM</Text>
-            </Pressable>
+
+            {availableOpenSlots.length > 0 ? (
+              availableOpenSlots.map((slot: any) => (
+                <Pressable
+                  key={slot.id}
+                  style={styles.modalSlotBtn}
+                  onPress={() => confirmRescheduleToSlot(slot)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select ${slot.dateDisplay || slot.dateKey} at ${slot.timeRange}`}
+                >
+                  <Ionicons name="time-outline" size={16} color={colors.primary} />
+                  <Text style={styles.modalSlotText}>
+                    {slot.dateDisplay || slot.dateKey}, {slot.timeRange}
+                  </Text>
+                </Pressable>
+              ))
+            ) : (
+              <View style={{ paddingVertical: 12 }}>
+                <Text style={{ fontSize: 13, color: "#64748B", textAlign: "center" }}>
+                  No open availability slots found. Please publish new slots from Add Session.
+                </Text>
+              </View>
+            )}
+
             <Pressable
               style={[styles.outlineBtn, { marginTop: 12 }]}
               onPress={() => setRescheduleModalVisible(false)}

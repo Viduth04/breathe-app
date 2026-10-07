@@ -1367,6 +1367,23 @@ export const counsellorStore = {
       throw new Error("Cannot accept an expired booking request. The scheduled time has passed.");
     }
 
+    // Strict validation: Prevent booking a slot that has already been booked
+    const slotAlreadyBooked = Boolean(
+      (targetReq?.slotId && state.scheduleDaySlots.some((s) => s.id === targetReq.slotId && s.isBooked)) ||
+      state.sessions.some(
+        (s) =>
+          s.id !== targetReq?.id &&
+          s.date === targetReq?.date &&
+          s.timeRange === targetReq?.requestedTime &&
+          s.status === "confirmed"
+      )
+    );
+    if (slotAlreadyBooked) {
+      throw new Error(
+        "This time slot has already been booked and cannot be booked again by the counselor. Multiple reschedules are allowed, but duplicate bookings are prevented."
+      );
+    }
+
     const colomboTodayStr = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Colombo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
     const colomboReqStr = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Colombo", year: "numeric", month: "2-digit", day: "2-digit" }).format(reqStartDate);
     const isTodaySession = colomboTodayStr === colomboReqStr;
@@ -1740,9 +1757,31 @@ export const counsellorStore = {
   async publishAvailabilityBatch(slots: PublishSlotInput[]): Promise<number> {
     if (!slots || slots.length === 0) return 0;
 
+    // Strict validation: Reject any slots that have already passed
+    const nowMs = Date.now();
+    const validFutureSlots = slots.filter((s) => s.startAt.getTime() > nowMs);
+    if (validFutureSlots.length === 0) {
+      throw new Error("Cannot publish availability slots in the past. All selected slots have already concluded.");
+    }
+
+    // Strict validation: Availability slots can only be added or created once
+    const alreadyCreated = validFutureSlots.filter((newSlot) =>
+      state.scheduleDaySlots.some(
+        (existing) =>
+          existing.dateKey === newSlot.dateKey &&
+          (existing.startTime === newSlot.startTime || existing.timeRange.startsWith(newSlot.startTime))
+      )
+    );
+    if (alreadyCreated.length > 0) {
+      const first = alreadyCreated[0];
+      throw new Error(
+        `Slot on ${first.dateDisplay || first.dateKey} at ${first.startTime} has already been added/created. Availability slots can only be added once. Rescheduling is allowed multiple times.`
+      );
+    }
+
     const uid = auth?.currentUser?.uid || "coun_anjali_01";
 
-    const newDaySlots: ScheduleDaySlot[] = slots.map((s) => ({
+    const newDaySlots: ScheduleDaySlot[] = validFutureSlots.map((s) => ({
       id: `slot_${uid}_${s.dateKey.replace(/-/g, "")}_${s.startTime.replace(/[^a-zA-Z0-9]/g, "")}`,
       dateKey: s.dateKey,
       dateDisplay: s.dateDisplay,
@@ -1776,7 +1815,7 @@ export const counsellorStore = {
       try {
         const slotBatch = writeBatch(db);
 
-        slots.forEach((s) => {
+        validFutureSlots.forEach((s) => {
           const dateSlug = s.dateKey.replace(/-/g, "");
           const timeSlug = s.startTime.replace(/[^a-zA-Z0-9]/g, "");
           const slotId = `slot_${uid}_${dateSlug}_${timeSlug}`;
@@ -1809,7 +1848,7 @@ export const counsellorStore = {
 
         // Commit slots in dedicated batch (not mixed with profile)
         await slotBatch.commit();
-        console.log(`[counsellorStore] Successfully stored ${slots.length} available slots in Firestore /slots`);
+        console.log(`[counsellorStore] Successfully stored ${validFutureSlots.length} available slots in Firestore /slots`);
 
         // Update counsellor profile availability in a separate safe write
         try {
@@ -1825,7 +1864,7 @@ export const counsellorStore = {
       }
     }
 
-    return slots.length;
+    return validFutureSlots.length;
   },
 
   // Toggle mic
@@ -2038,6 +2077,24 @@ export const counsellorStore = {
 
   // Add a newly scheduled session (from Add Session screen)
   addSession(input: NewSessionFormInput): SessionItem {
+    // Strict validation: Prevent booking a slot that has already been booked
+    const slotConflict = state.scheduleDaySlots.some(
+      (s) =>
+        s.dateKey === input.date &&
+        (s.startTime === input.startTime || s.timeRange.includes(input.startTime)) &&
+        s.isBooked
+    ) || state.sessions.some(
+      (s) =>
+        s.date === input.date &&
+        (s.timeRange.includes(input.startTime) || s.timeRange === `${input.startTime} – ${input.endTime}`) &&
+        s.status === "confirmed"
+    );
+    if (slotConflict) {
+      throw new Error(
+        `Validation Error: Time slot on ${input.date} at ${input.startTime} has already been booked and cannot be booked again. Rescheduling is allowed.`
+      );
+    }
+
     const newId = `session-${Date.now()}`;
     const isToday =
       input.date.toLowerCase().includes("today") ||
@@ -2347,18 +2404,142 @@ export const counsellorStore = {
     }
   },
 
-  // Reschedule session
-  rescheduleSession(sessionIdOrAnonId: string, newTimeRange: string) {
-    const updatedSessions = state.sessions.map((s) =>
-      s.id === sessionIdOrAnonId || s.studentAnonId === sessionIdOrAnonId
-        ? { ...s, timeRange: newTimeRange }
-        : s
+  // Reschedule session (Allowed multiple times per clinical requirements)
+  rescheduleSession(sessionIdOrAnonId: string, newTimeRange: string, newDate?: string) {
+    const targetSession = state.sessions.find(
+      (s) => s.id === sessionIdOrAnonId || s.studentAnonId === sessionIdOrAnonId
     );
+
+    const updatedSessions = state.sessions.map((s) => {
+      if (s.id === sessionIdOrAnonId || s.studentAnonId === sessionIdOrAnonId) {
+        return {
+          ...s,
+          timeRange: newTimeRange,
+          date: newDate || s.date,
+          timeRelative: newDate || s.timeRelative,
+        };
+      }
+      return s;
+    });
+
+    const rescheduleAlert: AlertItem = {
+      id: `alert-resched-${Date.now()}`,
+      title: "Session Rescheduled",
+      description: `Session with ${targetSession?.displayName || targetSession?.studentAnonId || sessionIdOrAnonId} rescheduled to ${newDate || "updated time"} (${newTimeRange}). Multiple reschedules permitted.`,
+      timestamp: "Just now",
+      isUnread: true,
+      category: "session",
+      priority: "normal",
+      iconName: "calendar-outline",
+      badgeLabel: "Rescheduled",
+    };
+
     state = {
       ...state,
       sessions: updatedSessions,
+      alerts: [rescheduleAlert, ...state.alerts],
+      alertsUnread: state.alertsUnread + 1,
     };
     notifyListeners();
+
+    if (isFirebaseConfigured() && auth.currentUser && targetSession?.id) {
+      (async () => {
+        try {
+          const bookingRef = doc(db, FIRESTORE_COLLECTIONS.BOOKINGS, targetSession.id);
+          await updateDoc(bookingRef, {
+            requestedTime: newTimeRange,
+            timeRange: newTimeRange,
+            ...(newDate ? { date: newDate } : {}),
+            status: "rescheduled",
+            updatedAt: serverTimestamp(),
+          });
+        } catch (_) {}
+      })();
+    }
+  },
+
+  // Reschedule booking request to a new open availability slot (allowed multiple times)
+  async rescheduleBooking(
+    bookingId: string,
+    newDateDisplay: string,
+    newTimeRange: string,
+    newSlotId?: string
+  ): Promise<void> {
+    const targetReq = state.requests.find((r) => r.id === bookingId);
+    const prevSlotId = targetReq?.slotId;
+
+    const updatedRequests = state.requests.map((r) =>
+      r.id === bookingId
+        ? {
+            ...r,
+            date: newDateDisplay,
+            requestedTime: newTimeRange,
+            slotId: newSlotId || r.slotId,
+            status: "rescheduled" as RequestStatus,
+          }
+        : r
+    );
+
+    const rescheduleAlert: AlertItem = {
+      id: `alert-resched-req-${Date.now()}`,
+      title: "Booking Request Rescheduled",
+      description: `Booking request for ${targetReq?.studentAnonId || "Student"} rescheduled to ${newDateDisplay} (${newTimeRange}). Multiple reschedules permitted.`,
+      timestamp: "Just now",
+      isUnread: true,
+      category: "session",
+      priority: "normal",
+      iconName: "calendar-outline",
+      badgeLabel: "Rescheduled",
+    };
+
+    state = {
+      ...state,
+      requests: updatedRequests,
+      alerts: [rescheduleAlert, ...state.alerts],
+      alertsUnread: state.alertsUnread + 1,
+    };
+    notifyListeners();
+
+    if (isFirebaseConfigured() && db && bookingId) {
+      try {
+        const batch = writeBatch(db);
+        const bookingRef = doc(db, FIRESTORE_COLLECTIONS.BOOKINGS, bookingId);
+        batch.update(bookingRef, {
+          date: newDateDisplay,
+          requestedTime: newTimeRange,
+          timeRange: newTimeRange,
+          slotId: newSlotId || null,
+          status: "rescheduled",
+          updatedAt: serverTimestamp(),
+        });
+
+        // Free previous slot if it was reserved
+        if (prevSlotId && prevSlotId !== newSlotId) {
+          const prevSlotRef = doc(db, "slots", prevSlotId);
+          batch.update(prevSlotRef, {
+            isBooked: false,
+            bookingId: null,
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        // Lock new slot if provided
+        if (newSlotId) {
+          const newSlotRef = doc(db, "slots", newSlotId);
+          batch.update(newSlotRef, {
+            isBooked: true,
+            bookingId,
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        await batch.commit();
+      } catch (e: any) {
+        if (!isFirestorePermissionError(e)) {
+          console.warn("[counsellorStore] rescheduleBooking Firestore error:", e);
+        }
+      }
+    }
   },
 
   // Set selected calendar day (shared across Day & Month views)
@@ -2536,6 +2717,7 @@ export function useCounsellorStore() {
     addClinicalNote: counsellorStore.addClinicalNote,
     cancelSession: counsellorStore.cancelSession,
     rescheduleSession: counsellorStore.rescheduleSession,
+    rescheduleBooking: counsellorStore.rescheduleBooking,
     setSelectedCalendarDay: counsellorStore.setSelectedCalendarDay,
     setSelectedCalendarMonth: counsellorStore.setSelectedCalendarMonth,
     toggleHoldScheduleSlot: counsellorStore.toggleHoldScheduleSlot,
