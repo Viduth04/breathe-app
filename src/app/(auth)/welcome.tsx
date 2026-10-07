@@ -3,6 +3,12 @@ import Card from "@/components/common/Card";
 import Logo, { LeafMark } from "@/components/common/Logo";
 import Screen from "@/components/common/Screen";
 import UrgentHelpLink from "@/components/crisis/UrgentHelpLink";
+import CheckInIllustration, {
+  CHECK_IN_DESCRIPTION,
+} from "@/components/onboarding/CheckInIllustration";
+import TalkIllustration, {
+  TALK_DESCRIPTION,
+} from "@/components/onboarding/TalkIllustration";
 import {
   colors,
   gradients,
@@ -14,13 +20,15 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { Image, ImageSource } from "expo-image";
 import { router } from "expo-router";
-import { useRef, useState } from "react";
+import { ComponentType, useRef, useState } from "react";
 import {
   Animated,
   FlatList,
   NativeScrollEvent,
+  LayoutChangeEvent,
   NativeSyntheticEvent,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -29,44 +37,37 @@ import {
 import { useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-type IconName = keyof typeof Ionicons.glyphMap;
-
 type Slide = {
   title: string;
   subtitle: string;
-  // Real artwork; slides without one show the icon composition below
-  image?: { source: ImageSource; description: string };
-  icon: IconName;
-  accents: [IconName, IconName];
+  description: string; // Read by screen readers in place of the artwork
+  // Slide 1 uses a bitmap; slides 2 and 3 are drawn with react-native-svg
+  art:
+    | { kind: "image"; source: ImageSource }
+    | { kind: "svg"; Component: ComponentType<{ accessibilityLabel?: string }> };
 };
 
 const SLIDES: Slide[] = [
   {
     title: "Small steps toward feeling better",
     subtitle: "Check in daily. Book support privately. Your data stays yours.",
-    image: {
-      source: require("@/assets/images/onboarding-1.jpg"),
-      description:
-        "Illustration of a student meditating cross-legged among green leaves",
-    },
-    icon: "leaf",
-    accents: ["sunny-outline", "heart-outline"],
+    description:
+      "Illustration of a student meditating cross-legged among green leaves",
+    art: { kind: "image", source: require("@/assets/images/onboarding-1.jpg") },
   },
   {
-    title: "Check in, in under 2 minutes",
+    title: "Check in with yourself",
     subtitle:
-      "A quick private mood check-in helps you notice patterns before stress builds up.",
-    // TODO: add the slide 2 illustration (image: { source, description })
-    icon: "happy",
-    accents: ["time-outline", "stats-chart-outline"],
+      "A quick, private mood check-in helps you notice patterns before stress builds up.",
+    description: CHECK_IN_DESCRIPTION,
+    art: { kind: "svg", Component: CheckInIllustration },
   },
   {
-    title: "Support on your terms",
+    title: "Talk to someone you trust",
     subtitle:
-      "Book a counsellor anonymously. Your data is never shared with lecturers.",
-    // TODO: add the slide 3 illustration (image: { source, description })
-    icon: "chatbubbles",
-    accents: ["shield-checkmark-outline", "calendar-outline"],
+      "Book a counsellor when you're ready. Counsellors only see your anonymous ID.",
+    description: TALK_DESCRIPTION,
+    art: { kind: "svg", Component: TalkIllustration },
   },
 ];
 
@@ -80,14 +81,22 @@ export default function Welcome() {
   const listRef = useRef<FlatList<Slide>>(null);
   const scrollX = useRef(new Animated.Value(0)).current;
   const [index, setIndex] = useState(0);
+  const [listHeight, setListHeight] = useState(0);
 
   const isLast = index === SLIDES.length - 1;
-  // Keep the card small enough that everything fits on short phones
-  const panelSize = Math.min(
-    width - 2 * spacing.lg - 2 * spacing.sm,
-    height * 0.34,
-    360,
+  // The slides only get the space left above the dots and buttons, so the
+  // artwork is sized from that (measured) height and leaves room for the text
+  const panelSize = Math.max(
+    120,
+    Math.min(
+      width - 2 * spacing.lg - 2 * spacing.sm,
+      listHeight ? listHeight * 0.48 : height * 0.3,
+      360,
+    ),
   );
+
+  const onListLayout = (e: LayoutChangeEvent) =>
+    setListHeight(e.nativeEvent.layout.height);
 
   const goToLogin = () => router.push("/(auth)/login");
 
@@ -107,57 +116,49 @@ export default function Welcome() {
   );
 
   const renderSlide = ({ item, index: i }: { item: Slide; index: number }) => (
-    <View
-      style={[styles.slide, { width }]}
-      accessible
-      // The slide is read as one item, so the image description goes in its label
-      accessibilityLabel={[
-        `Slide ${i + 1} of ${SLIDES.length}`,
-        item.image?.description,
-        item.title,
-        item.subtitle,
-      ]
-        .filter(Boolean)
-        .join(". ")}
+    // Scrolls vertically if the text still doesn't fit on very short screens
+    <ScrollView
+      style={{ width }}
+      contentContainerStyle={styles.slideScroll}
+      showsVerticalScrollIndicator={false}
+      bounces={false}
     >
-      <Card style={styles.card}>
-        <View style={[styles.panel, { width: panelSize, height: panelSize }]}>
-          {item.image ? (
-            <Image
-              source={item.image.source}
-              contentFit="contain"
-              style={styles.image}
-              accessibilityLabel={item.image.description}
-            />
-          ) : (
-            <>
-              <View style={styles.iconCircle}>
-                <Ionicons
-                  name={item.icon}
-                  size={panelSize * 0.28}
-                  color={colors.primary}
-                />
-              </View>
-              <View style={[styles.accent, styles.accentTop]}>
-                <Ionicons name={item.accents[0]} size={22} color={colors.primary} />
-              </View>
-              <View style={[styles.accent, styles.accentLeft]}>
-                <Ionicons name={item.accents[1]} size={22} color={colors.primary} />
-              </View>
-            </>
-          )}
-        </View>
-        <View style={styles.chip}>
-          <LeafMark size={14} />
-          <Text style={styles.chipText}>Safe Space</Text>
-        </View>
-      </Card>
+      <View
+        style={styles.slide}
+        accessible
+        // The slide is read as one item, so the artwork description goes in its label
+        accessibilityLabel={[
+          `Slide ${i + 1} of ${SLIDES.length}`,
+          item.description,
+          item.title,
+          item.subtitle,
+        ].join(". ")}
+      >
+        <Card style={styles.card}>
+          <View style={[styles.panel, { width: panelSize, height: panelSize }]}>
+            {item.art.kind === "image" ? (
+              <Image
+                source={item.art.source}
+                contentFit="contain"
+                style={styles.image}
+                accessibilityLabel={item.description}
+              />
+            ) : (
+              <item.art.Component accessibilityLabel={item.description} />
+            )}
+          </View>
+          <View style={styles.chip}>
+            <LeafMark size={14} />
+            <Text style={styles.chipText}>Safe Space</Text>
+          </View>
+        </Card>
 
-      <View style={styles.copy}>
-        <Text style={[typography.title, styles.center]}>{item.title}</Text>
-        <Text style={[styles.subtitle, styles.center]}>{item.subtitle}</Text>
+        <View style={styles.copy}>
+          <Text style={[typography.title, styles.center]}>{item.title}</Text>
+          <Text style={[styles.subtitle, styles.center]}>{item.subtitle}</Text>
+        </View>
       </View>
-    </View>
+    </ScrollView>
   );
 
   return (
@@ -189,6 +190,8 @@ export default function Welcome() {
           onScroll={onScroll}
           scrollEventThrottle={16}
           getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
+          extraData={panelSize}
+          onLayout={onListLayout}
           style={styles.list}
         />
 
@@ -270,10 +273,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   skipText: { fontSize: 16, fontWeight: "600", color: colors.primary },
-  list: { flexGrow: 1 },
+  // flex: 1 (not flexGrow) lets the list shrink so the buttons stay on screen
+  list: { flex: 1 },
+  slideScroll: { flexGrow: 1 },
   slide: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
     alignItems: "center",
     gap: spacing.lg,
   },
@@ -293,25 +299,6 @@ const styles = StyleSheet.create({
     overflow: "hidden", // Rounds the illustration's corners with the panel
   },
   image: { width: "100%", height: "100%" },
-  iconCircle: {
-    width: "56%",
-    aspectRatio: 1,
-    borderRadius: radius.full,
-    backgroundColor: colors.success,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  accent: {
-    position: "absolute",
-    width: 44,
-    height: 44,
-    borderRadius: radius.full,
-    backgroundColor: colors.selected,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  accentTop: { top: "14%", right: "14%" },
-  accentLeft: { bottom: "20%", left: "12%" },
   chip: {
     position: "absolute",
     right: spacing.md,
