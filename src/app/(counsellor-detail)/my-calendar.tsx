@@ -64,6 +64,23 @@ function getBookingDayNum(b: CalendarBooking): number | undefined {
   return undefined;
 }
 
+/**
+ * Parses time strings like "09:00 AM", "11:00 AM - 11:30 AM", "04:00 PM – 4:30 PM"
+ * into minutes from midnight (0..1439) for deterministic chronological sorting.
+ */
+function parseTimeToMinutes(timeStr?: string): number {
+  if (!timeStr) return 9999;
+  const firstPart = timeStr.split(/[–\-]/)[0].trim();
+  const match = firstPart.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return 9999;
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const meridiem = match[3] ? match[3].toUpperCase() : (hours < 8 ? "PM" : "AM");
+  if (meridiem === "PM" && hours < 12) hours += 12;
+  if (meridiem === "AM" && hours === 12) hours = 0;
+  return hours * 60 + minutes;
+}
+
 export default function MyCalendarScreen() {
   const params = useLocalSearchParams<{
     view?: string;
@@ -217,9 +234,14 @@ export default function MyCalendarScreen() {
     });
   }, [navYear, navMonth, selectedDay]);
 
+  // Formatted target date key for the current navigated day (e.g. 2026-10-08)
+  const targetDayDateKey = useMemo(() => {
+    return `${navYear}-${String(navMonth + 1).padStart(2, "0")}-${String(selectedDay).padStart(2, "0")}`;
+  }, [navYear, navMonth, selectedDay]);
+
   // Filter confirmed bookings for current navigated month from real store data
   const monthBookings = useMemo(() => {
-    return store.calendarBookings.filter((b) => {
+    const list = store.calendarBookings.filter((b) => {
       if (b.isOpenSlot) return false;
       if (b.statusText === "Cancelled") return false;
       if (b.dateKey) {
@@ -231,11 +253,57 @@ export default function MyCalendarScreen() {
       }
       return false;
     });
-  }, [store.calendarBookings, selectedMonthText, navYear, navMonth]);
 
-  // Bookings specifically on the selected day
+    // Also include confirmed slots from scheduleDaySlots for this month
+    store.scheduleDaySlots
+      .filter((s) => s.isBooked && s.dateKey)
+      .forEach((s) => {
+        const [y, m] = s.dateKey!.split("-").map(Number);
+        if (y === navYear && m === navMonth + 1) {
+          const alreadyExists = list.some(
+            (b) =>
+              b.id === `cal-slot-${s.id}` ||
+              b.id === s.id ||
+              (b.dateKey === s.dateKey &&
+                (b.timeSlot === s.startTime || b.timeRange === s.timeRange))
+          );
+          if (!alreadyExists) {
+            const rawTime = s.startTime || s.timeRange.split("–")[0]?.trim() || "10:00 AM";
+            const dayNum = parseInt(s.dateKey!.split("-")[2], 10);
+            list.push({
+              id: `cal-slot-${s.id}`,
+              timeSlot: rawTime,
+              studentId: "",
+              studentAnonId: s.studentName || "Student #5104",
+              displayName: s.studentName || "Student #5104",
+              idMode: "anonymous" as const,
+              subInfo: `${s.dateDisplay || s.dateKey || "Upcoming"} • Confirmed Booking`,
+              timeRange: s.timeRange,
+              modality: (s.modalityType === "chat" ? "chat" : s.modalityType === "in-person" ? "in-person" : "video") as any,
+              modalityLabel: s.modalityType === "chat" ? "Secure Thread" : s.modalityType === "in-person" ? "In-Person Consultation" : "Consultation (45m)",
+              securityTag: "E2E Encrypted",
+              roomId: `brth-${s.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}`,
+              roomOrDetail: `Room ID: brth-${s.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}`,
+              isOpenSlot: false,
+              isBlocked: false,
+              statusText: "Intake Complete",
+              dateStr: s.dateDisplay || s.dateKey,
+              dateKey: s.dateKey,
+              dayNum,
+              monthYear: selectedMonthText,
+              isExpired: false,
+              isPast: false,
+            });
+          }
+        }
+      });
+
+    return list;
+  }, [store.calendarBookings, store.scheduleDaySlots, selectedMonthText, navYear, navMonth]);
+
+  // Bookings specifically on the selected day (including confirmed slots from schedule)
   const selectedDayBookings = useMemo(() => {
-    return store.calendarBookings.filter((b) => {
+    const list = store.calendarBookings.filter((b) => {
       if (b.isOpenSlot) return false;
       if (b.statusText === "Cancelled") return false;
       if (b.dateKey) {
@@ -248,11 +316,55 @@ export default function MyCalendarScreen() {
       const dNum = getBookingDayNum(b);
       return dNum !== undefined && dNum === selectedDay;
     });
-  }, [store.calendarBookings, selectedDay, navYear, navMonth, selectedMonthText]);
 
-  // Day Timeline Items (including open and blocked slots for this specific day)
+    // Ensure all confirmed booked slots from scheduleDaySlots for target date are included
+    store.scheduleDaySlots
+      .filter((s) => s.isBooked && (s.dateKey === targetDayDateKey || (s.dateKey && getBookingDayNum({ dateKey: s.dateKey } as any) === selectedDay)))
+      .forEach((s) => {
+        const alreadyExists = list.some(
+          (b) =>
+            b.id === `cal-slot-${s.id}` ||
+            b.id === s.id ||
+            (b.dateKey === (s.dateKey || targetDayDateKey) &&
+              (b.timeSlot === s.startTime || b.timeRange === s.timeRange))
+        );
+        if (!alreadyExists) {
+          const rawTime = s.startTime || s.timeRange.split("–")[0]?.trim() || "10:00 AM";
+          list.push({
+            id: `cal-slot-${s.id}`,
+            timeSlot: rawTime,
+            studentId: "",
+            studentAnonId: s.studentName || "Student #5104",
+            displayName: s.studentName || "Student #5104",
+            idMode: "anonymous" as const,
+            subInfo: `${s.dateDisplay || s.dateKey || "Upcoming"} • Confirmed Booking`,
+            timeRange: s.timeRange,
+            modality: (s.modalityType === "chat" ? "chat" : s.modalityType === "in-person" ? "in-person" : "video") as any,
+            modalityLabel: s.modalityType === "chat" ? "Secure Thread" : s.modalityType === "in-person" ? "In-Person Consultation" : "Consultation (45m)",
+            securityTag: "E2E Encrypted",
+            roomId: `brth-${s.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}`,
+            roomOrDetail: `Room ID: brth-${s.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}`,
+            isOpenSlot: false,
+            isBlocked: false,
+            statusText: "Intake Complete",
+            dateStr: s.dateDisplay || s.dateKey,
+            dateKey: s.dateKey || targetDayDateKey,
+            dayNum: selectedDay,
+            monthYear: selectedMonthText,
+            isExpired: false,
+            isPast: false,
+          });
+        }
+      });
+
+    return list.sort(
+      (a, b) => parseTimeToMinutes(a.timeSlot || a.timeRange) - parseTimeToMinutes(b.timeSlot || b.timeRange)
+    );
+  }, [store.calendarBookings, store.scheduleDaySlots, selectedDay, navYear, navMonth, targetDayDateKey, selectedMonthText]);
+
+  // Day Timeline Items (including open, blocked, and confirmed slots sorted chronologically)
   const dayTimelineItems = useMemo(() => {
-    return store.calendarBookings.filter((b) => {
+    const list = store.calendarBookings.filter((b) => {
       if (b.statusText === "Cancelled") return false;
       if (b.dateKey) {
         const [y, m, d] = b.dateKey.split("-").map(Number);
@@ -264,7 +376,52 @@ export default function MyCalendarScreen() {
       const dNum = getBookingDayNum(b);
       return dNum !== undefined && dNum === selectedDay;
     });
-  }, [store.calendarBookings, selectedDay, navYear, navMonth, selectedMonthText]);
+
+    // Ensure all confirmed booked slots from scheduleDaySlots for target date are included
+    store.scheduleDaySlots
+      .filter((s) => s.isBooked && (s.dateKey === targetDayDateKey || (s.dateKey && getBookingDayNum({ dateKey: s.dateKey } as any) === selectedDay)))
+      .forEach((s) => {
+        const alreadyExists = list.some(
+          (b) =>
+            b.id === `cal-slot-${s.id}` ||
+            b.id === s.id ||
+            (b.dateKey === (s.dateKey || targetDayDateKey) &&
+              (b.timeSlot === s.startTime || b.timeRange === s.timeRange))
+        );
+        if (!alreadyExists) {
+          const rawTime = s.startTime || s.timeRange.split("–")[0]?.trim() || "10:00 AM";
+          list.push({
+            id: `cal-slot-${s.id}`,
+            timeSlot: rawTime,
+            studentId: "",
+            studentAnonId: s.studentName || "Student #5104",
+            displayName: s.studentName || "Student #5104",
+            idMode: "anonymous" as const,
+            subInfo: `${s.dateDisplay || s.dateKey || "Upcoming"} • Confirmed Booking`,
+            timeRange: s.timeRange,
+            modality: (s.modalityType === "chat" ? "chat" : s.modalityType === "in-person" ? "in-person" : "video") as any,
+            modalityLabel: s.modalityType === "chat" ? "Secure Thread" : s.modalityType === "in-person" ? "In-Person Consultation" : "Consultation (45m)",
+            securityTag: "E2E Encrypted",
+            roomId: `brth-${s.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}`,
+            roomOrDetail: `Room ID: brth-${s.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}`,
+            isOpenSlot: false,
+            isBlocked: false,
+            statusText: "Intake Complete",
+            dateStr: s.dateDisplay || s.dateKey,
+            dateKey: s.dateKey || targetDayDateKey,
+            dayNum: selectedDay,
+            monthYear: selectedMonthText,
+            isExpired: false,
+            isPast: false,
+          });
+        }
+      });
+
+    // Sort all timeline items chronologically from earliest to latest time
+    return list.sort(
+      (a, b) => parseTimeToMinutes(a.timeSlot || a.timeRange) - parseTimeToMinutes(b.timeSlot || b.timeRange)
+    );
+  }, [store.calendarBookings, store.scheduleDaySlots, selectedDay, navYear, navMonth, targetDayDateKey, selectedMonthText]);
 
   // Dynamic Month Calendar Grid calculation (Monday-first)
   const monthDays = useMemo(() => {
@@ -396,7 +553,7 @@ export default function MyCalendarScreen() {
       router.navigate({
         pathname: "/(counsellor-detail)/session-notes",
         params: {
-          sessionId: booking.id.replace(/^cal-/, ""),
+          sessionId: booking.id.replace(/^cal-(slot-)?/, ""),
           studentAnonId: booking.studentAnonId || "Student #ANON",
           studentName: booking.displayName,
         },
@@ -406,7 +563,7 @@ export default function MyCalendarScreen() {
     router.navigate({
       pathname: "/(counsellor-detail)/ready-to-join",
       params: {
-        sessionId: booking.id.replace(/^cal-/, ""),
+        sessionId: booking.id.replace(/^cal-(slot-)?/, ""),
         studentAnonId: booking.studentAnonId || "Student #ANON",
         sessionTitle: booking.subInfo || "Encrypted Video Consultation",
         timeRange: booking.timeRange || "10:00 - 10:45",
@@ -425,7 +582,7 @@ export default function MyCalendarScreen() {
       router.navigate({
         pathname: "/(counsellor-detail)/session-notes",
         params: {
-          sessionId: booking.id.replace(/^cal-/, ""),
+          sessionId: booking.id.replace(/^cal-(slot-)?/, ""),
           studentAnonId: booking.studentAnonId,
           studentName: booking.displayName,
         },

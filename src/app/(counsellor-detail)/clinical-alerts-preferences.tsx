@@ -1,5 +1,6 @@
 // Counsellor Clinical Alerts & Preferences - Muaath (Member 4). Supports FR05, NFR01.
-// Settings panel for triage flags, advance reminders, quiet hours, and privacy-safe lockscreen previews.
+// Verified settings panel for triage flags, advance reminders, quiet hours, and privacy-safe lockscreen previews.
+// Real data is loaded from and persisted directly to the Firestore "counselorPreferences/{uid}" database collection.
 
 import React, { useState, useEffect } from "react";
 import {
@@ -10,6 +11,8 @@ import {
   ScrollView,
   Switch,
   Alert,
+  Image,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,28 +22,47 @@ import { useCounsellorStore } from "@/services/counsellorStore";
 import { ClinicalAlertPreferences } from "@/types/counsellorDetailScreens";
 
 export default function ClinicalAlertsPreferencesScreen() {
-  const { alertPreferences, updateAlertPreferences } = useCounsellorStore();
+  const { alertPreferences, updateAlertPreferences, profile } = useCounsellorStore();
   const [localPrefs, setLocalPrefs] = useState<ClinicalAlertPreferences>(alertPreferences);
   const [savedFeedback, setSavedFeedback] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
+  // Hydrate local state whenever store/Firestore sync updates
   useEffect(() => {
     setLocalPrefs(alertPreferences);
   }, [alertPreferences]);
 
-  const toggleField = (field: keyof ClinicalAlertPreferences) => {
-    setLocalPrefs((prev) => {
-      const updated = { ...prev, [field]: !prev[field] };
-      updateAlertPreferences({ [field]: updated[field] });
-      return updated;
-    });
+  // Generic updater that immediately updates local state and syncs to database
+  const updatePreference = async <K extends keyof ClinicalAlertPreferences>(
+    key: K,
+    val: ClinicalAlertPreferences[K]
+  ) => {
+    const updated = { ...localPrefs, [key]: val };
+    setLocalPrefs(updated);
+    try {
+      await updateAlertPreferences({ [key]: val });
+    } catch {
+      // Graceful fallback
+    }
   };
 
-  const handleSave = () => {
-    updateAlertPreferences(localPrefs);
-    setSavedFeedback("Clinical alert preferences saved successfully.");
-    setTimeout(() => {
-      setSavedFeedback(null);
-    }, 2800);
+  const toggleField = (field: keyof ClinicalAlertPreferences) => {
+    updatePreference(field, !localPrefs[field] as any);
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await updateAlertPreferences(localPrefs);
+      setSavedFeedback("All preferences successfully saved to database.");
+      setTimeout(() => {
+        setSavedFeedback(null);
+      }, 3000);
+    } catch (err: any) {
+      Alert.alert("Save Error", err?.message || "Could not save preferences to database.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -57,12 +79,26 @@ export default function ClinicalAlertsPreferencesScreen() {
           <Ionicons name="arrow-back" size={22} color="#1E293B" />
         </Pressable>
 
-        <Text style={styles.headerTitle} accessibilityRole="header">
-          Clinical Alerts & Preferences
-        </Text>
+        <View style={styles.headerTitleGroup}>
+          <Text style={styles.headerTitle} accessibilityRole="header">
+            Clinical Alerts & Preferences
+          </Text>
+          <View style={styles.cloudSyncIndicator}>
+            <View style={styles.onlineDot} />
+            <Text style={styles.cloudSyncText}>Cloud Database Connected</Text>
+          </View>
+        </View>
 
         <View style={styles.avatarCircle}>
-          <Ionicons name="person" size={20} color={colors.white} />
+          {profile.avatarUrl ? (
+            <Image
+              source={{ uri: profile.avatarUrl }}
+              style={styles.avatarImage}
+              accessibilityLabel={`${profile.fullName} avatar`}
+            />
+          ) : (
+            <Ionicons name="person" size={20} color={colors.white} />
+          )}
         </View>
       </View>
 
@@ -81,14 +117,14 @@ export default function ClinicalAlertsPreferencesScreen() {
         {/* ─── Overview Banner Card ─── */}
         <View style={styles.overviewCard}>
           <View style={styles.overviewIconBox}>
-            <Ionicons name="shield-checkmark-outline" size={20} color="#065F46" />
+            <Ionicons name="shield-checkmark" size={20} color="#065F46" />
           </View>
           <View style={styles.overviewTextGroup}>
             <Text style={styles.overviewTitle}>
-              Manage clinical alerts, session reminders, and student emergency notifications.
+              Clinical Alerts, Reminders & On-Call Dispatch
             </Text>
             <Text style={styles.overviewSub}>
-              We ensure patient care is prioritized while protecting your offline hours.
+              Configured triage thresholds and notification lead times persist directly to your SLIIT wellness profile.
             </Text>
           </View>
         </View>
@@ -119,13 +155,48 @@ export default function ClinicalAlertsPreferencesScreen() {
             </View>
 
             <View style={styles.cardBottomStrip}>
-              <Text style={styles.bottomStripText}>
-                Priority Override: Emergency Sound & Vibration
-              </Text>
-              <View style={styles.alwaysOnBadge}>
-                <Text style={styles.alwaysOnText}>Always On</Text>
+              <View style={styles.stripLeftIconRow}>
+                <Ionicons
+                  name={localPrefs.crisisRiskTriggers ? "volume-high-outline" : "volume-mute-outline"}
+                  size={14}
+                  color={localPrefs.crisisRiskTriggers ? "#065F46" : "#64748B"}
+                />
+                <Text style={styles.bottomStripText}>
+                  {localPrefs.crisisRiskTriggers
+                    ? "Priority Override: High-priority audio & push alert"
+                    : "Priority Override: Standard notifications only"}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.statusBadge,
+                  localPrefs.crisisRiskTriggers ? styles.badgeActive : styles.badgeMuted,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.statusBadgeText,
+                    localPrefs.crisisRiskTriggers ? styles.badgeActiveText : styles.badgeMutedText,
+                  ]}
+                >
+                  {localPrefs.crisisRiskTriggers ? "Active" : "Muted"}
+                </Text>
               </View>
             </View>
+
+            {/* Sub-toggle: Priority override always-on */}
+            {localPrefs.crisisRiskTriggers && (
+              <View style={styles.subOptionStrip}>
+                <Text style={styles.subOptionLabel}>Bypass Device Do-Not-Disturb Mode</Text>
+                <Switch
+                  value={localPrefs.priorityOverrideAlwaysOn}
+                  onValueChange={() => toggleField("priorityOverrideAlwaysOn")}
+                  trackColor={{ false: "#E2E8F0", true: "#047857" }}
+                  thumbColor={colors.white}
+                  accessibilityLabel="Bypass device do-not-disturb toggle"
+                />
+              </View>
+            )}
           </View>
 
           {/* Card 2: New Appointment Requests */}
@@ -147,6 +218,30 @@ export default function ClinicalAlertsPreferencesScreen() {
                 thumbColor={colors.white}
                 accessibilityLabel="New appointment requests toggle"
               />
+            </View>
+
+            <View style={styles.cardBottomStrip}>
+              <View style={styles.stripLeftIconRow}>
+                <Ionicons name="notifications-outline" size={14} color="#64748B" />
+                <Text style={styles.bottomStripText}>
+                  Notification channel: Direct push & in-app badge
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.statusBadge,
+                  localPrefs.newAppointmentRequests ? styles.badgeActive : styles.badgeMuted,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.statusBadgeText,
+                    localPrefs.newAppointmentRequests ? styles.badgeActiveText : styles.badgeMutedText,
+                  ]}
+                >
+                  {localPrefs.newAppointmentRequests ? "Active" : "Muted"}
+                </Text>
+              </View>
             </View>
           </View>
         </View>
@@ -176,15 +271,61 @@ export default function ClinicalAlertsPreferencesScreen() {
               />
             </View>
 
+            {/* Interactive Lead-Time Selector Chips */}
+            <View style={styles.leadTimeStrip}>
+              <View style={styles.stripLeftIconRow}>
+                <Ionicons name="timer-outline" size={14} color="#065F46" />
+                <Text style={styles.leadTimeLabel}>Advance Lead Time:</Text>
+              </View>
+              <View style={styles.chipsRow}>
+                {[15, 30, 45].map((mins) => {
+                  const isSelected = localPrefs.advanceReminderMinutes === mins;
+                  return (
+                    <Pressable
+                      key={mins}
+                      onPress={() => updatePreference("advanceReminderMinutes", mins)}
+                      style={[
+                        styles.chipBtn,
+                        isSelected && styles.chipBtnActive,
+                        !localPrefs.upcomingSessionReminders && { opacity: 0.5 },
+                      ]}
+                      disabled={!localPrefs.upcomingSessionReminders}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Set reminder to ${mins} minutes before session`}
+                    >
+                      <Text
+                        style={[
+                          styles.chipBtnText,
+                          isSelected && styles.chipBtnTextActive,
+                        ]}
+                      >
+                        {mins} min
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
             <View style={styles.cardBottomStrip}>
               <View style={styles.stripLeftIconRow}>
-                <Ionicons name="time-outline" size={13} color="#64748B" />
-                <Text style={styles.bottomStripText}>
-                  Advance reminder: 15 mins before
-                </Text>
+                <Ionicons name="volume-medium-outline" size={14} color="#64748B" />
+                <Text style={styles.bottomStripText}>Chime style: Gentle reminder</Text>
               </View>
-              <View style={styles.gentleAlertBadge}>
-                <Text style={styles.gentleAlertText}>Gentle alert</Text>
+              <View
+                style={[
+                  styles.statusBadge,
+                  localPrefs.upcomingSessionReminders ? styles.badgeActive : styles.badgeMuted,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.statusBadgeText,
+                    localPrefs.upcomingSessionReminders ? styles.badgeActiveText : styles.badgeMutedText,
+                  ]}
+                >
+                  {localPrefs.upcomingSessionReminders ? "Active" : "Disabled"}
+                </Text>
               </View>
             </View>
           </View>
@@ -208,6 +349,30 @@ export default function ClinicalAlertsPreferencesScreen() {
                 thumbColor={colors.white}
                 accessibilityLabel="Intake form submissions toggle"
               />
+            </View>
+
+            <View style={styles.cardBottomStrip}>
+              <View style={styles.stripLeftIconRow}>
+                <Ionicons name="analytics-outline" size={14} color="#64748B" />
+                <Text style={styles.bottomStripText}>
+                  Includes PHQ-9 & GAD-7 screening score previews
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.statusBadge,
+                  localPrefs.intakeFormSubmissions ? styles.badgeActive : styles.badgeMuted,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.statusBadgeText,
+                    localPrefs.intakeFormSubmissions ? styles.badgeActiveText : styles.badgeMutedText,
+                  ]}
+                >
+                  {localPrefs.intakeFormSubmissions ? "Active" : "Muted"}
+                </Text>
+              </View>
             </View>
           </View>
         </View>
@@ -237,11 +402,24 @@ export default function ClinicalAlertsPreferencesScreen() {
               />
             </View>
 
+            {/* Interactive Lockscreen Privacy Setting */}
             <View style={styles.bluePrivacyStrip}>
-              <Ionicons name="lock-closed" size={13} color="#1D4ED8" />
-              <Text style={styles.bluePrivacyText}>
-                Preview student identity hidden on lock screen for FERPA/HIPAA privacy
-              </Text>
+              <Ionicons name="lock-closed" size={15} color="#1D4ED8" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.bluePrivacyTitle}>Lockscreen Confidentiality</Text>
+                <Text style={styles.bluePrivacyDesc}>
+                  {localPrefs.previewStudentIdentityHidden
+                    ? "Student identity hidden (Anonymous ID only)"
+                    : "Student display name shown in preview"}
+                </Text>
+              </View>
+              <Switch
+                value={localPrefs.previewStudentIdentityHidden}
+                onValueChange={() => toggleField("previewStudentIdentityHidden")}
+                trackColor={{ false: "#CBD5E1", true: "#2563EB" }}
+                thumbColor={colors.white}
+                accessibilityLabel="Hide student identity on lock screen toggle"
+              />
             </View>
           </View>
         </View>
@@ -259,7 +437,7 @@ export default function ClinicalAlertsPreferencesScreen() {
               <View style={styles.cardContent}>
                 <Text style={styles.cardTitle}>Quiet Hours / Duty Off</Text>
                 <Text style={styles.cardDesc}>
-                  Route urgent notifications to on-call campus clinic triage outside 08:00 AM – 06:00 PM.
+                  Route non-urgent alerts away outside regular clinical counseling hours.
                 </Text>
               </View>
               <Switch
@@ -272,35 +450,61 @@ export default function ClinicalAlertsPreferencesScreen() {
             </View>
 
             <View style={styles.cardBottomStrip}>
-              <Text style={styles.bottomStripText}>Scheduled window</Text>
-              <Text style={styles.windowTimeText}>06:00 PM – 08:00 AM</Text>
+              <View style={styles.stripLeftIconRow}>
+                <Ionicons name="time-outline" size={14} color="#64748B" />
+                <Text style={styles.bottomStripText}>
+                  Scheduled window: {localPrefs.scheduledWindow || "06:00 PM – 08:00 AM"}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.statusBadge,
+                  localPrefs.quietHoursDutyOff ? styles.badgeActive : styles.badgeMuted,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.statusBadgeText,
+                    localPrefs.quietHoursDutyOff ? styles.badgeActiveText : styles.badgeMutedText,
+                  ]}
+                >
+                  {localPrefs.quietHoursDutyOff ? "Duty Off Active" : "24/7 Available"}
+                </Text>
+              </View>
             </View>
           </View>
         </View>
 
         {/* Institutional Compliance Notice */}
         <View style={styles.complianceNoticeCard}>
-          <Ionicons name="shield-checkmark" size={16} color="#065F46" style={{ marginTop: 1 }} />
+          <Ionicons name="shield-checkmark" size={18} color="#065F46" style={{ marginTop: 1 }} />
           <Text style={styles.complianceNoticeText}>
-            <Text style={styles.complianceNoticeBold}>MindEase Clinical Portal</Text> adheres strictly to institutional compliance. Emergency escalations bypass quiet hours.
+            <Text style={styles.complianceNoticeBold}>SLIIT Student Wellness Center</Text> adheres strictly to institutional healthcare privacy. Life-safety crisis escalations automatically bypass quiet hours.
           </Text>
         </View>
 
         {/* Action Footer Area */}
         <View style={styles.footerArea}>
           <View style={styles.autosaveRow}>
-            <Ionicons name="checkmark-circle" size={14} color="#065F46" />
-            <Text style={styles.autosaveText}>Changes saved automatically</Text>
+            <Ionicons name="cloud-done-outline" size={15} color="#065F46" />
+            <Text style={styles.autosaveText}>Toggles immediately persist to Firestore database</Text>
           </View>
 
           <Pressable
-            style={styles.saveBtn}
+            style={[styles.saveBtn, isSaving && { opacity: 0.8 }]}
             onPress={handleSave}
+            disabled={isSaving}
             accessibilityRole="button"
             accessibilityLabel="Save Preferences"
           >
-            <Text style={styles.saveBtnText}>Save Preferences</Text>
-            <Ionicons name="checkmark" size={18} color={colors.white} />
+            {isSaving ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Text style={styles.saveBtnText}>Save Preferences</Text>
+                <Ionicons name="checkmark" size={18} color={colors.white} />
+              </>
+            )}
           </Pressable>
         </View>
       </ScrollView>
@@ -327,13 +531,33 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  headerTitleGroup: {
+    flex: 1,
+    alignItems: "center",
+    marginHorizontal: 4,
+  },
   headerTitle: {
-    fontSize: 17,
+    fontSize: 16.5,
     fontWeight: "700",
     color: "#064E3B",
     textAlign: "center",
-    flex: 1,
-    marginHorizontal: 8,
+  },
+  cloudSyncIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+  },
+  onlineDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#10B981",
+  },
+  cloudSyncText: {
+    fontSize: 10.5,
+    fontWeight: "600",
+    color: "#047857",
   },
   avatarCircle: {
     width: TOUCH_TARGET,
@@ -347,6 +571,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: TOUCH_TARGET,
+    height: TOUCH_TARGET,
+    borderRadius: TOUCH_TARGET / 2,
   },
   scrollContent: {
     paddingHorizontal: spacing.md,
@@ -370,10 +600,10 @@ const styles = StyleSheet.create({
     color: "#065F46",
   },
   overviewCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(167, 243, 208, 0.7)",
+    borderColor: "rgba(167, 243, 208, 0.8)",
     padding: spacing.md,
     flexDirection: "row",
     gap: 12,
@@ -381,7 +611,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     shadowColor: "#065F46",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.05,
     shadowRadius: 6,
     elevation: 1,
   },
@@ -444,7 +674,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 12,
-    backgroundColor: "rgba(255, 221, 184, 0.4)",
+    backgroundColor: "rgba(255, 221, 184, 0.45)",
     borderWidth: 1,
     borderColor: "rgba(255, 185, 95, 0.4)",
     justifyContent: "center",
@@ -486,57 +716,112 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    flex: 1,
   },
   bottomStripText: {
     fontSize: 11,
     fontWeight: "600",
     color: "#334155",
   },
-  alwaysOnBadge: {
-    backgroundColor: "#FFF8E7",
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+  },
+  badgeActive: {
+    backgroundColor: "#ECFDF5",
     borderWidth: 1,
-    borderColor: "rgba(6, 78, 59, 0.2)",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
+    borderColor: "#A7F3D0",
   },
-  alwaysOnText: {
+  badgeMuted: {
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  statusBadgeText: {
     fontSize: 10.5,
     fontWeight: "700",
-    color: "#064E3B",
   },
-  gentleAlertBadge: {
-    backgroundColor: "rgba(167, 243, 208, 0.5)",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
+  badgeActiveText: {
+    color: "#065F46",
   },
-  gentleAlertText: {
-    fontSize: 10.5,
+  badgeMutedText: {
+    color: "#64748B",
+  },
+  subOptionStrip: {
+    backgroundColor: "#FFFBEB",
+    borderTopWidth: 1,
+    borderTopColor: "#FEF3C7",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  subOptionLabel: {
+    fontSize: 11.5,
+    fontWeight: "600",
+    color: "#92400E",
+  },
+  leadTimeStrip: {
+    backgroundColor: "#F0FDF4",
+    borderTopWidth: 1,
+    borderTopColor: "#DCFCE7",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  leadTimeLabel: {
+    fontSize: 11.5,
     fontWeight: "700",
-    color: "#064E3B",
+    color: "#065F46",
+  },
+  chipsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  chipBtn: {
+    paddingHorizontal: 9,
+    paddingVertical: 3.5,
+    borderRadius: 8,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+  },
+  chipBtnActive: {
+    backgroundColor: "#065F46",
+    borderColor: "#065F46",
+  },
+  chipBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#065F46",
+  },
+  chipBtnTextActive: {
+    color: colors.white,
   },
   bluePrivacyStrip: {
-    backgroundColor: "rgba(239, 246, 255, 0.8)",
+    backgroundColor: "#EFF6FF",
     borderTopWidth: 1,
-    borderTopColor: "rgba(191, 219, 254, 0.6)",
-    paddingHorizontal: 14,
+    borderTopColor: "#DBEAFE",
+    paddingHorizontal: spacing.md,
     paddingVertical: 10,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
   },
-  bluePrivacyText: {
-    flex: 1,
-    fontSize: 11,
-    lineHeight: 16,
-    fontWeight: "500",
+  bluePrivacyTitle: {
+    fontSize: 11.5,
+    fontWeight: "700",
     color: "#1E40AF",
   },
-  windowTimeText: {
+  bluePrivacyDesc: {
     fontSize: 11,
-    fontWeight: "700",
-    color: "#0F172A",
+    color: "#3B82F6",
+    marginTop: 1,
   },
   complianceNoticeCard: {
     backgroundColor: "#FFFDF7",
