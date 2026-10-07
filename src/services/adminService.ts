@@ -109,13 +109,38 @@ export async function createCounsellor(input: CounsellorInput, photo?: PhotoChan
   if (photo !== undefined) setCachedCounsellorPhoto(input.uid, photo);
 }
 
+// The only fields a counsellors/{uid} doc may hold (validCounsellorProfile
+// in firestore.rules checks the WHOLE doc with hasOnly)
+const COUNSELLOR_FIELDS = [
+  "uid",
+  "fullName",
+  "title",
+  "specialties",
+  "languages",
+  "experienceYears",
+  "bio",
+  "isAvailable",
+  "updatedAt",
+];
+
 export async function updateCounsellor(
   uid: string,
   changes: Partial<Omit<CounsellorInput, "uid">>,
   photo?: PhotoChange,
 ) {
+  const ref = doc(db, "counsellors", uid);
+  // Older counsellor-side code left extra fields (e.g. defaultDuration,
+  // availableSlots) in some profiles, which makes every save fail the rules.
+  // Remove them in the same update.
+  const snap = await getDoc(ref);
+  const stale = Object.fromEntries(
+    Object.keys(snap.data() ?? {})
+      .filter((key) => !COUNSELLOR_FIELDS.includes(key))
+      .map((key) => [key, deleteField()]),
+  );
   const batch = writeBatch(db);
-  batch.update(doc(db, "counsellors", uid), {
+  batch.update(ref, {
+    ...stale,
     ...changes,
     updatedAt: serverTimestamp(),
   });
