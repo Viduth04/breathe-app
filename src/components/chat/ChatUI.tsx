@@ -95,7 +95,7 @@ export default function ChatUI({
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [recording, setRecording] = useState<any>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [meterings, setMeterings] = useState<number[]>([]);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -169,7 +169,7 @@ export default function ChatUI({
         setMeterings([]);
         setRecordingDuration(0);
 
-        newRecording.setOnRecordingStatusUpdate((status) => {
+        newRecording.setOnRecordingStatusUpdate((status: any) => {
           setRecordingDuration(status.durationMillis);
           if (status.isRecording) {
             const meter = status.metering !== undefined ? status.metering : (Math.random() * 40 - 60);

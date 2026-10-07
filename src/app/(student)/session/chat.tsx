@@ -97,7 +97,8 @@ export default function ChatScreen() {
 
   if (lastSeenField) {
     lastSeenDate = lastSeenField.toDate ? lastSeenField.toDate() : new Date(lastSeenField.seconds * 1000);
-    const diffMinutes = (currentTime - lastSeenDate.getTime()) / 60000;
+    if (!lastSeenDate) return statusText;
+      const diffMinutes = (currentTime - lastSeenDate.getTime()) / 60000;
     isOnline = diffMinutes < 1.5;
     
     if (isOnline) {

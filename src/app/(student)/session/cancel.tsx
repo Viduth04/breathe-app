@@ -119,7 +119,7 @@ export default function CancelBookingScreen() {
                 <View style={styles.infoLine}>
                   <Ionicons name="lock-closed-outline" size={14} color={colors.textSecondary} />
                   <Text style={styles.infoText}>
-                    {session?.sessionType === 'video' ? 'Video Call' : session?.sessionType === 'chat' ? 'Chat Session' : 'Voice Call'} (Anonymous)
+                    {session?.sessionType === 'video' ? 'Video Call' : session?.sessionType === 'chat' ? 'Chat Session' : 'Phone Call'} (Anonymous)
                   </Text>
               </View>
             </View>
@@ -247,8 +247,8 @@ export default function CancelBookingScreen() {
                   <View style={styles.modalDetailRow}>
                     <Text style={styles.modalDetailLabel}>Session Type</Text>
                     <View style={styles.modalDetailIconRow}>
-                      <Ionicons name={session?.sessionType === 'chat' ? 'chatbubble-outline' : session?.sessionType === 'voice' ? 'call-outline' : 'videocam-outline'} size={16} color={colors.primary} />
-                        <Text style={styles.modalDetailValueDark}>{session?.sessionType === 'video' ? 'Video Call' : session?.sessionType === 'chat' ? 'Chat Session' : 'Voice Call'}</Text>
+                      <Ionicons name={session?.sessionType === 'chat' ? 'chatbubble-outline' : session?.sessionType === 'phone' ? 'call-outline' : 'videocam-outline'} size={16} color={colors.primary} />
+                        <Text style={styles.modalDetailValueDark}>{session?.sessionType === 'video' ? 'Video Call' : session?.sessionType === 'chat' ? 'Chat Session' : 'Phone Call'}</Text>
                     </View>
                   </View>
                   <View style={styles.modalDetailRow}>

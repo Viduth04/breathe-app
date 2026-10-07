@@ -46,7 +46,7 @@ const AudioMessage = ({ audioUri, isSent = true }: { audioUri: string, isSent?: 
         }
         if (isMounted) {
           setSound(tempSound);
-          tempSound.setOnPlaybackStatusUpdate((stat) => {
+          tempSound.setOnPlaybackStatusUpdate((stat: any) => {
             if (stat.isLoaded) {
               setPosition(stat.positionMillis);
               if (stat.durationMillis) setDuration(stat.durationMillis);
