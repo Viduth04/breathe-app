@@ -27,22 +27,35 @@ export default function ConfirmAcceptanceModal() {
     requests.find((r) => r.id === params.requestId || r.studentAnonId === params.studentAnonId) ||
     requests[0];
 
-  const studentAnonId = targetReq?.studentAnonId || "Student #5104";
-  const requestedDate = "Tomorrow, Tue 19 Aug • 10:00–10:45 AM";
-  const sessionFormat = "Video Consultation (45 min)";
+  const studentAnonId = targetReq?.studentAnonId || params.studentAnonId || "Anonymous Student";
+  const requestedDate = targetReq?.date
+    ? `${targetReq.date} • ${targetReq.requestedTime}`
+    : targetReq?.requestedTime || "Upcoming Consultation";
+  const sessionFormat =
+    targetReq?.sessionType === "video"
+      ? "Video Consultation (45 min)"
+      : targetReq?.sessionType === "chat"
+      ? "Secured Chat Session (45 min)"
+      : "In-Person Consultation (45 min)";
 
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleConfirm = async () => {
     if (isSubmitting) return;
+    if (targetReq?.isExpired) {
+      showToast({ message: "Cannot accept: This session slot has already expired.", type: "error" });
+      return;
+    }
     setIsSubmitting(true);
     try {
-      confirmAcceptance(targetReq?.id || "req-1", note.trim());
+      if (targetReq?.id) {
+        confirmAcceptance(targetReq.id, note.trim());
+      }
       router.replace("/(counsellor-detail)/request-accepted");
-    } catch (e) {
+    } catch (e: any) {
       setIsSubmitting(false);
-      showToast({ message: "Could not confirm acceptance. Please check connection.", type: "error" });
+      showToast({ message: e?.message || "Could not confirm acceptance. Please check connection.", type: "error" });
     }
   };
 
@@ -138,17 +151,40 @@ export default function ConfirmAcceptanceModal() {
               </Text>
             </View>
 
+            {/* ─── Expired Notice Banner ─── */}
+            {targetReq?.isExpired && (
+              <View style={styles.expiredNoticeCard}>
+                <Ionicons name="alert-circle" size={18} color="#D97706" />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={styles.expiredNoticeTitle}>Slot Expired</Text>
+                  <Text style={styles.expiredNoticeText}>
+                    The scheduled deadline for this booking has elapsed. This request cannot be accepted.
+                  </Text>
+                </View>
+              </View>
+            )}
+
             {/* ─── Actions ─── */}
             <View style={styles.actionsContainer}>
               <Pressable
                 onPress={handleConfirm}
-                disabled={isSubmitting}
-                style={[styles.confirmButton, isSubmitting && { opacity: 0.6 }]}
+                disabled={isSubmitting || targetReq?.isExpired}
+                style={[
+                  styles.confirmButton,
+                  isSubmitting && { opacity: 0.6 },
+                  targetReq?.isExpired && { backgroundColor: "#94A3B8", opacity: 0.8 },
+                ]}
                 accessibilityRole="button"
-                accessibilityLabel="Confirm & Accept Request"
+                accessibilityLabel={targetReq?.isExpired ? "Slot Expired (Cannot Confirm)" : "Confirm & Accept Request"}
               >
-                <Ionicons name="checkmark-circle-outline" size={20} color="#A7F3D0" />
-                <Text style={styles.confirmButtonText}>Confirm & Accept</Text>
+                <Ionicons
+                  name={targetReq?.isExpired ? "ban-outline" : "checkmark-circle-outline"}
+                  size={20}
+                  color={targetReq?.isExpired ? "#FFFFFF" : "#A7F3D0"}
+                />
+                <Text style={styles.confirmButtonText}>
+                  {targetReq?.isExpired ? "Slot Expired (Cannot Confirm)" : "Confirm & Accept"}
+                </Text>
               </Pressable>
 
               <Pressable
@@ -332,6 +368,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     marginBottom: 18,
+  },
+  expiredNoticeCard: {
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 16,
+  },
+  expiredNoticeTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#92400E",
+    marginBottom: 2,
+  },
+  expiredNoticeText: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: "#B45309",
+    fontWeight: "500",
   },
   lockBox: {
     width: 28,

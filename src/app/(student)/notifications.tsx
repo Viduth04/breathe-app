@@ -1,4 +1,6 @@
-import { colors, radius, spacing } from "@/theme";
+import { FLOATING_HELP_CLEARANCE } from "@/components/crisis/UrgentHelpLink";
+import NotificationItem from "@/components/notifications/NotificationItem";
+import { colors, spacing } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -109,17 +111,14 @@ export default function NotificationsScreen() {
     }
 
     return (
-      <View style={[styles.notificationCard, !item.read && styles.unreadCard]}>
-        <View style={[styles.iconBox, { backgroundColor: iconColor + "20" }]}>
-          <Ionicons name={iconName} size={24} color={iconColor} />
-        </View>
-        <View style={styles.textContent}>
-          <Text style={styles.title}>{item.title}</Text>
-          <Text style={styles.body}>{item.body}</Text>
-          <Text style={styles.time}>{item.time}</Text>
-        </View>
-        {!item.read && <View style={styles.unreadDot} />}
-      </View>
+      <NotificationItem
+        icon={iconName}
+        iconColor={iconColor}
+        title={item.title}
+        body={item.body}
+        time={item.time}
+        unread={!item.read}
+      />
     );
   };
 
@@ -158,6 +157,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: spacing.md,
+    // Keeps the right-hand icon clear of the floating crisis help button
+    paddingRight: FLOATING_HELP_CLEARANCE,
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
@@ -179,61 +180,6 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: spacing.md,
-  },
-  notificationCard: {
-    flexDirection: "row",
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "flex-start",
-  },
-  unreadCard: {
-    backgroundColor: colors.white,
-    borderColor: "#E5E7EB",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  iconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: spacing.md,
-  },
-  textContent: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: colors.text,
-    marginBottom: 4,
-  },
-  body: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginBottom: 8,
-    lineHeight: 20,
-  },
-  time: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    fontWeight: "500",
-  },
-  unreadDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.primary,
-    marginLeft: spacing.sm,
-    marginTop: spacing.xs,
   },
   emptyText: {
     textAlign: "center",

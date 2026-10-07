@@ -12,8 +12,7 @@ export const MOCK_COUNSELLOR_PROFILE: CounsellorProfileInfo = {
   fullName: "Dr. Anjali Perera",
   title: "Lead Clinical Counselor",
   organization: "MindEase",
-  avatarUrl:
-    "https://images.unsplash.com/photo-1594824813645-316b2cfd2906?auto=format&fit=crop&w=256&q=80",
+  avatarUrl: "",
   isVerified: true,
   isAvailable: true,
   unreadAlertsCount: 3,

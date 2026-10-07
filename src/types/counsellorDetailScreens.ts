@@ -93,7 +93,7 @@ export type PastSessionsStats = {
   verifiedHours: boolean;
 };
 
-export type PastSessionFilter = "all" | "completed" | "rescheduled" | "no-show";
+export type PastSessionFilter = "all" | "completed" | "rescheduled" | "no-show" | "pending-wrapup";
 
 // ─── Notification Detail Screen ───
 export type NotificationDetailData = {

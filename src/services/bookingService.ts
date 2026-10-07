@@ -24,6 +24,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   serverTimestamp,
   Timestamp,
@@ -36,7 +37,11 @@ import {
 export class BookingError extends Error {}
 
 const toBooking = (id: string, data: object) => ({ ...(data as Omit<Booking, "id">), id });
-const byStart = (a: Booking, b: Booking) => a.startAt.toMillis() - b.startAt.toMillis();
+const byStart = (a: Booking, b: Booking) => {
+  const timeA = a.startAt && typeof a.startAt.toMillis === 'function' ? a.startAt.toMillis() : 0;
+  const timeB = b.startAt && typeof b.startAt.toMillis === 'function' ? b.startAt.toMillis() : 0;
+  return timeA - timeB;
+};
 
 function cleanReason(reason?: string) {
   const text = reason?.trim();
@@ -88,6 +93,26 @@ export async function listMyBookings(uid: string): Promise<Booking[]> {
     query(collection(db, "bookings"), where("studentId", "==", uid)),
   );
   return snap.docs.map((d) => toBooking(d.id, d.data())).sort(byStart);
+}
+
+// Live version of listMyBookings (same query, so the same rules apply).
+// "local" lists bookings whose latest change is this device's own pending write.
+// Returns the unsubscribe function.
+export function subscribeToMyBookings(
+  uid: string,
+  onChange: (bookings: Booking[], local: Set<string>) => void,
+  onError: (error: unknown) => void,
+) {
+  return onSnapshot(
+    query(collection(db, "bookings"), where("studentId", "==", uid)),
+    (snap) => {
+      const local = new Set(
+        snap.docs.filter((d) => d.metadata.hasPendingWrites).map((d) => d.id),
+      );
+      onChange(snap.docs.map((d) => toBooking(d.id, d.data())).sort(byStart), local);
+    },
+    onError,
+  );
 }
 
 // Pending or confirmed -> cancelled, with an optional reason

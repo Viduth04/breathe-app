@@ -43,11 +43,17 @@ export default function CounsellorProfileCard({
           accessibilityLabel="Open Counselor Settings"
         >
           <View style={styles.avatarContainer}>
-            <Image
-              source={{ uri: profile.avatarUrl }}
-              style={styles.avatar}
-              accessibilityLabel={`${profile.fullName} profile photo`}
-            />
+            {profile.avatarUrl ? (
+              <Image
+                source={{ uri: profile.avatarUrl }}
+                style={styles.avatar}
+                accessibilityLabel={`${profile.fullName} profile photo`}
+              />
+            ) : (
+              <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                <Ionicons name="person" size={24} color="#065F46" />
+              </View>
+            )}
             <View
               style={[
                 styles.onlineBadge,
@@ -171,6 +177,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     borderWidth: 2,
     borderColor: "rgba(5, 150, 105, 0.3)",
+  },
+  avatarPlaceholder: {
+    backgroundColor: "#ECFDF5",
+    alignItems: "center",
+    justifyContent: "center",
   },
   onlineBadge: {
     position: "absolute",

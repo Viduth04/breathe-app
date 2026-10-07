@@ -20,11 +20,27 @@ import { ConfirmedSessionData } from "@/types/counsellorDetailScreens";
 import { useCounsellorStore } from "@/services/counsellorStore";
 
 export default function ConfirmedSessionScreen() {
-  const params = useLocalSearchParams<{ sessionId?: string; studentAnonId?: string }>();
+  const params = useLocalSearchParams<{
+    sessionId?: string;
+    studentAnonId?: string;
+    sessionType?: string;
+  }>();
   const store = useCounsellorStore();
 
   const matchedSession = store.sessions.find(
     (s) => s.id === params.sessionId || s.studentAnonId === params.studentAnonId
+  );
+  const matchedPast = store.pastSessions.find(
+    (p) => p.id === params.sessionId || p.studentAnonId === params.studentAnonId
+  );
+  const matchedBooking = store.calendarBookings.find(
+    (b) => b.id === params.sessionId || b.id === `cal-${params.sessionId}`
+  );
+  const isExpired = Boolean(
+    matchedPast ||
+    matchedBooking?.isExpired ||
+    matchedBooking?.isPast ||
+    matchedSession?.isExpired
   );
 
   const [data] = useState<ConfirmedSessionData>(() => {
@@ -43,28 +59,76 @@ export default function ConfirmedSessionScreen() {
     return MOCK_CONFIRMED_SESSION;
   });
 
+  // Dynamically resolve modality: video, chat, or in-person
+  const resolvedSessionType: "video" | "chat" | "in-person" =
+    (params.sessionType as any) ||
+    matchedSession?.sessionType ||
+    (data.sessionType as any) ||
+    "video";
+
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  const handleJoinVideo = () => {
-    router.navigate({
-      pathname: "/(counsellor-detail)/ready-to-join",
-      params: {
-        studentAnonId: data.studentAnonId,
-        sessionTitle: data.sessionTypeLabel || "Encrypted Video Consultation",
-        timeRange: data.time || "02:00 PM – 02:45 PM",
-        duration: "45 min session",
-        sessionId: data.id,
-      },
-    });
+  // Correct screen flow for each modality
+  const handlePrimaryAction = () => {
+    if (isExpired) {
+      router.navigate({
+        pathname: "/(counsellor-detail)/session-notes",
+        params: {
+          sessionId: data.id,
+          studentAnonId: data.studentAnonId,
+        },
+      });
+      return;
+    }
+    if (resolvedSessionType === "video") {
+      // 1. VIDEO SESSION FLOW: Ready to Join Lobby -> Active Video Call
+      router.navigate({
+        pathname: "/(counsellor-detail)/ready-to-join",
+        params: {
+          studentAnonId: data.studentAnonId,
+          sessionTitle: data.sessionTypeLabel || "Encrypted Video Consultation",
+          timeRange: data.time || "02:00 PM – 02:45 PM",
+          duration: "45 min session",
+          sessionId: data.id,
+        },
+      });
+    } else if (resolvedSessionType === "chat") {
+      // 2. SECURE CHAT SESSION FLOW: Messages screen / Direct chat thread
+      router.navigate({
+        pathname: "/(counsellor)/messages",
+        params: {
+          studentAnonId: data.studentAnonId,
+          sessionId: data.id,
+        },
+      });
+    } else {
+      // 3. IN-PERSON SESSION FLOW: Anonymous Session Details (Room 302 check-in & clinical notes)
+      router.navigate({
+        pathname: "/(counsellor-detail)/anonymous-session-details",
+        params: {
+          sessionId: data.id,
+          studentAnonId: data.studentAnonId,
+          sessionType: "in-person",
+        },
+      });
+    }
   };
 
-  const handleMessageStudent = () => {
-    // Navigate to counsellor messages with the student's thread
-    router.navigate({
-      pathname: "/(counsellor)/messages",
-      params: { studentAnonId: data.studentAnonId },
-    });
+  const handleSecondaryAction = () => {
+    if (resolvedSessionType === "chat") {
+      // Pre-chat waiting room & prompt docks for chat consultations
+      router.navigate({
+        pathname: "/(counsellor-detail)/pre-chat-empty-state",
+        params: { studentAnonId: data.studentAnonId, sessionId: data.id },
+      });
+    } else {
+      // Direct confidential message
+      router.navigate({
+        pathname: "/(counsellor)/messages",
+        params: { studentAnonId: data.studentAnonId },
+      });
+    }
   };
 
   const handleReschedule = () => {
@@ -119,14 +183,18 @@ export default function ConfirmedSessionScreen() {
 
         {/* ─── Sub-badges Row ─── */}
         <View style={styles.subBadgesRow}>
-          <View style={styles.confirmedPill}>
-            <View style={styles.greenDot} />
-            <Text style={styles.confirmedPillText}>CONFIRMED • UPCOMING</Text>
+          <View style={[styles.confirmedPill, isExpired && styles.concludedPill]}>
+            <View style={[styles.greenDot, isExpired && styles.grayDot]} />
+            <Text style={[styles.confirmedPillText, isExpired && styles.concludedPillText]}>
+              {isExpired ? "SESSION CONCLUDED" : "CONFIRMED • UPCOMING"}
+            </Text>
           </View>
 
-          <View style={styles.startsInPill}>
-            <Ionicons name="time-outline" size={14} color="#0284C7" />
-            <Text style={styles.startsInPillText}>Starts in {data.startsIn}</Text>
+          <View style={[styles.startsInPill, isExpired && styles.concludedSubPill]}>
+            <Ionicons name="time-outline" size={14} color={isExpired ? "#64748B" : "#0284C7"} />
+            <Text style={[styles.startsInPillText, isExpired && styles.concludedSubPillText]}>
+              {isExpired ? "Scheduled Window Closed" : `Starts in ${data.startsIn}`}
+            </Text>
           </View>
         </View>
 
@@ -152,8 +220,24 @@ export default function ConfirmedSessionScreen() {
 
           {/* Session Type & Ref */}
           <View style={styles.videoSessionRow}>
-            <Ionicons name="videocam-outline" size={18} color="#047857" />
-            <Text style={styles.videoSessionText}>{data.sessionTypeLabel}</Text>
+            <Ionicons
+              name={
+                resolvedSessionType === "video"
+                  ? "videocam-outline"
+                  : resolvedSessionType === "chat"
+                  ? "chatbubble-ellipses-outline"
+                  : "location-outline"
+              }
+              size={18}
+              color="#047857"
+            />
+            <Text style={styles.videoSessionText}>
+              {resolvedSessionType === "video"
+                ? (data.sessionTypeLabel || "Encrypted Video Consultation")
+                : resolvedSessionType === "chat"
+                ? "Confidential Secure Chat Consultation"
+                : "On-Campus In-Person Consultation"}
+            </Text>
             <Text style={styles.sessionRefText}>{data.sessionRef}</Text>
           </View>
 
@@ -167,19 +251,58 @@ export default function ConfirmedSessionScreen() {
 
           <View style={styles.cardDivider} />
 
-          {/* Room Ready & Mic Check Row */}
+          {/* Room Ready & Diagnostics / Key / Facility Check Row */}
           <View style={styles.roomStatusRow}>
             <View style={styles.roomReadyBadge}>
               <View style={styles.roomGreenDot} />
-              <Text style={styles.roomReadyText}>Room ready</Text>
+              <Text style={styles.roomReadyText}>
+                {resolvedSessionType === "video"
+                  ? "Room ready"
+                  : resolvedSessionType === "chat"
+                  ? "Live E2E Channel Open"
+                  : "Room 302 Allocated"}
+              </Text>
             </View>
 
             <Pressable
               style={styles.micCheckBtn}
-              onPress={() => Alert.alert("Device Check", "Microphone: OK\nCamera: 1080p OK\nNetwork: 48ms (Strong)")}
+              onPress={() => {
+                if (resolvedSessionType === "video") {
+                  Alert.alert(
+                    "Device Check",
+                    "Microphone: OK\nCamera: 1080p OK\nNetwork: 48ms (Strong Telehealth Uplink)"
+                  );
+                } else if (resolvedSessionType === "chat") {
+                  Alert.alert(
+                    "Encryption Verification",
+                    "E2E Chat Channel: Ready\nKey Exchange: Curve25519 Verified\nAccess Control: Active"
+                  );
+                } else {
+                  Alert.alert(
+                    "Clinical Facility",
+                    "Room: 302 Private Suite\nSanitization: Verified\nStaff Check-in: On Standby"
+                  );
+                }
+              }}
             >
-              <Ionicons name="settings-outline" size={14} color="#0369A1" />
-              <Text style={styles.micCheckText}>Test mic & camera</Text>
+              <Ionicons
+                name={
+                  resolvedSessionType === "video"
+                    ? "settings-outline"
+                    : resolvedSessionType === "chat"
+                    ? "lock-closed-outline"
+                    : "business-outline"
+                }
+                size={14}
+                color="#0369A1"
+              />
+              <Text style={styles.micCheckText}>
+                {resolvedSessionType === "video"
+                  ? "Test mic & camera"
+                  : resolvedSessionType === "chat"
+                  ? "Verify Encryption"
+                  : "Facility Status"}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -224,58 +347,128 @@ export default function ConfirmedSessionScreen() {
           </View>
         </View>
 
-        {/* ─── Counselor Room Protocol Card ─── */}
+        {/* ─── Counselor Protocol Card ─── */}
         <View style={styles.protocolCard}>
           <View style={styles.protocolIconCircle}>
-            <Ionicons name="shield-outline" size={18} color="#047857" />
+            <Ionicons
+              name={
+                resolvedSessionType === "video"
+                  ? "shield-outline"
+                  : resolvedSessionType === "chat"
+                  ? "lock-closed-outline"
+                  : "people-outline"
+              }
+              size={18}
+              color="#047857"
+            />
           </View>
           <View style={styles.protocolMeta}>
-            <Text style={styles.protocolTitle}>{data.protocolTitle}</Text>
-            <Text style={styles.protocolDesc}>{data.protocolDescription}</Text>
+            <Text style={styles.protocolTitle}>
+              {resolvedSessionType === "video"
+                ? "Telehealth Video Consultation Protocol"
+                : resolvedSessionType === "chat"
+                ? "Confidential Secure Chat Protocol"
+                : "In-Person Clinical Suite Protocol"}
+            </Text>
+            <Text style={styles.protocolDesc}>
+              {resolvedSessionType === "video"
+                ? "End-to-end encrypted session with no recording permitted. FERPA and clinical standards enforced."
+                : resolvedSessionType === "chat"
+                ? "Secure real-time encrypted messaging channel. Notes and chat transcripts protected under student anonymous key."
+                : "Room 302 Private Suite. Verify student arrival upon check-in before opening clinical consultation notes."}
+            </Text>
           </View>
         </View>
 
-        {/* ─── Action Buttons ─── */}
+        {/* ─── Modality-Specific Action Buttons ─── */}
         <Pressable
-          style={styles.joinVideoBtn}
-          onPress={handleJoinVideo}
-          accessibilityLabel="Join Video Session"
+          style={[styles.joinVideoBtn, isExpired && styles.concludedActionBtn]}
+          onPress={handlePrimaryAction}
+          accessibilityLabel={
+            isExpired
+              ? "Review Clinical Notes"
+              : resolvedSessionType === "video"
+              ? "Join Video Session"
+              : resolvedSessionType === "chat"
+              ? "Open Secure Chat Room"
+              : "In-Person Session & Check-In"
+          }
           accessibilityRole="button"
         >
-          <Ionicons name="videocam" size={20} color={colors.white} />
-          <Text style={styles.joinVideoText}>Join Video Session</Text>
+          <Ionicons
+            name={
+              isExpired
+                ? "document-text"
+                : resolvedSessionType === "video"
+                ? "videocam"
+                : resolvedSessionType === "chat"
+                ? "chatbubble-ellipses"
+                : "location"
+            }
+            size={20}
+            color={colors.white}
+          />
+          <Text style={styles.joinVideoText}>
+            {isExpired
+              ? "Session Concluded • Review Clinical Notes"
+              : resolvedSessionType === "video"
+              ? "Join Video Session"
+              : resolvedSessionType === "chat"
+              ? "Open Secure Chat Room"
+              : "In-Person Details & Arrival Check-In"}
+          </Text>
         </Pressable>
 
-        <Pressable
-          style={styles.messageSecurelyBtn}
-          onPress={handleMessageStudent}
-          accessibilityLabel="Message Student Securely"
-          accessibilityRole="button"
-        >
-          <Ionicons name="chatbubble-outline" size={18} color={colors.primary} />
-          <Text style={styles.messageSecurelyText}>Message Student Securely</Text>
-        </Pressable>
-
-        {/* Reschedule & Cancel Row */}
-        <View style={styles.dangerActionsRow}>
+        {!isExpired && (
           <Pressable
-            style={styles.secondaryActionBtn}
-            onPress={handleReschedule}
+            style={styles.messageSecurelyBtn}
+            onPress={handleSecondaryAction}
+            accessibilityLabel={
+              resolvedSessionType === "chat"
+                ? "Pre-Session Waiting Room & Prompts"
+                : "Message Student Securely"
+            }
+            accessibilityRole="button"
           >
-            <Ionicons name="calendar-outline" size={15} color={colors.textSecondary} />
-            <Text style={styles.secondaryActionText}>Reschedule</Text>
+            <Ionicons
+              name={
+                resolvedSessionType === "chat"
+                  ? "sparkles-outline"
+                  : "chatbubble-outline"
+              }
+              size={18}
+              color={colors.primary}
+            />
+            <Text style={styles.messageSecurelyText}>
+              {resolvedSessionType === "chat"
+                ? "Pre-Session Waiting Room & Prompts"
+                : "Message Student Securely"}
+            </Text>
           </Pressable>
+        )}
 
-          <View style={styles.dotDivider} />
+        {/* Reschedule & Cancel Row (hidden for concluded sessions) */}
+        {!isExpired && (
+          <View style={styles.dangerActionsRow}>
+            <Pressable
+              style={styles.secondaryActionBtn}
+              onPress={handleReschedule}
+            >
+              <Ionicons name="calendar-outline" size={15} color={colors.textSecondary} />
+              <Text style={styles.secondaryActionText}>Reschedule</Text>
+            </Pressable>
 
-          <Pressable
-            style={styles.secondaryActionBtn}
-            onPress={handleCancelSession}
-          >
-            <Ionicons name="calendar-clear-outline" size={15} color={colors.danger} />
-            <Text style={styles.cancelActionText}>Cancel Session</Text>
-          </Pressable>
-        </View>
+            <View style={styles.dotDivider} />
+
+            <Pressable
+              style={styles.secondaryActionBtn}
+              onPress={handleCancelSession}
+            >
+              <Ionicons name="calendar-clear-outline" size={15} color={colors.danger} />
+              <Text style={styles.cancelActionText}>Cancel Session</Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* Calendar Sync Hint */}
         <View style={styles.syncCalendarFooter}>
@@ -407,11 +600,22 @@ const styles = StyleSheet.create({
     borderRadius: 3.5,
     backgroundColor: "#059669",
   },
+  grayDot: {
+    backgroundColor: "#94A3B8",
+  },
+  concludedPill: {
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+  },
   confirmedPillText: {
     fontSize: 11,
     fontWeight: "700",
     color: "#047857",
     letterSpacing: 0.3,
+  },
+  concludedPillText: {
+    color: "#64748B",
   },
   startsInPill: {
     flexDirection: "row",
@@ -422,10 +626,18 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     gap: 5,
   },
+  concludedSubPill: {
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
   startsInPillText: {
     fontSize: 11,
     fontWeight: "600",
     color: "#0284C7",
+  },
+  concludedSubPillText: {
+    color: "#64748B",
   },
   card: {
     backgroundColor: colors.white,
@@ -683,6 +895,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     gap: 8,
     marginBottom: 10,
+  },
+  concludedActionBtn: {
+    backgroundColor: "#065F46",
   },
   joinVideoText: {
     color: colors.white,

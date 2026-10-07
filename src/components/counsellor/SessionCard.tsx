@@ -42,6 +42,18 @@ export default function SessionCard({ session, onPressAction }: Props) {
 
   const typeInfo = getSessionTypeInfo();
 
+  const isExpired = Boolean(
+    session.isExpired ||
+    session.status === "completed" ||
+    (() => {
+      if (session.endAt) {
+        const endMs = session.endAt.toDate ? session.endAt.toDate().getTime() : new Date(session.endAt).getTime();
+        return !isNaN(endMs) && endMs < Date.now();
+      }
+      return false;
+    })()
+  );
+
   return (
     <View style={styles.card}>
       {/* Top Timing & Status Chip Row */}
@@ -50,7 +62,7 @@ export default function SessionCard({ session, onPressAction }: Props) {
           <View
             style={[
               styles.timeDot,
-              { backgroundColor: session.isNext ? "#047857" : colors.textSecondary },
+              { backgroundColor: isExpired ? "#94A3B8" : (session.isNext ? "#047857" : colors.textSecondary) },
             ]}
           />
           <Text style={styles.timeText}>{session.timeRange}</Text>
@@ -59,20 +71,20 @@ export default function SessionCard({ session, onPressAction }: Props) {
         <View
           style={[
             styles.chip,
-            session.isNext ? styles.chipUrgent : styles.chipStandard,
+            isExpired ? styles.chipConcluded : (session.isNext ? styles.chipUrgent : styles.chipStandard),
           ]}
-          accessibilityLabel={`Timing: ${session.timeRelative}`}
+          accessibilityLabel={`Timing: ${isExpired ? "Concluded" : session.timeRelative}`}
         >
-          {session.isNext && (
+          {!isExpired && session.isNext && (
             <View style={styles.pulseDot} />
           )}
           <Text
             style={[
               styles.chipText,
-              session.isNext ? styles.chipTextUrgent : styles.chipTextStandard,
+              isExpired ? styles.chipTextConcluded : (session.isNext ? styles.chipTextUrgent : styles.chipTextStandard),
             ]}
           >
-            {session.timeRelative}
+            {isExpired ? "Concluded" : session.timeRelative}
           </Text>
         </View>
       </View>
@@ -142,24 +154,65 @@ export default function SessionCard({ session, onPressAction }: Props) {
       ) : null}
 
       {/* Action CTA Button */}
-      {session.isNext ? (
+      {isExpired ? (
         <Pressable
           onPress={() => onPressAction(session)}
           accessibilityRole="button"
-          accessibilityLabel={`Start Session with ${session.displayName}`}
+          accessibilityLabel={`Session Concluded, review notes for ${session.displayName}`}
           style={({ pressed }) => [
-            styles.primaryButton,
+            styles.concludedButton,
             pressed && styles.buttonPressed,
           ]}
         >
           <Ionicons
-            name="videocam-outline"
+            name="document-text-outline"
+            size={16}
+            color="#047857"
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          />
+          <Text style={styles.concludedButtonText}>
+            Session Concluded • Review Notes
+          </Text>
+        </Pressable>
+      ) : session.isNext ? (
+        <Pressable
+          onPress={() => onPressAction(session)}
+          accessibilityRole="button"
+          accessibilityLabel={
+            session.sessionType === "video"
+              ? `Join Video Call with ${session.displayName}`
+              : session.sessionType === "chat"
+              ? `Open Secure Chat with ${session.displayName}`
+              : `In-Person Check-in with ${session.displayName}`
+          }
+          style={({ pressed }) => [
+            styles.primaryButton,
+            session.sessionType === "chat" && { backgroundColor: "#065F46" },
+            session.sessionType === "in-person" && { backgroundColor: "#047857" },
+            pressed && styles.buttonPressed,
+          ]}
+        >
+          <Ionicons
+            name={
+              session.sessionType === "video"
+                ? "videocam-outline"
+                : session.sessionType === "chat"
+                ? "chatbubble-ellipses-outline"
+                : "location-outline"
+            }
             size={18}
             color={colors.white}
             accessibilityElementsHidden
             importantForAccessibility="no"
           />
-          <Text style={styles.primaryButtonText}>Start Session</Text>
+          <Text style={styles.primaryButtonText}>
+            {session.sessionType === "video"
+              ? "Join Video Call"
+              : session.sessionType === "chat"
+              ? "Open Secure Chat"
+              : "In-Person Check-in"}
+          </Text>
         </Pressable>
       ) : (
         <Pressable
@@ -167,8 +220,10 @@ export default function SessionCard({ session, onPressAction }: Props) {
           accessibilityRole="button"
           accessibilityLabel={
             session.sessionType === "chat"
-              ? `View Notes for ${session.displayName}`
-              : `Session Details for ${session.displayName}`
+              ? `Open Secure Chat with ${session.displayName}`
+              : session.sessionType === "in-person"
+              ? `In-Person Details for ${session.displayName}`
+              : `Video Session Details for ${session.displayName}`
           }
           style={({ pressed }) => [
             styles.secondaryButton,
@@ -178,9 +233,11 @@ export default function SessionCard({ session, onPressAction }: Props) {
         >
           <Ionicons
             name={
-              session.sessionType === "chat"
-                ? "folder-open-outline"
-                : "information-circle-outline"
+              session.sessionType === "video"
+                ? "videocam-outline"
+                : session.sessionType === "chat"
+                ? "chatbubble-outline"
+                : "business-outline"
             }
             size={16}
             color={session.sessionType === "chat" ? colors.primary : colors.textSecondary}
@@ -193,7 +250,11 @@ export default function SessionCard({ session, onPressAction }: Props) {
               session.sessionType === "chat" && styles.mintOutlineButtonText,
             ]}
           >
-            {session.sessionType === "chat" ? "View Notes" : "Session Details"}
+            {session.sessionType === "video"
+              ? "Video Details"
+              : session.sessionType === "chat"
+              ? "Open Chat"
+              : "In-Person Details"}
           </Text>
         </Pressable>
       )}
@@ -254,6 +315,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  chipConcluded: {
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+  },
   pulseDot: {
     width: 6,
     height: 6,
@@ -270,6 +336,10 @@ const styles = StyleSheet.create({
   chipTextStandard: {
     color: colors.textSecondary,
     fontWeight: "600",
+  },
+  chipTextConcluded: {
+    color: "#64748B",
+    fontWeight: "700",
   },
   studentRow: {
     flexDirection: "row",
@@ -385,5 +455,21 @@ const styles = StyleSheet.create({
   buttonPressed: {
     opacity: 0.85,
     transform: [{ scale: 0.99 }],
+  },
+  concludedButton: {
+    minHeight: TOUCH_TARGET - 4,
+    backgroundColor: "#ECFDF5",
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+  },
+  concludedButtonText: {
+    color: "#047857",
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

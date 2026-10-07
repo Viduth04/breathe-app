@@ -4,7 +4,7 @@ import { tabIcon, tabScreenOptions } from "@/components/navigation/tabs";
 import { useAuth } from "@/context/AuthContext";
 import { useReminderNotifications } from "@/hooks/useReminderNotifications";
 import { isStaffRequest } from "@/services/authService";
-import { router, Redirect } from "expo-router";
+import { router, Redirect, usePathname } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -78,7 +78,8 @@ export default function StudentLayout() {
         <Tabs.Screen name="session/details" options={{ href: null, tabBarStyle: { display: "none" } }} />
         <Tabs.Screen name="session/cancel" options={{ href: null, tabBarStyle: { display: "none" } }} />
       </Tabs>
-      {/* Crisis support removed to prevent overlap */}
+      {/* Crisis support is one tap away on every student screen (F9 / R9) */}
+      <FloatingHelpButton />
       <FloatingCompanionButton />
     </View>
   );
@@ -86,6 +87,11 @@ export default function StudentLayout() {
 
 function FloatingCompanionButton() {
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+
+  if (pathname.includes('/session/chat') || pathname.includes('/session/video-call')) {
+    return null;
+  }
 
   return (
     <Pressable

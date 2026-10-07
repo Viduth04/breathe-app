@@ -73,6 +73,12 @@ export async function getCounselorAuthIdentity(
       if (userDocSnap.exists()) {
         userRole = userDocSnap.data()?.role as string;
       }
+      if (!userRole) {
+        const counsellorSnap = await getDoc(doc(db, "counsellors", targetUser.uid));
+        if (counsellorSnap.exists()) {
+          userRole = "counsellor";
+        }
+      }
     } catch (_) {}
 
     const effectiveRole = roleClaim || userRole;

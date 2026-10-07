@@ -1,133 +1,327 @@
-// Add Session Screen - Muaath (Member 4). Supports FR08, NFR01, NFR02, NFR06.
-// High-fidelity implementation matching approved prototype media_1791022238194.png
-// Live clinical sync, student quick select, modality switch, auto-calculated end time,
-// duration pills, clinical tags, privacy toggles, and strict validation (prevents overlaps/past times).
+// Add Session Screen - Multi-Slot Availability Publisher - Muaath (Member 4). Supports FR08, NFR01, NFR06.
+// Focused, essential clinical availability publisher: allows counsellors to publish open slots for specific dates and times
+// (visible in detail on both the student side for all students and on the counsellor side in Sessions, My Calendar, and Schedule).
+// Real Firestore batch writes to slots/{slotId} and counsellors/{uid}.
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Image,
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
-import { useCounsellorStore } from "@/services/counsellorStore";
-import { MOCK_ADD_SESSION_STUDENTS } from "@/services/mockDetailScreensData";
+import { PublishSlotInput, useCounsellorStore } from "@/services/counsellorStore";
 import { SessionType } from "@/types/counsellorDashboard";
 
-type DurationOption = "15m" | "30m" | "45m" | "60m";
+type DurationOption = "30m" | "45m" | "60m";
+
+const QUICK_TIMES = [
+  "09:00 AM",
+  "10:00 AM",
+  "11:00 AM",
+  "01:00 PM",
+  "02:00 PM",
+  "03:00 PM",
+  "04:00 PM",
+];
 
 export default function AddSessionScreen() {
   const store = useCounsellorStore();
 
-  // Form state
-  const [selectedStudent, setSelectedStudent] = useState(MOCK_ADD_SESSION_STUDENTS[0]);
-  const [sessionModality, setSessionModality] = useState<SessionType>("video");
-  const [selectedDateQuick, setSelectedDateQuick] = useState<"Today" | "Tomorrow" | "Wed, Aug 20">("Tomorrow");
-  const [startTime, setStartTime] = useState("10:00 AM");
+  // Dynamic Colombo date generation (next 14 days)
+  const todayColombo = useMemo(() => new Date(), []);
+
+  const upcomingDays = useMemo(() => {
+    const days = [];
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(todayColombo);
+      d.setDate(d.getDate() + i);
+      const dayNum = d.getDate();
+      const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
+      const month = d.toLocaleDateString("en-US", { month: "short" });
+      const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+      days.push({
+        dateKey,
+        dayNum,
+        weekday,
+        month,
+        label: i === 0 ? "Today" : i === 1 ? "Tomorrow" : `${weekday}, ${month} ${dayNum}`,
+        dateObj: d,
+        isWeekend: d.getDay() === 0 || d.getDay() === 6,
+      });
+    }
+    return days;
+  }, [todayColombo]);
+
+  // Essential state: Selected dates (multi-select), selected times, duration, modality
+  const [selectedDateKeys, setSelectedDateKeys] = useState<string[]>([
+    upcomingDays[1]?.dateKey || upcomingDays[0].dateKey,
+  ]);
+  const [selectedTimes, setSelectedTimes] = useState<string[]>(["10:00 AM"]);
   const [duration, setDuration] = useState<DurationOption>("45m");
-  const [sessionFocus, setSessionFocus] = useState("");
-  const [selectedTags, setSelectedTags] = useState<string[]>(["Sleep Hygiene"]);
-  const [isAnonymous, setIsAnonymous] = useState(true);
-  const [sendReminder, setSendReminder] = useState(true);
-  const [showStudentDropdown, setShowStudentDropdown] = useState(false);
-  const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
+  const [selectedModalities, setSelectedModalities] = useState<SessionType[]>(["video"]);
+  const [customTime, setCustomTime] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
 
-  // Auto-calculated end time
-  const calculatedEndTime = useMemo(() => {
-    const durationMinutes = parseInt(duration.replace("m", ""), 10) || 45;
-    const [timeStr, meridiem] = startTime.split(" ");
-    const [hoursStr, minsStr] = timeStr.split(":");
-    let hours = parseInt(hoursStr, 10);
-    let mins = parseInt(minsStr, 10);
+  // Auto-dismiss toast feedback
+  useEffect(() => {
+    if (!feedbackToast) return;
+    const timer = setTimeout(() => {
+      setFeedbackToast(null);
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, [feedbackToast]);
 
-    mins += durationMinutes;
-    if (mins >= 60) {
-      hours += Math.floor(mins / 60);
-      mins = mins % 60;
-    }
-
-    const formattedMins = mins < 10 ? `0${mins}` : mins;
-    return `${hours}:${formattedMins} ${meridiem || "AM"}`;
-  }, [startTime, duration]);
-
-  // Formatted date string
-  const formattedDate = useMemo(() => {
-    if (selectedDateQuick === "Today") return "Today, Monday, Aug 18, 2026";
-    if (selectedDateQuick === "Tomorrow") return "Tuesday, Aug 19, 2026";
-    return "Wednesday, Aug 20, 2026";
-  }, [selectedDateQuick]);
-
-  // Validation: Check for required fields and overlapping sessions across all days
-  const validationError = useMemo(() => {
-    if (!selectedStudent) {
-      return "Student selection is required.";
-    }
-
-    // Check overlap with existing confirmed sessions on the selected day and time
-    const targetDayText = selectedDateQuick;
-    const overlap = store.sessions.find((s) => {
-      const timeMatches = s.timeRange?.includes(startTime);
-      if (!timeMatches) return false;
-      if (targetDayText === "Today") {
-        return s.timeRelative?.toLowerCase().includes("today") || s.date?.toLowerCase().includes("today");
+  const toggleDate = (dateKey: string) => {
+    if (selectedDateKeys.includes(dateKey)) {
+      if (selectedDateKeys.length > 1) {
+        setSelectedDateKeys(selectedDateKeys.filter((k) => k !== dateKey));
+      } else {
+        setFeedbackToast("At least one date must remain selected.");
       }
-      if (targetDayText === "Tomorrow") {
-        return s.timeRelative?.toLowerCase().includes("tomorrow") || s.date?.toLowerCase().includes("tomorrow") || s.date?.toLowerCase().includes("aug 19");
-      }
-      return s.date?.toLowerCase().includes("aug 20");
-    });
-
-    if (overlap) {
-      return `Conflict: ${overlap.displayName} is already scheduled at ${startTime} on ${targetDayText}.`;
-    }
-
-    return null;
-  }, [selectedStudent, selectedDateQuick, startTime, store.sessions]);
-
-  const isValid = !validationError;
-
-  const toggleTag = (tag: string) => {
-    if (selectedTags.includes(tag)) {
-      setSelectedTags(selectedTags.filter((t) => t !== tag));
     } else {
-      setSelectedTags([...selectedTags, tag]);
+      setSelectedDateKeys([...selectedDateKeys, dateKey]);
     }
   };
 
-  const handleAddSessionSubmit = () => {
-    if (!isValid || isSubmitting) return;
-    setIsSubmitting(true);
+  const selectAllWeekdays = () => {
+    const weekdays = upcomingDays.filter((d) => !d.isWeekend).slice(0, 5).map((d) => d.dateKey);
+    setSelectedDateKeys(weekdays);
+    setFeedbackToast("Selected Mon–Fri clinical weekdays.");
+  };
 
-    store.addSession({
-      studentId: selectedStudent.id,
-      studentAnonId: selectedStudent.studentAnonId,
-      displayName: isAnonymous ? selectedStudent.studentAnonId : selectedStudent.displayName,
-      idMode: isAnonymous ? "anonymous" : selectedStudent.idMode,
-      sessionType: sessionModality,
-      date: formattedDate,
-      startTime,
-      endTime: calculatedEndTime,
-      duration,
-      locationOrRoom: sessionModality === "in-person" ? "Room 302" : undefined,
-      focus: sessionFocus,
-      selectedTags,
-      isAnonymous,
-      sendReminder,
+  const toggleModality = (modality: SessionType) => {
+    if (selectedModalities.includes(modality)) {
+      if (selectedModalities.length > 1) {
+        setSelectedModalities(selectedModalities.filter((m) => m !== modality));
+      } else {
+        setFeedbackToast("At least one consultation modality must remain selected.");
+      }
+    } else {
+      setSelectedModalities([...selectedModalities, modality]);
+    }
+  };
+
+  // Helper to parse "HH:MM AM/PM" into minutes from midnight (0..1439)
+  const parseTimeToMinutes = (timeStr: string): number => {
+    const parts = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!parts) return -1;
+    let h = parseInt(parts[1], 10);
+    const m = parseInt(parts[2], 10);
+    const meridiem = parts[3].toUpperCase();
+    if (h < 1 || h > 12 || m < 0 || m > 59) return -1;
+    if (meridiem === "PM" && h < 12) h += 12;
+    if (meridiem === "AM" && h === 12) h = 0;
+    return h * 60 + m;
+  };
+
+  const handleAddCustomTime = () => {
+    const trimmed = customTime.trim();
+    if (!trimmed) return;
+    const match = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!match) {
+      setFeedbackToast("Time format must be 'HH:MM AM' or 'HH:MM PM' (e.g. 09:30 AM).");
+      return;
+    }
+    let h = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    const mer = match[3].toUpperCase();
+    if (h < 1 || h > 12 || m < 0 || m > 59) {
+      setFeedbackToast("Please enter valid hours (1-12) and minutes (00-59).");
+      return;
+    }
+    const formatted = `${h < 10 ? `0${h}` : h}:${m < 10 ? `0${m}` : m} ${mer}`;
+    if (selectedTimes.includes(formatted)) {
+      setFeedbackToast(`Time slot ${formatted} is already in the selection.`);
+      return;
+    }
+    setSelectedTimes([...selectedTimes, formatted]);
+    setCustomTime("");
+    setFeedbackToast(`Added custom time slot: ${formatted}`);
+  };
+
+  const toggleTimeSelection = (time: string) => {
+    if (selectedTimes.includes(time)) {
+      if (selectedTimes.length > 1) {
+        setSelectedTimes(selectedTimes.filter((t) => t !== time));
+      } else {
+        setFeedbackToast("At least one time slot must remain selected.");
+      }
+    } else {
+      setSelectedTimes([...selectedTimes, time]);
+    }
+  };
+
+  // Calculate slots to publish based on selected dates and times
+  const computedSlotsToPublish = useMemo<PublishSlotInput[]>(() => {
+    const durationMinutes = parseInt(duration.replace("m", ""), 10) || 45;
+    const slots: PublishSlotInput[] = [];
+
+    const getEndTime = (timeStr: string) => {
+      const parts = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+      if (!parts) return timeStr;
+      let h = parseInt(parts[1], 10);
+      let m = parseInt(parts[2], 10);
+      const meridiem = parts[3].toUpperCase();
+      if (meridiem === "PM" && h < 12) h += 12;
+      if (meridiem === "AM" && h === 12) h = 0;
+
+      m += durationMinutes;
+      if (m >= 60) {
+        h += Math.floor(m / 60);
+        m = m % 60;
+      }
+      const endMeridiem = h >= 12 ? "PM" : "AM";
+      const displayH = h % 12 === 0 ? 12 : h % 12;
+      const displayM = m < 10 ? `0${m}` : m;
+      return `${displayH}:${displayM} ${endMeridiem}`;
+    };
+
+    const makeDate = (dateKey: string, timeStr: string): { start: Date; end: Date } => {
+      const [year, month, day] = dateKey.split("-").map(Number);
+      const parts = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+      let h = 10;
+      let m = 0;
+      if (parts) {
+        h = parseInt(parts[1], 10);
+        m = parseInt(parts[2], 10);
+        const meridiem = parts[3].toUpperCase();
+        if (meridiem === "PM" && h < 12) h += 12;
+        if (meridiem === "AM" && h === 12) h = 0;
+      }
+      const start = new Date(year, month - 1, day, h, m);
+      const end = new Date(start.getTime() + durationMinutes * 60000);
+      return { start, end };
+    };
+
+    // Sort selected times chronologically
+    const sortedTimes = [...selectedTimes].sort(
+      (a, b) => parseTimeToMinutes(a) - parseTimeToMinutes(b)
+    );
+    const activeTimes = sortedTimes.length > 0 ? sortedTimes : ["10:00 AM"];
+    const activeModalities: SessionType[] = selectedModalities.length > 0 ? selectedModalities : ["video"];
+
+    selectedDateKeys.forEach((dKey) => {
+      const dayObj = upcomingDays.find((d) => d.dateKey === dKey);
+      if (!dayObj) return;
+
+      activeTimes.forEach((t) => {
+        const { start, end } = makeDate(dayObj.dateKey, t);
+        slots.push({
+          dateKey: dayObj.dateKey,
+          dateDisplay: dayObj.label,
+          startTime: t,
+          endTime: getEndTime(t),
+          startAt: start,
+          endAt: end,
+          sessionTypes: activeModalities,
+        });
+      });
     });
 
-    setFeedbackToast("Session created and synced across clinical calendar.");
-    setTimeout(() => {
-      router.navigate("/(counsellor)/dashboard");
-    }, 1200);
+    return slots;
+  }, [selectedDateKeys, selectedTimes, duration, selectedModalities, upcomingDays]);
+
+  const handlePublishSlots = async () => {
+    if (isSubmitting) return;
+
+    if (selectedDateKeys.length === 0) {
+      setFeedbackToast("Please select at least one date.");
+      return;
+    }
+
+    if (selectedTimes.length === 0) {
+      setFeedbackToast("Please select at least one time slot.");
+      return;
+    }
+
+    if (selectedModalities.length === 0) {
+      setFeedbackToast("Please select at least one consultation modality.");
+      return;
+    }
+
+    // Overlap validation between selected times
+    if (selectedTimes.length > 1) {
+      const sortedTimes = [...selectedTimes].sort(
+        (a, b) => parseTimeToMinutes(a) - parseTimeToMinutes(b)
+      );
+      const durationMinutes = parseInt(duration.replace("m", ""), 10) || 45;
+      for (let i = 0; i < sortedTimes.length - 1; i++) {
+        const m1 = parseTimeToMinutes(sortedTimes[i]);
+        const m2 = parseTimeToMinutes(sortedTimes[i + 1]);
+        if (m1 >= 0 && m2 >= 0 && m1 + durationMinutes > m2) {
+          setFeedbackToast(
+            `Time slot ${sortedTimes[i]} overlaps with ${sortedTimes[i + 1]} (${duration} duration).`
+          );
+          return;
+        }
+      }
+    }
+
+    // Prevent publishing past times on today's date
+    const now = new Date();
+    const todayDateKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+    if (selectedDateKeys.includes(todayDateKey)) {
+      const pastTimes = selectedTimes.filter((t) => {
+        const m = parseTimeToMinutes(t);
+        return m >= 0 && m <= currentMinutes;
+      });
+      if (pastTimes.length > 0) {
+        setFeedbackToast(
+          `Slot(s) ${pastTimes.join(", ")} have already passed today. Please choose upcoming times.`
+        );
+        return;
+      }
+    }
+
+    // Prevent overwriting existing booked slots
+    const bookedConflicts = computedSlotsToPublish.filter((newSlot) =>
+      store.scheduleDaySlots.some(
+        (existing) =>
+          existing.isBooked &&
+          existing.dateKey === newSlot.dateKey &&
+          existing.startTime === newSlot.startTime
+      )
+    );
+    if (bookedConflicts.length > 0) {
+      setFeedbackToast(
+        `Slot on ${bookedConflicts[0].dateDisplay || bookedConflicts[0].dateKey} at ${bookedConflicts[0].startTime} has a confirmed booking.`
+      );
+      return;
+    }
+
+    if (computedSlotsToPublish.length === 0) {
+      setFeedbackToast("No slots to publish. Please check your selections.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const targetDateKey = computedSlotsToPublish[0]?.dateKey;
+      const count = await store.publishAvailabilityBatch(computedSlotsToPublish);
+      setFeedbackToast(`Successfully published ${count} slots to the database! Redirecting...`);
+      setTimeout(() => {
+        router.replace({
+          pathname: "/(counsellor-detail)/my-calendar",
+          params: { dateKey: targetDateKey },
+        });
+      }, 1000);
+    } catch (err: any) {
+      setIsSubmitting(false);
+      console.error("[add-session] Publish slots error:", err);
+      setFeedbackToast(`Failed to store slots: ${err?.message || "Check permissions"}`);
+    }
   };
 
   return (
@@ -145,509 +339,244 @@ export default function AddSessionScreen() {
         </Pressable>
 
         <Text style={styles.headerTitle} accessibilityRole="header">
-          Add Session
+          Add Availability Slots
         </Text>
 
         <View style={styles.headerRight}>
-          <Pressable
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel="Close dialog"
-            style={({ pressed }) => [styles.closeButton, pressed && styles.pressedState]}
-            hitSlop={8}
-          >
-            <Ionicons name="close" size={20} color="#6B6A5E" />
-          </Pressable>
-          <Image
-            source={{ uri: store.profile.avatarUrl }}
-            style={styles.counselorAvatar}
-            accessibilityLabel="Counselor profile"
-          />
+          {store.profile.avatarUrl ? (
+            <Image
+              source={{ uri: store.profile.avatarUrl }}
+              style={styles.counselorAvatar}
+              accessibilityLabel="Counselor profile"
+            />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Text style={styles.avatarInitials}>DR</Text>
+            </View>
+          )}
         </View>
       </View>
 
       {/* ─── Feedback Toast ─── */}
       {feedbackToast && (
-        <View style={styles.toastContainer} accessibilityLiveRegion="polite">
-          <Ionicons name="checkmark-circle" size={18} color="#076047" />
-          <Text style={styles.toastText}>{feedbackToast}</Text>
+        <View
+          style={[
+            styles.toastContainer,
+            (feedbackToast.startsWith("Please") ||
+              feedbackToast.startsWith("At least") ||
+              feedbackToast.startsWith("Time slot") ||
+              feedbackToast.startsWith("Slot(s)") ||
+              feedbackToast.startsWith("Failed")) &&
+              styles.toastContainerError,
+          ]}
+          accessibilityLiveRegion="polite"
+        >
+          <Ionicons
+            name={
+              feedbackToast.startsWith("Successfully")
+                ? "checkmark-circle"
+                : "alert-circle"
+            }
+            size={18}
+            color={feedbackToast.startsWith("Successfully") ? "#076047" : "#DC2626"}
+          />
+          <Text
+            style={[
+              styles.toastText,
+              !feedbackToast.startsWith("Successfully") && styles.toastTextError,
+            ]}
+          >
+            {feedbackToast}
+          </Text>
+          <Pressable onPress={() => setFeedbackToast(null)} hitSlop={8} style={{ marginLeft: "auto" }}>
+            <Ionicons name="close" size={16} color="#64748B" />
+          </Pressable>
         </View>
       )}
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ─── Live Clinical Sync Banner ─── */}
-        <View style={styles.syncBanner}>
-          <View style={styles.syncLeft}>
-            <View style={styles.syncDot} />
-            <View>
-              <Text style={styles.syncTitle}>Live clinical sync active</Text>
-              <Text style={styles.syncSubtitle}>15-min automated buffer applied</Text>
-            </View>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* ─── Info Banner ─── */}
+        <View style={styles.bannerCard}>
+          <View style={styles.bannerIconCircle}>
+            <Ionicons name="calendar-outline" size={22} color="#076047" />
           </View>
-          <Ionicons name="cloud-done-outline" size={20} color="#076047" />
+          <View style={styles.bannerTextCol}>
+            <Text style={styles.bannerTitle}>Publish Clinical Slots</Text>
+            <Text style={styles.bannerSubtitle}>
+              Students can book only the time slots you publish here. These will auto-sync to your Calendar, Schedule, and Student booking directory.
+            </Text>
+          </View>
         </View>
 
-        {/* ─── 1. STUDENT Section ─── */}
-        <View style={styles.card}>
-          <View style={styles.cardLabelRow}>
-            <View style={styles.labelWithIcon}>
-              <Ionicons name="person-outline" size={16} color="#076047" />
-              <Text style={styles.sectionLabel}>STUDENT</Text>
-            </View>
-            <View style={styles.requiredBadge}>
-              <Text style={styles.requiredBadgeText}>Required</Text>
-            </View>
-          </View>
-
-          {/* Student Dropdown Trigger */}
-          <Pressable
-            onPress={() => setShowStudentDropdown(!showStudentDropdown)}
-            accessibilityRole="combobox"
-            accessibilityLabel={`Selected student: ${selectedStudent.displayName}`}
-            style={styles.studentDropdownTrigger}
-          >
-            <Ionicons name="search-outline" size={18} color="#6B6A5E" />
-            <Text style={styles.studentDropdownText} numberOfLines={1}>
-              {selectedStudent.displayName}
-            </Text>
-            <Ionicons
-              name={showStudentDropdown ? "chevron-up" : "chevron-down"}
-              size={18}
-              color="#6B6A5E"
-            />
+        {/* ─── 1. Date Selection (Essential) ─── */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionLabel}>SELECT DATE(S)</Text>
+          <Pressable onPress={selectAllWeekdays} hitSlop={6}>
+            <Text style={styles.sectionActionText}>Select Mon–Fri</Text>
           </Pressable>
-
-          {/* Dropdown Options */}
-          {showStudentDropdown && (
-            <View style={styles.dropdownMenu}>
-              {MOCK_ADD_SESSION_STUDENTS.map((item) => (
-                <Pressable
-                  key={item.id}
-                  onPress={() => {
-                    setSelectedStudent(item);
-                    setIsAnonymous(item.idMode === "anonymous");
-                    setShowStudentDropdown(false);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: selectedStudent.id === item.id }}
-                  accessibilityLabel={`Select student ${item.displayName}`}
-                  accessibilityHint="Selects this student for session booking"
-                  style={[
-                    styles.dropdownItem,
-                    selectedStudent.id === item.id && styles.dropdownItemActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.dropdownItemText,
-                      selectedStudent.id === item.id && styles.dropdownItemTextActive,
-                    ]}
-                  >
-                    {item.displayName}
-                  </Text>
-                  {selectedStudent.id === item.id && (
-                    <Ionicons name="checkmark" size={16} color="#076047" />
-                  )}
-                </Pressable>
-              ))}
-            </View>
-          )}
-
-          {/* Quick Select Pills */}
-          <View style={styles.quickSelectRow}>
-            <Text style={styles.quickSelectLabel}>Quick Select</Text>
-            <View style={styles.quickPillsWrap}>
-              {MOCK_ADD_SESSION_STUDENTS.map((item) => {
-                const isActive = selectedStudent.id === item.id;
-                return (
-                  <Pressable
-                    key={item.id}
-                    onPress={() => {
-                      setSelectedStudent(item);
-                      setIsAnonymous(item.idMode === "anonymous");
-                    }}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isActive }}
-                    accessibilityLabel={`Quick select ${item.quickLabel}`}
-                    style={[styles.quickPill, isActive && styles.quickPillActive]}
-                  >
-                    {isActive && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
-                    <Text
-                      style={[
-                        styles.quickPillText,
-                        isActive && styles.quickPillTextActive,
-                      ]}
-                    >
-                      {item.quickLabel}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
         </View>
-
-        {/* ─── 2. SESSION MODALITY Section ─── */}
-        <View style={styles.card}>
-          <View style={styles.cardLabelRow}>
-            <View style={styles.labelWithIcon}>
-              <MaterialCommunityIcons name="video-account" size={16} color="#076047" />
-              <Text style={styles.sectionLabel}>SESSION MODALITY</Text>
-            </View>
-            <Text style={styles.modalityCategoryText}>
-              {sessionModality === "in-person" ? "In-Person" : "Virtual"}
-            </Text>
-          </View>
-
-          {/* Modality Segmented Selector */}
-          <View style={styles.modalitySegmentedRow}>
-            <Pressable
-              onPress={() => setSessionModality("video")}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: sessionModality === "video" }}
-              accessibilityLabel="Video consultation"
-              style={[
-                styles.modalitySegment,
-                sessionModality === "video" && styles.modalitySegmentActive,
-              ]}
-            >
-              <Ionicons
-                name="videocam"
-                size={18}
-                color={sessionModality === "video" ? "#FFFFFF" : "#6B6A5E"}
-              />
-              <Text
-                style={[
-                  styles.modalitySegmentText,
-                  sessionModality === "video" && styles.modalitySegmentTextActive,
-                ]}
-              >
-                Video
-              </Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => setSessionModality("chat")}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: sessionModality === "chat" }}
-              accessibilityLabel="Chat session"
-              style={[
-                styles.modalitySegment,
-                sessionModality === "chat" && styles.modalitySegmentActive,
-              ]}
-            >
-              <Ionicons
-                name="chatbubble-outline"
-                size={16}
-                color={sessionModality === "chat" ? "#FFFFFF" : "#6B6A5E"}
-              />
-              <Text
-                style={[
-                  styles.modalitySegmentText,
-                  sessionModality === "chat" && styles.modalitySegmentTextActive,
-                ]}
-              >
-                Chat
-              </Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => setSessionModality("in-person")}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: sessionModality === "in-person" }}
-              accessibilityLabel="In-Person consultation"
-              style={[
-                styles.modalitySegment,
-                sessionModality === "in-person" && styles.modalitySegmentActive,
-              ]}
-            >
-              <MaterialCommunityIcons
-                name="office-building"
-                size={16}
-                color={sessionModality === "in-person" ? "#FFFFFF" : "#6B6A5E"}
-              />
-              <Text
-                style={[
-                  styles.modalitySegmentText,
-                  sessionModality === "in-person" && styles.modalitySegmentTextActive,
-                ]}
-              >
-                In-Person
-              </Text>
-            </Pressable>
-          </View>
-
-          {/* Modality Notice Box */}
-          <View style={styles.modalityNoticeBox}>
-            <Ionicons name="lock-closed" size={14} color="#076047" />
-            <Text style={styles.modalityNoticeText}>
-              {sessionModality === "video"
-                ? "Encrypted end-to-end clinical video link will be generated automatically."
-                : sessionModality === "chat"
-                ? "Confidential encrypted chat thread will be initialized."
-                : "Room 302 assigned in Counseling Wing. Sanitization protocol active."}
-            </Text>
-          </View>
-        </View>
-
-        {/* ─── 3. DATE & SCHEDULE Section ─── */}
-        <View style={styles.card}>
-          <View style={styles.cardLabelRow}>
-            <View style={styles.labelWithIcon}>
-              <Ionicons name="calendar-outline" size={16} color="#076047" />
-              <Text style={styles.sectionLabel}>DATE & SCHEDULE</Text>
-            </View>
-          </View>
-
-          <Text style={styles.inputSubLabel}>DATE</Text>
-
-          {/* Date Picker Display */}
-          <View style={styles.dateDisplayRow}>
-            <View style={styles.dateDisplayLeft}>
-              <Ionicons name="calendar" size={18} color="#076047" />
-              <Text style={styles.dateDisplayText}>{formattedDate}</Text>
-            </View>
-            <Ionicons name="calendar-clear-outline" size={18} color="#6B6A5E" />
-          </View>
-
-          {/* Quick Date Pills */}
-          <View style={styles.quickDateRow}>
-            {(["Today", "Tomorrow", "Wed, Aug 20"] as const).map((d) => {
-              const isActive = selectedDateQuick === d;
-              return (
-                <Pressable
-                  key={d}
-                  onPress={() => setSelectedDateQuick(d)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isActive }}
-                  accessibilityLabel={`Set date to ${d}`}
-                  style={[styles.quickDatePill, isActive && styles.quickDatePillActive]}
-                >
-                  <Text
-                    style={[
-                      styles.quickDatePillText,
-                      isActive && styles.quickDatePillTextActive,
-                    ]}
-                  >
-                    {d}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {/* Time & Calculated End Grid */}
-          <View style={styles.timeGridRow}>
-            <View style={styles.timeColumn}>
-              <Text style={styles.inputSubLabel}>START TIME</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.daysScroll}>
+          {upcomingDays.map((d) => {
+            const isSelected = selectedDateKeys.includes(d.dateKey);
+            return (
               <Pressable
-                onPress={() => {
-                  const slots = ["09:00 AM", "10:00 AM", "11:30 AM", "02:00 PM", "03:30 PM"];
-                  const currentIdx = slots.indexOf(startTime);
-                  const nextSlot = slots[(currentIdx + 1) % slots.length];
-                  setStartTime(nextSlot);
-                }}
+                key={d.dateKey}
+                style={[styles.dayCard, isSelected && styles.dayCardActive]}
+                onPress={() => toggleDate(d.dateKey)}
                 accessibilityRole="button"
-                accessibilityLabel={`Start time: ${startTime}. Tap to cycle slot`}
-                style={styles.timeInputBox}
+                accessibilityLabel={`Toggle ${d.label}`}
               >
-                <Ionicons name="time-outline" size={16} color="#076047" />
-                <Text style={styles.timeValueText}>{startTime}</Text>
-                <Ionicons name="swap-vertical" size={14} color="#6B6A5E" />
+                <Text style={[styles.dayCardWeekday, isSelected && styles.dayCardTextActive]}>
+                  {d.weekday}
+                </Text>
+                <Text style={[styles.dayCardNum, isSelected && styles.dayCardTextActive]}>
+                  {d.dayNum}
+                </Text>
+                <Text style={[styles.dayCardMonth, isSelected && styles.dayCardTextActive]}>
+                  {d.month}
+                </Text>
+                {isSelected && (
+                  <View style={styles.daySelectedDot}>
+                    <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                  </View>
+                )}
               </Pressable>
-            </View>
+            );
+          })}
+        </ScrollView>
+        <Text style={styles.helperText}>
+          {selectedDateKeys.length} date{selectedDateKeys.length > 1 ? "s" : ""} selected for availability. Tap any card to toggle.
+        </Text>
 
-            <View style={styles.timeColumn}>
-              <Text style={styles.inputSubLabel}>CALCULATED END</Text>
-              <View style={styles.calculatedEndBox}>
-                <Ionicons name="checkmark" size={16} color="#076047" />
-                <Text style={styles.timeValueText}>{calculatedEndTime}</Text>
-                <View style={styles.autoBadge}>
-                  <Text style={styles.autoBadgeText}>AUTO</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* Duration Row */}
-          <View style={styles.durationHeaderRow}>
-            <Text style={styles.inputSubLabel}>Duration</Text>
-            <Text style={styles.durationHint}>Standard Clinical {duration}</Text>
-          </View>
-
-          <View style={styles.durationPillsRow}>
-            {(["15m", "30m", "45m", "60m"] as const).map((opt) => {
-              const isActive = duration === opt;
-              return (
-                <Pressable
-                  key={opt}
-                  onPress={() => setDuration(opt)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: isActive }}
-                  accessibilityLabel={`Duration ${opt}`}
-                  style={[styles.durationPill, isActive && styles.durationPillActive]}
-                >
-                  <Text
-                    style={[
-                      styles.durationPillText,
-                      isActive && styles.durationPillTextActive,
-                    ]}
-                  >
-                    {opt}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+        {/* ─── 2. Time Slots (Essential) ─── */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionLabel}>AVAILABLE TIME SLOTS</Text>
+          <Text style={styles.sectionHint}>{selectedTimes.length} selected</Text>
+        </View>
+        <View style={styles.timesGrid}>
+          {QUICK_TIMES.map((t) => {
+            const isSelected = selectedTimes.includes(t);
+            return (
+              <Pressable
+                key={t}
+                style={[styles.timeChip, isSelected && styles.timeChipActive]}
+                onPress={() => toggleTimeSelection(t)}
+                accessibilityRole="button"
+                accessibilityLabel={`Toggle time ${t}`}
+              >
+                <Ionicons
+                  name={isSelected ? "checkmark-circle" : "time-outline"}
+                  size={14}
+                  color={isSelected ? "#076047" : "#64748B"}
+                  style={{ marginRight: 4 }}
+                />
+                <Text style={[styles.timeChipText, isSelected && styles.timeChipTextActive]}>
+                  {t}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
 
-        {/* ─── 4. SESSION FOCUS Section ─── */}
-        <View style={styles.card}>
-          <View style={styles.cardLabelRow}>
-            <View style={styles.labelWithIcon}>
-              <MaterialCommunityIcons name="brain" size={16} color="#076047" />
-              <Text style={styles.sectionLabel}>SESSION FOCUS</Text>
-            </View>
-            <Text style={styles.optionalText}>Optional</Text>
-          </View>
-
+        {/* Custom Time Slot Input */}
+        <View style={styles.customTimeRow}>
           <TextInput
-            style={styles.focusInput}
-            multiline
-            numberOfLines={3}
-            placeholder="e.g., Exam anxiety, sleep hygiene follow-up, PHQ-9 review..."
-            placeholderTextColor="#9CA3AF"
-            value={sessionFocus}
-            onChangeText={setSessionFocus}
-            accessibilityLabel="Session clinical focus area"
+            style={styles.customTimeInput}
+            placeholder="Add custom time e.g. 09:30 AM"
+            placeholderTextColor="#94A3B8"
+            value={customTime}
+            onChangeText={setCustomTime}
+            autoCapitalize="characters"
+            maxLength={10}
           />
-
-          <Text style={styles.tagsHeader}>Recommended Clinical Tags</Text>
-          <View style={styles.tagsWrapRow}>
-            {["Exam Stress", "Sleep Hygiene", "Intake Assessment", "GAD-7 Check"].map((t) => {
-              const isSelected = selectedTags.includes(t);
-              return (
-                <Pressable
-                  key={t}
-                  onPress={() => toggleTag(t)}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: isSelected }}
-                  accessibilityLabel={`Tag: ${t}`}
-                  style={[styles.tagChip, isSelected && styles.tagChipActive]}
-                >
-                  <Ionicons
-                    name={isSelected ? "checkmark" : "add"}
-                    size={14}
-                    color="#076047"
-                  />
-                  <Text style={styles.tagChipText}>{t}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <Pressable
+            style={styles.addCustomTimeBtn}
+            onPress={handleAddCustomTime}
+            accessibilityRole="button"
+            accessibilityLabel="Add custom time slot"
+          >
+            <Ionicons name="add" size={16} color="#FFFFFF" />
+            <Text style={styles.addCustomTimeBtnText}>Add</Text>
+          </Pressable>
         </View>
 
-        {/* ─── 5. PRIVACY & NOTIFICATIONS Section ─── */}
-        <View style={styles.card}>
-          <View style={styles.cardLabelRow}>
-            <View style={styles.labelWithIcon}>
-              <Ionicons name="shield-checkmark-outline" size={16} color="#076047" />
-              <Text style={styles.sectionLabel}>PRIVACY & NOTIFICATIONS</Text>
-            </View>
-          </View>
-
-          {/* Switch 1: Mark as Anonymous */}
-          <View style={styles.switchRow}>
-            <View style={styles.switchIconBox}>
-              <Ionicons name="shield-outline" size={16} color="#076047" />
-            </View>
-            <View style={styles.switchContent}>
-              <Text style={styles.switchTitle}>Mark as Anonymous Session</Text>
-              <Text style={styles.switchSubtitle}>
-                Hides student full identity from session log & calendar exports
+        {/* ─── 3. Slot Duration (Essential) ─── */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionLabel}>SLOT DURATION</Text>
+        </View>
+        <View style={styles.durationRow}>
+          {(["30m", "45m", "60m"] as DurationOption[]).map((d) => (
+            <Pressable
+              key={d}
+              style={[styles.durationChip, duration === d && styles.durationChipActive]}
+              onPress={() => setDuration(d)}
+            >
+              <Text style={[styles.durationChipText, duration === d && styles.durationChipTextActive]}>
+                {d === "45m" ? "45m (Standard)" : d}
               </Text>
-            </View>
-            <Switch
-              value={isAnonymous}
-              onValueChange={setIsAnonymous}
-              trackColor={{ false: "#D1D5DB", true: "#076047" }}
-              thumbColor="#FFFFFF"
-              accessibilityLabel="Mark session as anonymous"
-            />
-          </View>
-
-          <View style={styles.divider} />
-
-          {/* Switch 2: Send reminder */}
-          <View style={styles.switchRow}>
-            <View style={styles.switchIconBox}>
-              <Ionicons name="notifications-outline" size={16} color="#076047" />
-            </View>
-            <View style={styles.switchContent}>
-              <Text style={styles.switchTitle}>Send reminder notification</Text>
-              <Text style={styles.switchSubtitle}>
-                Sends push notification & in-app reminder 15m prior
-              </Text>
-            </View>
-            <Switch
-              value={sendReminder}
-              onValueChange={setSendReminder}
-              trackColor={{ false: "#D1D5DB", true: "#076047" }}
-              thumbColor="#FFFFFF"
-              accessibilityLabel="Send reminder notification"
-            />
-          </View>
+            </Pressable>
+          ))}
         </View>
 
-        {/* Inline Validation Error (if any) */}
-        {validationError && (
-          <View style={styles.validationErrorCard} accessibilityLiveRegion="assertive">
-            <Ionicons name="alert-circle-outline" size={18} color="#B91C1C" />
-            <Text style={styles.validationErrorText}>{validationError}</Text>
-          </View>
-        )}
+        {/* ─── 4. Consultation Modality (Essential) ─── */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionLabel}>SUPPORTED MODALITIES</Text>
+          <Text style={styles.sectionHint}>Visible to students</Text>
+        </View>
+        <View style={styles.modalityRow}>
+          {(
+            [
+              { key: "video", label: "Video Call", icon: "videocam-outline" },
+              { key: "chat", label: "Secure Chat", icon: "chatbubble-ellipses-outline" },
+              { key: "in-person", label: "In-Person", icon: "people-outline" },
+            ] as const
+          ).map((m) => {
+            const isSelected = selectedModalities.includes(m.key);
+            return (
+              <Pressable
+                key={m.key}
+                style={[styles.modalityCard, isSelected && styles.modalityCardActive]}
+                onPress={() => toggleModality(m.key)}
+                accessibilityRole="button"
+                accessibilityLabel={`Modality ${m.label}`}
+              >
+                <Ionicons name={m.icon as any} size={20} color={isSelected ? "#076047" : "#64748B"} />
+                <Text style={[styles.modalityCardText, isSelected && styles.modalityCardTextActive]}>
+                  {m.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
 
-        {/* HIPAA compliance label */}
-        <View style={styles.complianceRow}>
-          <Ionicons name="lock-closed" size={13} color="#6B6A5E" />
-          <Text style={styles.complianceText}>HIPAA & FERPA Compliant Storage</Text>
+        {/* ─── Summary & Batch Commit Card ─── */}
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryTopRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.summaryTitle}>Publish Summary</Text>
+              <Text style={styles.summarySub}>
+                {computedSlotsToPublish.length} availability slot{computedSlotsToPublish.length > 1 ? "s" : ""} across {selectedDateKeys.length} date{selectedDateKeys.length > 1 ? "s" : ""}
+              </Text>
+            </View>
+            <View style={styles.summaryBadge}>
+              <Text style={styles.summaryBadgeText}>{duration}</Text>
+            </View>
+          </View>
+
+          <Pressable
+            style={[styles.publishButton, isSubmitting && styles.publishButtonDisabled]}
+            onPress={handlePublishSlots}
+            disabled={isSubmitting || computedSlotsToPublish.length === 0}
+            accessibilityRole="button"
+            accessibilityLabel="Publish availability slots"
+          >
+            <Ionicons name="cloud-upload-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.publishButtonText}>
+              {isSubmitting ? "Publishing to Cloud..." : `Publish ${computedSlotsToPublish.length} Slots`}
+            </Text>
+          </Pressable>
         </View>
       </ScrollView>
-
-      {/* ─── Sticky Bottom Action Bar ─── */}
-      <View style={styles.bottomBarContainer}>
-        <View style={styles.bottomButtonsRow}>
-          <Pressable
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel="Cancel adding session"
-            style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.pressedState]}
-          >
-            <Text style={styles.cancelOutlineText}>Cancel</Text>
-          </Pressable>
-
-          <Pressable
-            onPress={handleAddSessionSubmit}
-            disabled={!isValid || isSubmitting}
-            accessibilityRole="button"
-            accessibilityLabel="Submit and Add Session"
-            accessibilityState={{ disabled: !isValid || isSubmitting }}
-            style={({ pressed }) => [
-              styles.submitButton,
-              (!isValid || isSubmitting) && styles.submitButtonDisabled,
-              pressed && isValid && !isSubmitting && styles.pressedState,
-            ]}
-          >
-            <Text style={styles.submitButtonText}>Add Session</Text>
-          </Pressable>
-        </View>
-
-        {/* Home Indicator */}
-        <View style={styles.homeIndicator} />
-      </View>
     </SafeAreaView>
   );
 }
@@ -658,596 +587,375 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF9EC",
   },
   header: {
-    height: 52,
-    paddingHorizontal: spacing.md,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     backgroundColor: "#FFF9EC",
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(7, 96, 71, 0.08)",
+    borderBottomColor: "#E2DEC9",
   },
   headerButton: {
     width: TOUCH_TARGET,
     height: TOUCH_TARGET,
-    borderRadius: TOUCH_TARGET / 2,
+    borderRadius: radius.full,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: "700",
     color: "#1B2B24",
-    letterSpacing: -0.3,
   },
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
   },
-  closeButton: {
-    width: TOUCH_TARGET - 6,
-    height: TOUCH_TARGET - 6,
-    borderRadius: 19,
-    backgroundColor: "rgba(107, 106, 94, 0.1)",
+  counselorAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    borderWidth: 1.5,
+    borderColor: "#076047",
+  },
+  avatarPlaceholder: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1.5,
+    borderColor: "#076047",
     alignItems: "center",
     justifyContent: "center",
   },
-  counselorAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: "rgba(7, 96, 71, 0.2)",
+  avatarInitials: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#076047",
+  },
+  pressedState: {
+    opacity: 0.7,
   },
   toastContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginHorizontal: spacing.md,
-    marginTop: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: radius.md,
     backgroundColor: "#E5F8E4",
+    borderColor: "#076047",
     borderWidth: 1,
-    borderColor: "rgba(7, 96, 71, 0.25)",
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    gap: spacing.xs,
+  },
+  toastContainerError: {
+    backgroundColor: "#FEF2F2",
+    borderColor: "#DC2626",
   },
   toastText: {
+    flex: 1,
     fontSize: 13,
     fontWeight: "600",
     color: "#076047",
-    flex: 1,
+  },
+  toastTextError: {
+    color: "#B91C1C",
   },
   scrollContent: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-    paddingBottom: 130,
+    padding: spacing.md,
+    paddingBottom: 40,
   },
-  syncBanner: {
+  bannerCard: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#ECFDF5",
-    borderWidth: 1,
-    borderColor: "rgba(7, 96, 71, 0.15)",
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    marginBottom: spacing.md,
-  },
-  syncLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  syncDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#076047",
-  },
-  syncTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#076047",
-  },
-  syncSubtitle: {
-    fontSize: 12,
-    color: "#076047",
-    opacity: 0.85,
-    marginTop: 1,
-  },
-  card: {
     backgroundColor: "#FFFFFF",
     borderRadius: radius.md,
     padding: spacing.md,
+    alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(7, 96, 71, 0.1)",
+    borderColor: "#E2DEC9",
     marginBottom: spacing.md,
-    shadowColor: "#076047",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    gap: spacing.md,
   },
-  cardLabelRow: {
-    flexDirection: "row",
+  bannerIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.full,
+    backgroundColor: "#ECFDF5",
     alignItems: "center",
+    justifyContent: "center",
+  },
+  bannerTextCol: {
+    flex: 1,
+  },
+  bannerTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1B2B24",
+    marginBottom: 2,
+  },
+  bannerSubtitle: {
+    fontSize: 12,
+    color: "#64748B",
+    lineHeight: 17,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: spacing.sm,
-  },
-  labelWithIcon: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
   },
   sectionLabel: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "800",
     color: "#076047",
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
   },
-  requiredBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: radius.full,
-    backgroundColor: "#ECFDF5",
-    borderWidth: 1,
-    borderColor: "rgba(7, 96, 71, 0.15)",
-  },
-  requiredBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#076047",
-  },
-  modalityCategoryText: {
+  sectionHint: {
     fontSize: 12,
-    fontWeight: "600",
+    color: "#64748B",
+  },
+  sectionActionText: {
+    fontSize: 12,
+    fontWeight: "700",
     color: "#076047",
+    textDecorationLine: "underline",
   },
-  optionalText: {
+  daysScroll: {
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  dayCard: {
+    width: 68,
+    height: 82,
+    backgroundColor: "#FFFFFF",
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: "#E2DEC9",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 6,
+    position: "relative",
+  },
+  dayCardActive: {
+    backgroundColor: "#076047",
+    borderColor: "#076047",
+  },
+  dayCardWeekday: {
     fontSize: 11,
-    color: "#6B6A5E",
+    fontWeight: "600",
+    color: "#64748B",
+    textTransform: "uppercase",
   },
-  studentDropdownTrigger: {
+  dayCardNum: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#1B2B24",
+    marginVertical: 2,
+  },
+  dayCardMonth: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: "#94A3B8",
+  },
+  dayCardTextActive: {
+    color: "#FFFFFF",
+  },
+  daySelectedDot: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#10B981",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  helperText: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 4,
+    marginBottom: spacing.xs,
+  },
+  timesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    marginVertical: spacing.xs,
+  },
+  timeChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    backgroundColor: "#FAF8F5",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: radius.md,
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginBottom: 10,
+    backgroundColor: "#FFFFFF",
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: "#E2DEC9",
   },
-  studentDropdownText: {
-    fontSize: 14,
+  timeChipActive: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#076047",
+  },
+  timeChipText: {
+    fontSize: 13,
     fontWeight: "600",
     color: "#1B2B24",
-    flex: 1,
   },
-  dropdownMenu: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "rgba(7, 96, 71, 0.15)",
-    borderRadius: radius.md,
-    marginBottom: 10,
-    overflow: "hidden",
+  timeChipTextActive: {
+    color: "#076047",
+    fontWeight: "700",
   },
-  dropdownItem: {
+  customTimeRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
-  dropdownItemActive: {
-    backgroundColor: "#ECFDF5",
-  },
-  dropdownItemText: {
+  customTimeInput: {
+    flex: 1,
+    height: 44,
+    backgroundColor: "#FFFFFF",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "#E2DEC9",
+    paddingHorizontal: spacing.md,
     fontSize: 13,
     fontWeight: "500",
     color: "#1B2B24",
   },
-  dropdownItemTextActive: {
-    fontWeight: "700",
-    color: "#076047",
-  },
-  quickSelectRow: {
-    marginTop: 2,
-  },
-  quickSelectLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#6B6A5E",
-    marginBottom: 6,
-  },
-  quickPillsWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  quickPill: {
+  addCustomTimeBtn: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    height: 44,
+    paddingHorizontal: spacing.md,
+    backgroundColor: "#076047",
+    borderRadius: radius.md,
     gap: 4,
-    backgroundColor: "#FAF8F5",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radius.full,
   },
-  quickPillActive: {
-    backgroundColor: "#076047",
-    borderColor: "#076047",
-  },
-  quickPillText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#1B2B24",
-  },
-  quickPillTextActive: {
-    color: "#FFFFFF",
-  },
-  modalitySegmentedRow: {
-    flexDirection: "row",
-    backgroundColor: "#FAF8F5",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: radius.md,
-    padding: 3,
-    marginBottom: 10,
-  },
-  modalitySegment: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: radius.md - 2,
-  },
-  modalitySegmentActive: {
-    backgroundColor: "#076047",
-  },
-  modalitySegmentText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#6B6A5E",
-  },
-  modalitySegmentTextActive: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-  },
-  modalityNoticeBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#FFFBEB",
-    borderWidth: 1,
-    borderColor: "#FDE68A",
-    borderRadius: radius.md,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  modalityNoticeText: {
-    fontSize: 12,
-    color: "#78350F",
-    flex: 1,
-  },
-  inputSubLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#6B6A5E",
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  dateDisplayRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#FAF8F5",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: radius.md,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 8,
-  },
-  dateDisplayLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  dateDisplayText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1B2B24",
-  },
-  quickDateRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: spacing.md,
-  },
-  quickDatePill: {
-    flex: 1,
-    paddingVertical: 7,
-    borderRadius: radius.full,
-    backgroundColor: "#FAF8F5",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  quickDatePillActive: {
-    backgroundColor: "#076047",
-    borderColor: "#076047",
-  },
-  quickDatePillText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#1B2B24",
-  },
-  quickDatePillTextActive: {
-    color: "#FFFFFF",
-  },
-  timeGridRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: spacing.md,
-  },
-  timeColumn: {
-    flex: 1,
-  },
-  timeInputBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#FAF8F5",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: radius.md,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-  },
-  calculatedEndBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#F3F4F6",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: radius.md,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-  },
-  timeValueText: {
+  addCustomTimeBtnText: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#1B2B24",
+    color: "#FFFFFF",
   },
-  autoBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
-    backgroundColor: "#E5F8E4",
+  durationRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginVertical: spacing.xs,
   },
-  autoBadgeText: {
-    fontSize: 9,
+  durationChip: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: "#E2DEC9",
+  },
+  durationChipActive: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#076047",
+  },
+  durationChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#64748B",
+  },
+  durationChipTextActive: {
+    color: "#076047",
     fontWeight: "800",
-    color: "#076047",
   },
-  durationHeaderRow: {
+  modalityRow: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 6,
+    gap: spacing.sm,
+    marginVertical: spacing.xs,
   },
-  durationHint: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#076047",
-  },
-  durationPillsRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  durationPill: {
+  modalityCard: {
     flex: 1,
-    paddingVertical: 8,
-    borderRadius: radius.md,
-    backgroundColor: "#FAF8F5",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
+    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: "#E2DEC9",
+    gap: 4,
   },
-  durationPillActive: {
-    backgroundColor: "#076047",
+  modalityCardActive: {
+    backgroundColor: "#ECFDF5",
     borderColor: "#076047",
   },
-  durationPillText: {
-    fontSize: 13,
+  modalityCardText: {
+    fontSize: 12,
     fontWeight: "600",
-    color: "#1B2B24",
+    color: "#64748B",
   },
-  durationPillTextActive: {
-    color: "#FFFFFF",
+  modalityCardTextActive: {
+    color: "#076047",
     fontWeight: "700",
   },
-  focusInput: {
-    backgroundColor: "#FAF8F5",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+  summaryCard: {
+    backgroundColor: "#FFFFFF",
     borderRadius: radius.md,
     padding: spacing.md,
-    fontSize: 13,
-    color: "#1B2B24",
-    minHeight: 70,
-    textAlignVertical: "top",
-    marginBottom: 10,
-  },
-  tagsHeader: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#6B6A5E",
-    marginBottom: 6,
-  },
-  tagsWrapRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  tagChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#FAF8F5",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radius.full,
+    borderColor: "#E2DEC9",
+    marginTop: spacing.lg,
+    gap: spacing.md,
   },
-  tagChipActive: {
-    backgroundColor: "#ECFDF5",
-    borderColor: "#076047",
-  },
-  tagChipText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#076047",
-  },
-  switchRow: {
+  summaryTopRow: {
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    gap: 12,
-    paddingVertical: 8,
   },
-  switchIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: "#ECFDF5",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  switchContent: {
-    flex: 1,
-  },
-  switchTitle: {
-    fontSize: 13,
+  summaryTitle: {
+    fontSize: 16,
     fontWeight: "700",
     color: "#1B2B24",
   },
-  switchSubtitle: {
-    fontSize: 11,
-    color: "#6B6A5E",
+  summarySub: {
+    fontSize: 13,
+    color: "#64748B",
     marginTop: 2,
   },
-  divider: {
-    height: 1,
-    backgroundColor: "#F3F4F6",
-    marginVertical: 4,
-  },
-  validationErrorCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#FEE2E2",
-    borderWidth: 1,
-    borderColor: "#FCA5A5",
-    borderRadius: radius.md,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 12,
-  },
-  validationErrorText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#B91C1C",
-    flex: 1,
-  },
-  complianceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    paddingVertical: 8,
-  },
-  complianceText: {
-    fontSize: 11,
-    color: "#6B6A5E",
-  },
-  bottomBarContainer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "rgba(255, 249, 236, 0.95)",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(7, 96, 71, 0.12)",
-    paddingHorizontal: spacing.md,
-    paddingTop: 10,
-    paddingBottom: 6,
-  },
-  bottomButtonsRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  cancelOutlineButton: {
-    flex: 1,
-    height: 48,
+  summaryBadge: {
+    backgroundColor: "#ECFDF5",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: radius.full,
-    borderWidth: 1.5,
-    borderColor: "#076047",
-    backgroundColor: "transparent",
-    alignItems: "center",
-    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
   },
-  cancelOutlineText: {
-    fontSize: 14,
+  summaryBadgeText: {
+    fontSize: 12,
     fontWeight: "700",
     color: "#076047",
   },
-  submitButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: radius.full,
-    backgroundColor: "#076047",
+  publishButton: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#076047",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 5,
-    elevation: 3,
+    height: 50,
+    backgroundColor: "#076047",
+    borderRadius: radius.md,
+    gap: spacing.xs,
   },
-  submitButtonDisabled: {
-    backgroundColor: "#9CA3AF",
-    shadowOpacity: 0,
-    elevation: 0,
+  publishButtonDisabled: {
+    opacity: 0.5,
   },
-  submitButtonText: {
-    fontSize: 14,
+  publishButtonText: {
+    fontSize: 15,
     fontWeight: "700",
     color: "#FFFFFF",
-  },
-  homeIndicator: {
-    width: 120,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(27, 43, 36, 0.25)",
-    alignSelf: "center",
-    marginTop: 8,
-  },
-  pressedState: {
-    opacity: 0.8,
-    transform: [{ scale: 0.98 }],
   },
 });

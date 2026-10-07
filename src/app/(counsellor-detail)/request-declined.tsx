@@ -23,15 +23,15 @@ export default function RequestDeclinedScreen() {
   const studentAnonId =
     params.studentAnonId ||
     lastDeclinedSession?.studentAnonId ||
-    "Student #5104";
+    "Student #ANON";
   const dateFormatted =
     params.dateFormatted ||
     lastDeclinedSession?.date ||
-    "Tomorrow, Tue 19 Aug";
+    "Scheduled Slot";
   const timeFormatted =
     params.timeFormatted ||
     lastDeclinedSession?.timeRange ||
-    "10:00–10:45 AM";
+    "";
   const sessionModality =
     params.sessionModality ||
     lastDeclinedSession?.modality ||

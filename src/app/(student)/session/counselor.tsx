@@ -1,3 +1,4 @@
+import { FLOATING_HELP_CLEARANCE } from "@/components/crisis/UrgentHelpLink";
 import { colors, radius, spacing, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -16,6 +17,7 @@ export default function CounselorProfileScreen() {
   const [showCalendar, setShowCalendar] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date().getDate().toString());
+  const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
   const getMockData = (cId: string) => {
     const charCode = cId.charCodeAt(0) || 0;
@@ -86,6 +88,24 @@ export default function CounselorProfileScreen() {
       </SafeAreaView>;
   }
 
+  
+  if (!counsellor && !loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color={colors.primary} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Counselor Not Found</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
+          <Text>We couldn't find this counselor's profile.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       {/* Header */}
@@ -102,7 +122,7 @@ export default function CounselorProfileScreen() {
         {/* Profile Info (Centered) */}
         <View style={styles.profileHeader}>
           <View style={styles.avatarContainer}>
-            <CounsellorAvatar uid={counsellor.uid} name={counsellor.fullName} size={100} />
+            <CounsellorAvatar uid={counsellor?.uid || uid} name={counsellor?.fullName || "Counselor"} size={100} />
             <View style={styles.verifiedBadge}>
               <Ionicons name="checkmark" size={12} color="#FFF" />
             </View>
@@ -234,10 +254,14 @@ export default function CounselorProfileScreen() {
               
               {(counsellor?.availableSlots && counsellor.availableSlots.length > 0) ? (
                 counsellor.availableSlots.map((time, idx) => (
-                  <View key={idx} style={styles.slotBox}>
-                    <Ionicons name="time-outline" size={16} color={colors.primary} />
-                    <Text style={styles.slotText}>{time}</Text>
-                  </View>
+                  <Pressable 
+                    key={idx} 
+                    style={[styles.slotBox, selectedTime === time && styles.slotBoxActive]}
+                    onPress={() => setSelectedTime(time)}
+                  >
+                    <Ionicons name="time-outline" size={16} color={selectedTime === time ? "#FFF" : colors.primary} />
+                    <Text style={[styles.slotText, selectedTime === time && styles.slotTextActive]}>{time}</Text>
+                  </Pressable>
                 ))
               ) : (
                 <View style={{ width: '100%', alignItems: 'center', paddingVertical: 24 }}><Text style={{ color: colors.textSecondary, fontSize: 14 }}>No slots available for this day.</Text></View>
@@ -297,10 +321,14 @@ export default function CounselorProfileScreen() {
           <Ionicons name="chatbubble-outline" size={20} color={colors.primary} />
           <Text style={styles.chatFirstText}>Chat First</Text>
         </Pressable>
-        <Pressable style={styles.bookSessionBtn} onPress={() => router.push({ pathname: "/(student)/session/book", params: { uid: counsellor?.id } })}>
-          <Ionicons name="calendar-outline" size={20} color="#FFF" />
-          <Text style={styles.bookSessionText}>Book Session</Text>
-        </Pressable>
+        <Pressable 
+            style={[styles.bookSessionBtn, !selectedTime && { opacity: 0.5 }]} 
+            disabled={!selectedTime}
+            onPress={() => router.push({ pathname: "/(student)/session/book", params: { uid: counsellor?.id, time: selectedTime } })}
+          >
+            <Ionicons name="calendar-outline" size={20} color="#FFF" />
+            <Text style={styles.bookSessionText}>Book Session</Text>
+          </Pressable>
       </View>
     
       {/* Reviews Modal */}
@@ -354,6 +382,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: spacing.md,
+    // Keeps the right-hand icon clear of the floating crisis help button
+    paddingRight: FLOATING_HELP_CLEARANCE,
     paddingVertical: spacing.sm,
     backgroundColor: "#F8F7F3",
   },
