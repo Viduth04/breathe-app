@@ -35,36 +35,152 @@ const QUICK_TIMES = [
 export default function AddSessionScreen() {
   const store = useCounsellorStore();
 
-  // Dynamic Colombo date generation (next 14 days)
-  const todayColombo = useMemo(() => new Date(), []);
+  // Live Asia/Colombo clock tracker (updates periodically to track time progression)
+  const [nowClock, setNowClock] = useState(() => new Date());
 
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowClock(new Date());
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const colomboNowInfo = useMemo(() => {
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Colombo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(nowClock);
+    const year = parts.find((p) => p.type === "year")?.value || `${nowClock.getFullYear()}`;
+    const month = parts.find((p) => p.type === "month")?.value || `${nowClock.getMonth() + 1}`.padStart(2, "0");
+    const day = parts.find((p) => p.type === "day")?.value || `${nowClock.getDate()}`.padStart(2, "0");
+    const hour = parseInt(parts.find((p) => p.type === "hour")?.value || `${nowClock.getHours()}`, 10);
+    const minute = parseInt(parts.find((p) => p.type === "minute")?.value || `${nowClock.getMinutes()}`, 10);
+
+    const dateKey = `${year}-${month}-${day}`;
+    const currentMinutes = hour * 60 + minute;
+    const timeDisplay = nowClock.toLocaleTimeString("en-US", {
+      timeZone: "Asia/Colombo",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    return { dateKey, currentMinutes, hour, minute, timeDisplay };
+  }, [nowClock]);
+
+  // Helper to parse "HH:MM AM/PM" into minutes from midnight (0..1439)
+  const parseTimeToMinutes = (timeStr: string): number => {
+    const parts = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!parts) return -1;
+    let h = parseInt(parts[1], 10);
+    const m = parseInt(parts[2], 10);
+    const meridiem = parts[3].toUpperCase();
+    if (h < 1 || h > 12 || m < 0 || m > 59) return -1;
+    if (meridiem === "PM" && h < 12) h += 12;
+    if (meridiem === "AM" && h === 12) h = 0;
+    return h * 60 + m;
+  };
+
+  // Helper to check if a specific time on a specific date is already in the past
+  const isSlotInPast = (dateKey: string, timeStr: string): boolean => {
+    if (dateKey < colomboNowInfo.dateKey) return true;
+    if (dateKey === colomboNowInfo.dateKey) {
+      const slotMinutes = parseTimeToMinutes(timeStr);
+      if (slotMinutes < 0) return true;
+      return slotMinutes <= colomboNowInfo.currentMinutes;
+    }
+    return false;
+  };
+
+  // Dynamic Colombo date generation (next 14 days)
   const upcomingDays = useMemo(() => {
     const days = [];
+    const [y, m, d] = colomboNowInfo.dateKey.split("-").map(Number);
     for (let i = 0; i < 14; i++) {
-      const d = new Date(todayColombo);
-      d.setDate(d.getDate() + i);
-      const dayNum = d.getDate();
-      const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
-      const month = d.toLocaleDateString("en-US", { month: "short" });
-      const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+      const cur = new Date(y, m - 1, d + i);
+      const dayNum = cur.getDate();
+      const weekday = cur.toLocaleDateString("en-US", { weekday: "short" });
+      const month = cur.toLocaleDateString("en-US", { month: "short" });
+      const dateKey = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
       days.push({
         dateKey,
         dayNum,
         weekday,
         month,
         label: i === 0 ? "Today" : i === 1 ? "Tomorrow" : `${weekday}, ${month} ${dayNum}`,
-        dateObj: d,
-        isWeekend: d.getDay() === 0 || d.getDay() === 6,
+        dateObj: cur,
+        isWeekend: cur.getDay() === 0 || cur.getDay() === 6,
       });
     }
     return days;
-  }, [todayColombo]);
+  }, [colomboNowInfo.dateKey]);
 
   // Essential state: Selected dates (multi-select), selected times, duration, modality
   const [selectedDateKeys, setSelectedDateKeys] = useState<string[]>([
     upcomingDays[1]?.dateKey || upcomingDays[0].dateKey,
   ]);
-  const [selectedTimes, setSelectedTimes] = useState<string[]>(["10:00 AM"]);
+
+  // Check if a time slot is passed for any of the active selected dates
+  const isTimeSlotPassedForSelectedDates = (timeStr: string): boolean => {
+    if (selectedDateKeys.includes(colomboNowInfo.dateKey)) {
+      return isSlotInPast(colomboNowInfo.dateKey, timeStr);
+    }
+    return selectedDateKeys.every((dKey) => isSlotInPast(dKey, timeStr));
+  };
+
+  // Check if standard daytime clinic hours have completely concluded for today
+  const allTodayStandardHoursPassed = useMemo(() => {
+    if (!selectedDateKeys.includes(colomboNowInfo.dateKey)) return false;
+    return QUICK_TIMES.every((t) => isSlotInPast(colomboNowInfo.dateKey, t));
+  }, [selectedDateKeys, colomboNowInfo]);
+
+  // Check if a slot has already been added/created in the database for any of the selected dates
+  const isSlotAlreadyAddedForSelectedDates = (timeStr: string): boolean => {
+    return selectedDateKeys.some((dKey) =>
+      store.scheduleDaySlots.some(
+        (existing) =>
+          existing.dateKey === dKey &&
+          (existing.startTime === timeStr || existing.timeRange.startsWith(timeStr))
+      )
+    );
+  };
+
+  // Check if a slot has already been booked in the database for any of the selected dates
+  const isSlotAlreadyBookedForSelectedDates = (timeStr: string): boolean => {
+    return selectedDateKeys.some((dKey) =>
+      store.scheduleDaySlots.some(
+        (existing) =>
+          existing.isBooked &&
+          existing.dateKey === dKey &&
+          (existing.startTime === timeStr || existing.timeRange.startsWith(timeStr))
+      )
+    );
+  };
+
+  const [selectedTimes, setSelectedTimes] = useState<string[]>(() => {
+    const defaultDate = upcomingDays[1]?.dateKey || upcomingDays[0]?.dateKey;
+    const firstValid = QUICK_TIMES.find((t) => {
+      const isPast = defaultDate === colomboNowInfo.dateKey ? isSlotInPast(defaultDate, t) : false;
+      const isExisting = store.scheduleDaySlots.some(
+        (existing) => existing.dateKey === defaultDate && (existing.startTime === t || existing.timeRange.startsWith(t))
+      );
+      return !isPast && !isExisting;
+    });
+    return firstValid ? [firstValid] : [];
+  });
+
+  const allDisplayedTimes = useMemo(() => {
+    const customList = selectedTimes.filter((t) => !QUICK_TIMES.includes(t));
+    return [...QUICK_TIMES, ...customList].sort(
+      (a, b) => parseTimeToMinutes(a) - parseTimeToMinutes(b)
+    );
+  }, [selectedTimes]);
+
   const [duration, setDuration] = useState<DurationOption>("45m");
   const [selectedModalities, setSelectedModalities] = useState<SessionType[]>(["video"]);
   const [customTime, setCustomTime] = useState("");
@@ -81,20 +197,51 @@ export default function AddSessionScreen() {
   }, [feedbackToast]);
 
   const toggleDate = (dateKey: string) => {
+    let nextDateKeys: string[];
     if (selectedDateKeys.includes(dateKey)) {
       if (selectedDateKeys.length > 1) {
-        setSelectedDateKeys(selectedDateKeys.filter((k) => k !== dateKey));
+        nextDateKeys = selectedDateKeys.filter((k) => k !== dateKey);
       } else {
         setFeedbackToast("At least one date must remain selected.");
+        return;
       }
     } else {
-      setSelectedDateKeys([...selectedDateKeys, dateKey]);
+      nextDateKeys = [...selectedDateKeys, dateKey];
+    }
+    setSelectedDateKeys(nextDateKeys);
+
+    // Prune any selected times that have already passed OR already been created in the database for the dates
+    const validTimes = selectedTimes.filter((t) => {
+      const isPast = nextDateKeys.includes(colomboNowInfo.dateKey) && isSlotInPast(colomboNowInfo.dateKey, t);
+      const isCreated = nextDateKeys.some((k) =>
+        store.scheduleDaySlots.some(
+          (existing) => existing.dateKey === k && (existing.startTime === t || existing.timeRange.startsWith(t))
+        )
+      );
+      return !isPast && !isCreated;
+    });
+
+    if (validTimes.length !== selectedTimes.length) {
+      setSelectedTimes(validTimes);
+      setFeedbackToast(
+        `Pruned time slot(s) that have already concluded or been created in the database.`
+      );
     }
   };
 
   const selectAllWeekdays = () => {
     const weekdays = upcomingDays.filter((d) => !d.isWeekend).slice(0, 5).map((d) => d.dateKey);
     setSelectedDateKeys(weekdays);
+    const validTimes = selectedTimes.filter((t) => {
+      const isPast = weekdays.includes(colomboNowInfo.dateKey) && isSlotInPast(colomboNowInfo.dateKey, t);
+      const isCreated = weekdays.some((k) =>
+        store.scheduleDaySlots.some(
+          (existing) => existing.dateKey === k && (existing.startTime === t || existing.timeRange.startsWith(t))
+        )
+      );
+      return !isPast && !isCreated;
+    });
+    setSelectedTimes(validTimes);
     setFeedbackToast("Selected Mon–Fri clinical weekdays.");
   };
 
@@ -108,19 +255,6 @@ export default function AddSessionScreen() {
     } else {
       setSelectedModalities([...selectedModalities, modality]);
     }
-  };
-
-  // Helper to parse "HH:MM AM/PM" into minutes from midnight (0..1439)
-  const parseTimeToMinutes = (timeStr: string): number => {
-    const parts = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-    if (!parts) return -1;
-    let h = parseInt(parts[1], 10);
-    const m = parseInt(parts[2], 10);
-    const meridiem = parts[3].toUpperCase();
-    if (h < 1 || h > 12 || m < 0 || m > 59) return -1;
-    if (meridiem === "PM" && h < 12) h += 12;
-    if (meridiem === "AM" && h === 12) h = 0;
-    return h * 60 + m;
   };
 
   const handleAddCustomTime = () => {
@@ -139,6 +273,31 @@ export default function AddSessionScreen() {
       return;
     }
     const formatted = `${h < 10 ? `0${h}` : h}:${m < 10 ? `0${m}` : m} ${mer}`;
+
+    // Validate that custom time is not in the past for selected dates
+    if (isTimeSlotPassedForSelectedDates(formatted)) {
+      setFeedbackToast(
+        `Cannot add ${formatted}: this time slot has already passed today (current time: ${colomboNowInfo.timeDisplay}).`
+      );
+      return;
+    }
+
+    // Validate that custom time has not already been booked
+    if (isSlotAlreadyBookedForSelectedDates(formatted)) {
+      setFeedbackToast(
+        `Cannot add ${formatted}: this slot has already been booked on the selected date. Counselor validation prevents booking a slot that is already taken.`
+      );
+      return;
+    }
+
+    // Validate that custom time has not already been created in the database
+    if (isSlotAlreadyAddedForSelectedDates(formatted)) {
+      setFeedbackToast(
+        `Cannot add ${formatted}: this availability slot has already been added in the database. Slots can only be created once.`
+      );
+      return;
+    }
+
     if (selectedTimes.includes(formatted)) {
       setFeedbackToast(`Time slot ${formatted} is already in the selection.`);
       return;
@@ -149,6 +308,27 @@ export default function AddSessionScreen() {
   };
 
   const toggleTimeSelection = (time: string) => {
+    if (isTimeSlotPassedForSelectedDates(time)) {
+      setFeedbackToast(
+        `Time slot ${time} has already passed for today (current time: ${colomboNowInfo.timeDisplay}). Please choose an upcoming time.`
+      );
+      return;
+    }
+
+    if (isSlotAlreadyBookedForSelectedDates(time)) {
+      setFeedbackToast(
+        `Time slot ${time} has already been booked on the selected date. Counselor validation prevents booking this slot again. Rescheduling is permitted.`
+      );
+      return;
+    }
+
+    if (isSlotAlreadyAddedForSelectedDates(time)) {
+      setFeedbackToast(
+        `Time slot ${time} has already been added in the database. Availability time slots can only be created once. Rescheduling is allowed multiple times.`
+      );
+      return;
+    }
+
     if (selectedTimes.includes(time)) {
       if (selectedTimes.length > 1) {
         setSelectedTimes(selectedTimes.filter((t) => t !== time));
@@ -202,19 +382,38 @@ export default function AddSessionScreen() {
       return { start, end };
     };
 
-    // Sort selected times chronologically
+    // Filter and sort active times
     const sortedTimes = [...selectedTimes].sort(
       (a, b) => parseTimeToMinutes(a) - parseTimeToMinutes(b)
     );
-    const activeTimes = sortedTimes.length > 0 ? sortedTimes : ["10:00 AM"];
-    const activeModalities: SessionType[] = selectedModalities.length > 0 ? selectedModalities : ["video"];
+    const activeModalities: SessionType[] =
+      selectedModalities.length > 0 ? selectedModalities : ["video"];
 
     selectedDateKeys.forEach((dKey) => {
       const dayObj = upcomingDays.find((d) => d.dateKey === dKey);
       if (!dayObj) return;
 
-      activeTimes.forEach((t) => {
+      sortedTimes.forEach((t) => {
+        // Enforce strict prevention of past slots
+        if (isSlotInPast(dKey, t)) {
+          return;
+        }
+
+        // Strict clinical validation: Availability slots can only be added or created once
+        const alreadyExists = store.scheduleDaySlots.some(
+          (existing) =>
+            existing.dateKey === dKey &&
+            (existing.startTime === t || existing.timeRange.startsWith(t))
+        );
+        if (alreadyExists) {
+          return;
+        }
+
         const { start, end } = makeDate(dayObj.dateKey, t);
+        if (start.getTime() <= Date.now()) {
+          return;
+        }
+
         slots.push({
           dateKey: dayObj.dateKey,
           dateDisplay: dayObj.label,
@@ -228,7 +427,7 @@ export default function AddSessionScreen() {
     });
 
     return slots;
-  }, [selectedDateKeys, selectedTimes, duration, selectedModalities, upcomingDays]);
+  }, [selectedDateKeys, selectedTimes, duration, selectedModalities, upcomingDays, colomboNowInfo, store.scheduleDaySlots]);
 
   const handlePublishSlots = async () => {
     if (isSubmitting) return;
@@ -239,7 +438,9 @@ export default function AddSessionScreen() {
     }
 
     if (selectedTimes.length === 0) {
-      setFeedbackToast("Please select at least one time slot.");
+      setFeedbackToast(
+        "Please select at least one upcoming time slot. All selected slots may have already passed or been created."
+      );
       return;
     }
 
@@ -266,42 +467,51 @@ export default function AddSessionScreen() {
       }
     }
 
-    // Prevent publishing past times on today's date
-    const now = new Date();
-    const todayDateKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-    if (selectedDateKeys.includes(todayDateKey)) {
-      const pastTimes = selectedTimes.filter((t) => {
-        const m = parseTimeToMinutes(t);
-        return m >= 0 && m <= currentMinutes;
-      });
-      if (pastTimes.length > 0) {
-        setFeedbackToast(
-          `Slot(s) ${pastTimes.join(", ")} have already passed today. Please choose upcoming times.`
-        );
-        return;
-      }
+    // Strict validation: Prevent publishing past times on today's date
+    const nowMs = Date.now();
+    const pastSlots = computedSlotsToPublish.filter((s) => s.startAt.getTime() <= nowMs);
+    if (pastSlots.length > 0) {
+      setFeedbackToast(
+        `Slot(s) ${pastSlots.map((s) => s.startTime).join(", ")} have already passed today. Please choose upcoming times.`
+      );
+      return;
     }
 
-    // Prevent overwriting existing booked slots
+    // Strict validation: Availability slots can only be added or created once
+    const alreadyCreatedConflicts = computedSlotsToPublish.filter((newSlot) =>
+      store.scheduleDaySlots.some(
+        (existing) =>
+          existing.dateKey === newSlot.dateKey &&
+          (existing.startTime === newSlot.startTime || existing.timeRange.startsWith(newSlot.startTime))
+      )
+    );
+    if (alreadyCreatedConflicts.length > 0) {
+      setFeedbackToast(
+        `Slot on ${alreadyCreatedConflicts[0].dateDisplay || alreadyCreatedConflicts[0].dateKey} at ${alreadyCreatedConflicts[0].startTime} has already been created in the database. Slots can only be added once. Rescheduling is allowed multiple times.`
+      );
+      return;
+    }
+
+    // Strict validation: Prevent overwriting / re-booking existing booked slots
     const bookedConflicts = computedSlotsToPublish.filter((newSlot) =>
       store.scheduleDaySlots.some(
         (existing) =>
           existing.isBooked &&
           existing.dateKey === newSlot.dateKey &&
-          existing.startTime === newSlot.startTime
+          (existing.startTime === newSlot.startTime || existing.timeRange.startsWith(newSlot.startTime))
       )
     );
     if (bookedConflicts.length > 0) {
       setFeedbackToast(
-        `Slot on ${bookedConflicts[0].dateDisplay || bookedConflicts[0].dateKey} at ${bookedConflicts[0].startTime} has a confirmed booking.`
+        `Slot on ${bookedConflicts[0].dateDisplay || bookedConflicts[0].dateKey} at ${bookedConflicts[0].startTime} has a confirmed booking and cannot be booked again. Rescheduling is permitted.`
       );
       return;
     }
 
     if (computedSlotsToPublish.length === 0) {
-      setFeedbackToast("No slots to publish. Please check your selections.");
+      setFeedbackToast(
+        "No upcoming time slots to publish. Please choose future dates or upcoming times."
+      );
       return;
     }
 
@@ -453,26 +663,108 @@ export default function AddSessionScreen() {
           <Text style={styles.sectionLabel}>AVAILABLE TIME SLOTS</Text>
           <Text style={styles.sectionHint}>{selectedTimes.length} selected</Text>
         </View>
+
+        {allTodayStandardHoursPassed && (
+          <View style={styles.passedHoursNotice}>
+            <Ionicons name="alert-circle-outline" size={18} color="#B45309" />
+            <Text style={styles.passedHoursNoticeText}>
+              All standard daytime clinic hours (9:00 AM – 4:00 PM) have ended for today ({colomboNowInfo.timeDisplay}). Please select tomorrow/upcoming dates or add an evening custom time below.
+            </Text>
+          </View>
+        )}
+
         <View style={styles.timesGrid}>
-          {QUICK_TIMES.map((t) => {
+          {allDisplayedTimes.map((t) => {
+            const isPassed = isTimeSlotPassedForSelectedDates(t);
+            const isAlreadyBooked = isSlotAlreadyBookedForSelectedDates(t);
+            const isAlreadyAdded = isSlotAlreadyAddedForSelectedDates(t);
+            const isBlocked = isPassed || isAlreadyBooked || isAlreadyAdded;
             const isSelected = selectedTimes.includes(t);
+            const isCustom = !QUICK_TIMES.includes(t);
             return (
               <Pressable
                 key={t}
-                style={[styles.timeChip, isSelected && styles.timeChipActive]}
+                style={[
+                  styles.timeChip,
+                  isSelected && styles.timeChipActive,
+                  isBlocked && styles.timeChipDisabled,
+                ]}
                 onPress={() => toggleTimeSelection(t)}
                 accessibilityRole="button"
-                accessibilityLabel={`Toggle time ${t}`}
+                accessibilityLabel={`${t}${
+                  isPassed
+                    ? " (passed)"
+                    : isAlreadyBooked
+                    ? " (booked)"
+                    : isAlreadyAdded
+                    ? " (already added)"
+                    : isSelected
+                    ? " (selected)"
+                    : ""
+                }`}
+                accessibilityState={{ disabled: isBlocked }}
               >
                 <Ionicons
-                  name={isSelected ? "checkmark-circle" : "time-outline"}
+                  name={
+                    isPassed
+                      ? "close-circle-outline"
+                      : isAlreadyBooked
+                      ? "lock-closed-outline"
+                      : isAlreadyAdded
+                      ? "checkmark-done-outline"
+                      : isSelected
+                      ? "checkmark-circle"
+                      : "time-outline"
+                  }
                   size={14}
-                  color={isSelected ? "#076047" : "#64748B"}
+                  color={
+                    isPassed
+                      ? "#94A3B8"
+                      : isAlreadyBooked
+                      ? "#DC2626"
+                      : isAlreadyAdded
+                      ? "#0284C7"
+                      : isSelected
+                      ? "#076047"
+                      : "#64748B"
+                  }
                   style={{ marginRight: 4 }}
                 />
-                <Text style={[styles.timeChipText, isSelected && styles.timeChipTextActive]}>
+                <Text
+                  style={[
+                    styles.timeChipText,
+                    isSelected && styles.timeChipTextActive,
+                    isBlocked && styles.timeChipTextDisabled,
+                  ]}
+                >
                   {t}
                 </Text>
+                {isPassed && (
+                  <View style={styles.passedBadge}>
+                    <Text style={styles.passedBadgeText}>Passed</Text>
+                  </View>
+                )}
+                {!isPassed && isAlreadyBooked && (
+                  <View style={styles.bookedBadge}>
+                    <Text style={styles.bookedBadgeText}>Booked</Text>
+                  </View>
+                )}
+                {!isPassed && !isAlreadyBooked && isAlreadyAdded && (
+                  <View style={styles.addedBadge}>
+                    <Text style={styles.addedBadgeText}>Added</Text>
+                  </View>
+                )}
+                {isCustom && !isBlocked && (
+                  <Pressable
+                    onPress={() => setSelectedTimes(selectedTimes.filter((x) => x !== t))}
+                    hitSlop={6}
+                    style={{ marginLeft: 4 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove custom slot ${t}`}
+                  >
+                    <Ionicons name="close-circle" size={14} color={isSelected ? "#076047" : "#64748B"} />
+                  </Pressable>
+                )}
               </Pressable>
             );
           })}
@@ -564,7 +856,10 @@ export default function AddSessionScreen() {
           </View>
 
           <Pressable
-            style={[styles.publishButton, isSubmitting && styles.publishButtonDisabled]}
+            style={[
+              styles.publishButton,
+              (isSubmitting || computedSlotsToPublish.length === 0) && styles.publishButtonDisabled,
+            ]}
             onPress={handlePublishSlots}
             disabled={isSubmitting || computedSlotsToPublish.length === 0}
             accessibilityRole="button"
@@ -572,7 +867,11 @@ export default function AddSessionScreen() {
           >
             <Ionicons name="cloud-upload-outline" size={20} color="#FFFFFF" />
             <Text style={styles.publishButtonText}>
-              {isSubmitting ? "Publishing to Cloud..." : `Publish ${computedSlotsToPublish.length} Slots`}
+              {isSubmitting
+                ? "Publishing to Cloud..."
+                : computedSlotsToPublish.length === 0
+                ? "No Upcoming Slots Selected"
+                : `Publish ${computedSlotsToPublish.length} Slots`}
             </Text>
           </Pressable>
         </View>
@@ -805,6 +1104,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#ECFDF5",
     borderColor: "#076047",
   },
+  timeChipDisabled: {
+    backgroundColor: "#F1F5F9",
+    borderColor: "#CBD5E1",
+    opacity: 0.65,
+  },
   timeChipText: {
     fontSize: 13,
     fontWeight: "600",
@@ -813,6 +1117,64 @@ const styles = StyleSheet.create({
   timeChipTextActive: {
     color: "#076047",
     fontWeight: "700",
+  },
+  timeChipTextDisabled: {
+    color: "#94A3B8",
+    textDecorationLine: "line-through",
+  },
+  passedBadge: {
+    backgroundColor: "#FEE2E2",
+    borderRadius: radius.full,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    marginLeft: 4,
+  },
+  passedBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#DC2626",
+  },
+  bookedBadge: {
+    backgroundColor: "#FEE2E2",
+    borderRadius: radius.full,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    marginLeft: 4,
+  },
+  bookedBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#DC2626",
+  },
+  addedBadge: {
+    backgroundColor: "#E0F2FE",
+    borderRadius: radius.full,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    marginLeft: 4,
+  },
+  addedBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#0369A1",
+  },
+  passedHoursNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    borderColor: "#FCD34D",
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.xs,
+    gap: spacing.xs,
+  },
+  passedHoursNoticeText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#92400E",
+    fontWeight: "500",
+    lineHeight: 16,
   },
   customTimeRow: {
     flexDirection: "row",

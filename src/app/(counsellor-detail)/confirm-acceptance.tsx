@@ -20,7 +20,7 @@ import { usePopup } from "@/components/common/popup";
 
 export default function ConfirmAcceptanceModal() {
   const params = useLocalSearchParams<{ requestId?: string; studentAnonId?: string }>();
-  const { confirmAcceptance, requests } = useCounsellorStore();
+  const { confirmAcceptance, requests, scheduleDaySlots, sessions } = useCounsellorStore();
   const { showToast } = usePopup();
 
   const targetReq =
@@ -38,6 +38,18 @@ export default function ConfirmAcceptanceModal() {
       ? "Secured Chat Session (45 min)"
       : "In-Person Consultation (45 min)";
 
+  // Strict validation: Check if slot has already been booked
+  const isSlotAlreadyBooked = Boolean(
+    (targetReq?.slotId && scheduleDaySlots.some((s) => s.id === targetReq.slotId && s.isBooked)) ||
+    sessions.some(
+      (s) =>
+        s.id !== targetReq?.id &&
+        s.date === targetReq?.date &&
+        s.timeRange === targetReq?.requestedTime &&
+        s.status === "confirmed"
+    )
+  );
+
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -45,6 +57,13 @@ export default function ConfirmAcceptanceModal() {
     if (isSubmitting) return;
     if (targetReq?.isExpired) {
       showToast({ message: "Cannot accept: This session slot has already expired.", type: "error" });
+      return;
+    }
+    if (isSlotAlreadyBooked) {
+      showToast({
+        message: "Cannot accept: This slot has already been booked. Reschedule or decline.",
+        type: "error",
+      });
       return;
     }
     setIsSubmitting(true);
@@ -164,26 +183,55 @@ export default function ConfirmAcceptanceModal() {
               </View>
             )}
 
+            {/* ─── Already Booked Notice Banner ─── */}
+            {!targetReq?.isExpired && isSlotAlreadyBooked && (
+              <View style={[styles.expiredNoticeCard, { backgroundColor: "#FEF2F2", borderColor: "#FCA5A5" }]}>
+                <Ionicons name="lock-closed" size={18} color="#DC2626" />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={[styles.expiredNoticeTitle, { color: "#991B1B" }]}>Slot Already Booked</Text>
+                  <Text style={[styles.expiredNoticeText, { color: "#7F1D1D" }]}>
+                    This time slot has already been booked. Counselor validation prevents booking a slot that is already taken. Please reschedule the student to an open slot.
+                  </Text>
+                </View>
+              </View>
+            )}
+
             {/* ─── Actions ─── */}
             <View style={styles.actionsContainer}>
               <Pressable
                 onPress={handleConfirm}
-                disabled={isSubmitting || targetReq?.isExpired}
+                disabled={isSubmitting || targetReq?.isExpired || isSlotAlreadyBooked}
                 style={[
                   styles.confirmButton,
                   isSubmitting && { opacity: 0.6 },
-                  targetReq?.isExpired && { backgroundColor: "#94A3B8", opacity: 0.8 },
+                  (targetReq?.isExpired || isSlotAlreadyBooked) && { backgroundColor: "#94A3B8", opacity: 0.8 },
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel={targetReq?.isExpired ? "Slot Expired (Cannot Confirm)" : "Confirm & Accept Request"}
+                accessibilityLabel={
+                  targetReq?.isExpired
+                    ? "Slot Expired (Cannot Confirm)"
+                    : isSlotAlreadyBooked
+                    ? "Slot Already Booked (Reschedule Required)"
+                    : "Confirm & Accept Request"
+                }
               >
                 <Ionicons
-                  name={targetReq?.isExpired ? "ban-outline" : "checkmark-circle-outline"}
+                  name={
+                    targetReq?.isExpired
+                      ? "ban-outline"
+                      : isSlotAlreadyBooked
+                      ? "lock-closed-outline"
+                      : "checkmark-circle-outline"
+                  }
                   size={20}
-                  color={targetReq?.isExpired ? "#FFFFFF" : "#A7F3D0"}
+                  color={targetReq?.isExpired || isSlotAlreadyBooked ? "#FFFFFF" : "#A7F3D0"}
                 />
                 <Text style={styles.confirmButtonText}>
-                  {targetReq?.isExpired ? "Slot Expired (Cannot Confirm)" : "Confirm & Accept"}
+                  {targetReq?.isExpired
+                    ? "Slot Expired (Cannot Confirm)"
+                    : isSlotAlreadyBooked
+                    ? "Slot Already Booked (Reschedule Required)"
+                    : "Confirm & Accept"}
                 </Text>
               </Pressable>
 
