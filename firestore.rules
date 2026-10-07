@@ -80,7 +80,8 @@
 //   chats/{chatId}/messages/{id} senderId
 //   stats/{weekId}              doc id = ISO week, e.g. "2026-W40"
 //                               weekStart ("YYYY-MM-DD", that week's Monday),
-//                               total, mood1..mood5, demo (admin sample data)
+//                               total, mood1..mood5, factors (map of reason
+//                               key -> count), demo (admin sample data)
 //                               NO uid, anonId or per-person timestamps.
 //                               (type: src/types/stats.ts; students write it
 //                               only via recordAnonymousMoodStat())
@@ -601,24 +602,65 @@ service cloud.firestore {
         return v is int && v >= 0;
       }
 
+      // "What's affecting your mood?" reasons: known keys only (FACTOR_KEYS
+      // in src/types/stats.ts), each going up by 0 or 1 from before to after
+      function factorKeys() {
+        return ["studies", "exams", "sleep", "health", "family", "friends",
+                "relationships", "money", "work", "loneliness", "other"];
+      }
+      function factorStep(before, after, k) {
+        return after.get(k, 0) == before.get(k, 0)
+          || after.get(k, 0) == before.get(k, 0) + 1;
+      }
+      function factorsUpByOne(before, after) {
+        return after is map
+          && after.keys().hasOnly(factorKeys())
+          && factorStep(before, after, "studies") && factorStep(before, after, "exams")
+          && factorStep(before, after, "sleep") && factorStep(before, after, "health")
+          && factorStep(before, after, "family") && factorStep(before, after, "friends")
+          && factorStep(before, after, "relationships") && factorStep(before, after, "money")
+          && factorStep(before, after, "work") && factorStep(before, after, "loneliness")
+          && factorStep(before, after, "other");
+      }
+      // Admin demo data: known keys only, every value a count
+      function factorCounts(m) {
+        return m is map
+          && m.keys().hasOnly(factorKeys())
+          && isCount(m.get("studies", 0)) && isCount(m.get("exams", 0))
+          && isCount(m.get("sleep", 0)) && isCount(m.get("health", 0))
+          && isCount(m.get("family", 0)) && isCount(m.get("friends", 0))
+          && isCount(m.get("relationships", 0)) && isCount(m.get("money", 0))
+          && isCount(m.get("work", 0)) && isCount(m.get("loneliness", 0))
+          && isCount(m.get("other", 0));
+      }
+
       // Lecturers and admins only
       allow read: if isLecturer() || isAdmin();
 
       // Student, first check-in of the week: {weekStart, total: 1, moodN: 1}
+      // plus optional factors {key: 1, ...}
       allow create: if isStudent()
         && validWeekStart(request.resource.data.weekStart)
         && isCurrentWeek(request.resource.data.weekStart)
-        && request.resource.data.keys().size() == 3
+        && (request.resource.data.keys().size() == 3
+            || (request.resource.data.keys().size() == 4
+                && request.resource.data.keys().hasAll(["factors"])
+                && factorsUpByOne({}, request.resource.data.factors)))
         && request.resource.data.keys().hasAll(["weekStart", "total"])
         && request.resource.data.total == 1
         && oneMoodIsOne(request.resource.data);
 
-      // Student, later check-ins: total +1 and exactly one mood +1, nothing
-      // else; only on the current, real (non-demo) week
+      // Student, later check-ins: total +1 and exactly one mood +1, and
+      // optionally each factor +0/+1, nothing else; only on the current,
+      // real (non-demo) week
       allow update: if isStudent()
         && resource.data.get("demo", false) == false
         && isCurrentWeek(resource.data.weekStart)
-        && changedKeys().size() == 2
+        && (changedKeys().size() == 2
+            || (changedKeys().size() == 3
+                && changedKeys().hasAll(["factors"])
+                && factorsUpByOne(resource.data.get("factors", {}),
+                                  request.resource.data.factors)))
         && changedKeys().hasAll(["total"])
         && request.resource.data.total == resource.data.total + 1
         && oneMoodUp(resource.data, request.resource.data, changedKeys());
@@ -629,7 +671,8 @@ service cloud.firestore {
         && request.resource.data.demo == true
         && validWeekStart(request.resource.data.weekStart)
         && request.resource.data.keys().hasOnly(
-             ["weekStart", "total", "mood1", "mood2", "mood3", "mood4", "mood5", "demo"])
+             ["weekStart", "total", "mood1", "mood2", "mood3", "mood4", "mood5", "demo", "factors"])
+        && factorCounts(request.resource.data.get("factors", {}))
         && isCount(request.resource.data.mood1)
         && isCount(request.resource.data.mood2)
         && isCount(request.resource.data.mood3)
