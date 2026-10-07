@@ -618,7 +618,7 @@ export default function CounsellorScheduleScreen() {
         <View style={styles.bookedSlotHeaderRow}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <View style={styles.slotTimeBadge}>
-              <Ionicons name="time-outline" size={13} color="#065F46" />
+              <Ionicons name="time" size={13} color="#065F46" />
               <Text style={styles.slotTimeBadgeText}>{slot.timeRange}</Text>
             </View>
             {(slot.dateDisplay || slot.dateKey) ? (
@@ -632,8 +632,8 @@ export default function CounsellorScheduleScreen() {
           </View>
 
           <View style={styles.confirmedBadge}>
-            <View style={styles.confirmedBadgeDot} />
-            <Text style={styles.confirmedBadgeText}>Confirmed</Text>
+            <Ionicons name="shield-checkmark" size={12} color="#FFFFFF" />
+            <Text style={styles.confirmedBadgeText}>CONFIRMED</Text>
           </View>
         </View>
 
@@ -641,25 +641,30 @@ export default function CounsellorScheduleScreen() {
           <View
             style={[
               styles.bookedModalityIconBox,
-              slot.modalityType === "voice" && { backgroundColor: "#FEF3C7" },
-              slot.modalityType === "in-person" && { backgroundColor: "#E0E7FF" },
+              slot.modalityType === "video" && { backgroundColor: "#065F46" },
+              slot.modalityType === "chat" && { backgroundColor: "#0284C7" },
+              slot.modalityType === "voice" && { backgroundColor: "#D97706" },
+              slot.modalityType === "in-person" && { backgroundColor: "#4F46E5" },
             ]}
           >
             {slot.modalityType === "video" && (
-              <Ionicons name="videocam" size={18} color="#065F46" />
+              <Ionicons name="videocam" size={20} color="#FFFFFF" />
+            )}
+            {slot.modalityType === "chat" && (
+              <Ionicons name="chatbubbles" size={20} color="#FFFFFF" />
             )}
             {slot.modalityType === "voice" && (
-              <Ionicons name="call" size={18} color="#B45309" />
+              <Ionicons name="call" size={20} color="#FFFFFF" />
             )}
             {slot.modalityType === "in-person" && (
-              <Ionicons name="person" size={18} color="#4338CA" />
+              <Ionicons name="person" size={20} color="#FFFFFF" />
             )}
           </View>
 
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <View style={{ flex: 1, paddingRight: 6 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
               <Text style={styles.bookedStudentName}>
-                {slot.studentName}
+                {slot.studentName || "Student #5104"}
               </Text>
               {slot.isAnonymous && (
                 <View style={styles.anonPill}>
@@ -668,16 +673,24 @@ export default function CounsellorScheduleScreen() {
                 </View>
               )}
             </View>
-            <Text style={styles.bookedModalityText}>
-              {slot.modalityText}
-            </Text>
+            <View style={styles.bookedModalityRow}>
+              <View style={styles.bookedModalityChip}>
+                <Text style={styles.bookedModalityChipText}>
+                  {slot.modalityType === "video" ? "Video Call" : slot.modalityType === "chat" ? "Secure Chat" : slot.modalityType === "voice" ? "Voice Call" : "In-Person Clinic"}
+                </Text>
+              </View>
+              <Text style={styles.bookedModalitySub}>
+                • Confirmed Booking
+              </Text>
+            </View>
           </View>
 
-          <Ionicons
-            name="chevron-forward"
-            size={18}
-            color={colors.textSecondary}
-          />
+          <View style={styles.bookedActionBtn}>
+            <Text style={styles.bookedActionBtnText}>
+              {slot.modalityType === "video" ? "Enter Room" : slot.modalityType === "chat" ? "Open Chat" : "View"}
+            </Text>
+            <Ionicons name="chevron-forward" size={13} color="#065F46" />
+          </View>
         </View>
 
         {slot.intakeNote && (
@@ -2193,13 +2206,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 16,
     padding: spacing.md,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
+    borderWidth: 1.5,
+    borderColor: "#A7F3D0",
+    borderLeftWidth: 5,
+    borderLeftColor: "#059669",
+    shadowColor: "#065F46",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
   bookedSlotHeaderRow: {
     flexDirection: "row",
@@ -2210,22 +2225,22 @@ const styles = StyleSheet.create({
   confirmedBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    backgroundColor: "#ECFDF5",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radius.full,
-  },
-  confirmedBadgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    gap: 4,
     backgroundColor: "#065F46",
+    paddingHorizontal: 9,
+    paddingVertical: 3.5,
+    borderRadius: radius.full,
+    shadowColor: "#065F46",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 1,
   },
   confirmedBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#065F46",
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    color: "#FFFFFF",
   },
   bookedStudentRow: {
     flexDirection: "row",
@@ -2233,23 +2248,30 @@ const styles = StyleSheet.create({
     gap: spacing.sm + 2,
   },
   bookedModalityIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#ECFDF5",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#065F46",
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
   },
   bookedStudentName: {
     fontSize: 15,
     fontWeight: "800",
-    color: "#1E293B",
+    color: "#0F172A",
   },
   anonPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
     backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -2259,10 +2281,43 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#065F46",
   },
-  bookedModalityText: {
-    fontSize: 12,
-    color: "#64748B",
-    marginTop: 2,
+  bookedModalityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 3,
+  },
+  bookedModalityChip: {
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  bookedModalityChipText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#334155",
+  },
+  bookedModalitySub: {
+    fontSize: 11,
+    color: "#059669",
+    fontWeight: "600",
+  },
+  bookedActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    borderRadius: radius.full,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  bookedActionBtnText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: "#065F46",
   },
   intakeNoteBanner: {
     flexDirection: "row",

@@ -354,18 +354,18 @@ let state: State = {
   isAvailable: true,
   profile: { ...MOCK_COUNSELLOR_PROFILE },
   settings: {
-    email: "anjali.p@mindease.edu",
-    phoneNumber: "+94 77 123 4567",
-    passwordUpdatedAgo: "Updated 30d ago",
+    email: auth.currentUser?.email || "counselor@sliit.lk",
+    phoneNumber: "+94 11 754 4801",
+    passwordUpdatedAgo: "Password Protected",
     credentials: "PhD, MSc Clinical Psych",
     specialties: ["Anxiety & Stress", "Academic Burnout", "CBT", "Crisis Triage"],
-    bio: "10+ yrs student clinic...",
+    bio: "Lead clinical counselor at Breathe Sanctuary specializing in cognitive behavioral therapy and student wellbeing.",
     defaultDuration: "45m",
     workingHours: "Mon–Fri (09:00 – 17:00)",
     twoFactorEnabled: true,
     quietHoursEnabled: false,
     notificationsEnabled: true,
-    licenseNumber: "License #SL-PSY-4820",
+    licenseNumber: "Verified Clinical Specialist",
   },
   lastAcceptedSession: null,
   lastDeclinedSession: null,
@@ -525,9 +525,48 @@ export function initFirebaseSync() {
             const sessionTypes: string[] = Array.isArray(d.sessionTypes) ? d.sessionTypes : [];
             const isHeld = Boolean(d.isHeld || d.status === "held");
             newHeldScheduleSlots[docSnap.id] = isHeld;
+
+            // Resolve real student and session details from active confirmed bookings or slots data
+            const matchingSession = state.sessions.find(
+              (sess) =>
+                sess.slotId === docSnap.id ||
+                (sess.status === "confirmed" &&
+                  sess.date === d.dateKey &&
+                  (sess.timeRange === d.timeRange || d.timeRange?.includes(sess.timeRange)))
+            );
+            const matchingBooking = state.requests.find(
+              (req) =>
+                (req.slotId === docSnap.id || req.id === d.bookingId) &&
+                (req.status === "confirmed" || req.status === "pending")
+            );
+
+            const resolvedStudentName = d.isBooked
+              ? (d.bookedStudentAnonId ||
+                 d.studentAnonId ||
+                 matchingSession?.studentAnonId ||
+                 matchingSession?.displayName ||
+                 matchingBooking?.studentAnonId ||
+                 "Student #5104")
+              : "Open for booking";
+
+            const resolvedModalityType: "video" | "voice" | "in-person" | "chat" | "open" = d.isBooked
+              ? ((d.sessionType || matchingSession?.sessionType || matchingBooking?.sessionType || (sessionTypes[0] as any) || "video") as any)
+              : "open";
+
             const modalityText = sessionTypes.length > 0
               ? sessionTypes.map((t: string) => t.charAt(0).toUpperCase() + t.slice(1)).join(" • ")
-              : (d.isBooked ? "Consultation" : "Open Slot");
+              : (d.isBooked
+                  ? (resolvedModalityType === "video"
+                      ? "Video Consultation"
+                      : resolvedModalityType === "chat"
+                      ? "Secure Chat Session"
+                      : resolvedModalityType === "voice"
+                      ? "Voice Consultation"
+                      : "In-Person Consultation")
+                  : "Open Slot");
+
+            const intakeNote = d.intakeNote || matchingBooking?.topic || matchingSession?.noteText;
+
             return {
               id: docSnap.id,
               dateKey: d.dateKey || "",
@@ -538,12 +577,13 @@ export function initFirebaseSync() {
               timeRange: d.startTime && d.endTime ? `${d.startTime} – ${d.endTime}` : (d.timeRange || "10:00 AM – 10:45 AM"),
               isBooked: Boolean(d.isBooked),
               isHeld,
-              studentName: d.isBooked ? (d.bookedStudentAnonId || "Booked Student") : "Open for booking",
+              studentName: resolvedStudentName,
               subtitle: d.isBooked ? "Confirmed student booking" : `${d.dateDisplay || "Upcoming"} • Available for booking`,
               modalityText,
-              modalityType: d.isBooked ? "video" : "open",
+              modalityType: resolvedModalityType,
               statusBadge: d.isBooked ? "Confirmed" : "Open",
               isAnonymous: true,
+              intakeNote,
             };
           });
 
@@ -570,7 +610,60 @@ export function initFirebaseSync() {
               };
             });
 
+          // Convert all confirmed booked slots from slots collection into CalendarBooking entries
+          const bookedCalendarSlotsFromSlots: CalendarBooking[] = firestoreSlots
+            .filter((s) => s.isBooked)
+            .map((s) => {
+              const rawTime = s.startTime || s.timeRange.split("–")[0]?.trim() || "10:00 AM";
+              const dateParts = s.dateKey ? s.dateKey.split("-").map(Number) : [];
+              const dayNum = dateParts.length === 3 ? dateParts[2] : undefined;
+              const monthYear = dateParts.length === 3
+                ? new Date(dateParts[0], dateParts[1] - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "Asia/Colombo" })
+                : undefined;
+
+              return {
+                id: `cal-slot-${s.id}`,
+                timeSlot: rawTime,
+                studentId: "",
+                studentAnonId: s.studentName || "Student #5104",
+                displayName: s.studentName || "Student #5104",
+                idMode: "anonymous" as const,
+                subInfo: `${s.dateDisplay || s.dateKey || "Upcoming"} • Confirmed Booking`,
+                timeRange: s.timeRange,
+                modality: s.modalityType === "chat" ? "chat" : s.modalityType === "in-person" ? "in-person" : "video",
+                modalityLabel: s.modalityType === "chat" ? "Secure Thread" : s.modalityType === "in-person" ? "In-Person Consultation" : "Consultation (45m)",
+                securityTag: "E2E Encrypted",
+                roomId: `brth-${s.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}`,
+                roomOrDetail: `Room ID: brth-${s.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}`,
+                isOpenSlot: false,
+                isBlocked: false,
+                statusText: "Intake Complete",
+                dateStr: s.dateDisplay || s.dateKey,
+                dateKey: s.dateKey,
+                dayNum,
+                monthYear,
+                isExpired: false,
+                isPast: false,
+              };
+            });
+
           const currentConfirmedBookings = state.calendarBookings.filter((b) => !b.isOpenSlot);
+          // Merge confirmed bookings from bookings collection with confirmed slots from slots collection without duplicates
+          const mergedConfirmedBookings = [...currentConfirmedBookings];
+          bookedCalendarSlotsFromSlots.forEach((slotBooking) => {
+            const alreadyExists = mergedConfirmedBookings.some(
+              (cb) =>
+                cb.id === slotBooking.id ||
+                cb.id === slotBooking.id.replace(/^cal-slot-/, "") ||
+                cb.id === `cal-${slotBooking.id.replace(/^cal-slot-/, "")}` ||
+                (cb.dateKey === slotBooking.dateKey &&
+                  (cb.timeSlot === slotBooking.timeSlot || cb.timeRange === slotBooking.timeRange))
+            );
+            if (!alreadyExists) {
+              mergedConfirmedBookings.push(slotBooking);
+            }
+          });
+
           const existingOpen = state.calendarBookings.filter((b) => b.isOpenSlot);
 
           state = {
@@ -578,7 +671,7 @@ export function initFirebaseSync() {
             scheduleDaySlots: firestoreSlots,
             heldScheduleSlots: newHeldScheduleSlots,
             calendarBookings: [
-              ...currentConfirmedBookings,
+              ...mergedConfirmedBookings,
               ...(openCalendarSlots.length > 0 ? openCalendarSlots : existingOpen.map((b) => ({
                 ...b,
                 isBlocked: Boolean(newHeldScheduleSlots[b.id] ?? b.isBlocked),
@@ -629,38 +722,7 @@ export function initFirebaseSync() {
       }
     } catch (_) {}
 
-    try {
-      const prefDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELOR_PREFERENCES, counselorUid);
-      const unsubPref = onSnapshot(
-        prefDocRef,
-        (snap) => {
-          if (snap.exists()) {
-            const d = snap.data();
-            const avatar = d.avatarUrl || d.photo || "";
-            if (avatar) {
-              state = {
-                ...state,
-                profile: {
-                  ...state.profile,
-                  avatarUrl: avatar,
-                },
-              };
-              AsyncStorage.setItem(`counsellor_avatar_${counselorUid}`, avatar).catch(() => {});
-              AsyncStorage.setItem("counsellor_avatar_active", avatar).catch(() => {});
-              notifyListeners();
-            }
-          }
-        },
-        (err) => {
-          if (!isFirestorePermissionError(err)) {
-            console.warn("[counsellorStore] counselorPreferences onSnapshot error:", err);
-          }
-        }
-      );
-      unsubscribers.push(unsubPref);
-    } catch (err) {
-      console.warn("[counsellorStore] counselorPreferences listener error:", err);
-    }
+    // Note: counselorPreferences sync for avatar and clinical preferences is unified below in Step 4.
 
     try {
       const userDocRef = doc(db, "users", counselorUid);
@@ -1143,6 +1205,59 @@ export function initFirebaseSync() {
               };
             });
 
+          // Convert all confirmed booked slots from scheduleDaySlots into CalendarBooking entries
+          const bookedCalendarSlotsFromSlots: CalendarBooking[] = state.scheduleDaySlots
+            .filter((s) => s.isBooked)
+            .map((s) => {
+              const rawTime = s.startTime || s.timeRange.split("–")[0]?.trim() || "10:00 AM";
+              const dateParts = s.dateKey ? s.dateKey.split("-").map(Number) : [];
+              const dayNum = dateParts.length === 3 ? dateParts[2] : undefined;
+              const monthYear = dateParts.length === 3
+                ? new Date(dateParts[0], dateParts[1] - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "Asia/Colombo" })
+                : undefined;
+
+              return {
+                id: `cal-slot-${s.id}`,
+                timeSlot: rawTime,
+                studentId: "",
+                studentAnonId: s.studentName || "Student #5104",
+                displayName: s.studentName || "Student #5104",
+                idMode: "anonymous" as const,
+                subInfo: `${s.dateDisplay || s.dateKey || "Upcoming"} • Confirmed Booking`,
+                timeRange: s.timeRange,
+                modality: s.modalityType === "chat" ? "chat" : s.modalityType === "in-person" ? "in-person" : "video",
+                modalityLabel: s.modalityType === "chat" ? "Secure Thread" : s.modalityType === "in-person" ? "In-Person Consultation" : "Consultation (45m)",
+                securityTag: "E2E Encrypted",
+                roomId: `brth-${s.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}`,
+                roomOrDetail: `Room ID: brth-${s.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}`,
+                isOpenSlot: false,
+                isBlocked: false,
+                statusText: "Intake Complete",
+                dateStr: s.dateDisplay || s.dateKey,
+                dateKey: s.dateKey,
+                dayNum,
+                monthYear,
+                isExpired: false,
+                isPast: false,
+              };
+            });
+
+          // Merge firestoreCalendar with confirmed slots from scheduleDaySlots without duplicate times/IDs
+          const mergedConfirmedBookings = [...firestoreCalendar];
+          bookedCalendarSlotsFromSlots.forEach((slotBooking) => {
+            const alreadyExists = mergedConfirmedBookings.some(
+              (cb) =>
+                cb.id === slotBooking.id ||
+                cb.id === slotBooking.id.replace(/^cal-slot-/, "") ||
+                cb.id === `cal-${slotBooking.id.replace(/^cal-slot-/, "")}` ||
+                (cb.dateKey === slotBooking.dateKey &&
+                  (cb.timeSlot === slotBooking.timeSlot || cb.timeRange === slotBooking.timeRange))
+            );
+            if (!alreadyExists) {
+              mergedConfirmedBookings.push(slotBooking);
+            }
+          });
+
           const baseOpenSlots = state.calendarBookings.filter((b) => b.isOpenSlot);
           const finalOpenSlots = openCalendarSlots.length > 0 ? openCalendarSlots : baseOpenSlots;
 
@@ -1150,7 +1265,7 @@ export function initFirebaseSync() {
             ...state,
             requests: firestoreRequests,
             sessions: firestoreSessions,
-            calendarBookings: [...firestoreCalendar, ...finalOpenSlots],
+            calendarBookings: [...mergedConfirmedBookings, ...finalOpenSlots],
             alerts: firestoreAlerts,
             alertsUnread: firestoreAlerts.filter((a) => a.isUnread).length,
             patients: Array.from(patientMap.values()),
@@ -1171,33 +1286,65 @@ export function initFirebaseSync() {
 
 
 
-    // 4. Sync Counselor Preferences
+    // 4. Sync Counselor Preferences & Profile Photo from Firestore
     try {
       const prefDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELOR_PREFERENCES, counselorUid);
       const unsubPrefs = onSnapshot(
         prefDocRef,
         (docSnap) => {
           if (docSnap.exists()) {
-            const prefData = docSnap.data() as Partial<ClinicalAlertPreferences>;
+            const d = docSnap.data();
+            const avatar = d.avatarUrl || d.photo || "";
             state = {
               ...state,
+              ...(avatar ? { profile: { ...state.profile, avatarUrl: avatar } } : {}),
               alertPreferences: {
-                ...state.alertPreferences,
-                ...prefData,
+                crisisRiskTriggers: typeof d.crisisRiskTriggers === "boolean" ? d.crisisRiskTriggers : DEFAULT_CLINICAL_ALERT_PREFERENCES.crisisRiskTriggers,
+                newAppointmentRequests: typeof d.newAppointmentRequests === "boolean" ? d.newAppointmentRequests : DEFAULT_CLINICAL_ALERT_PREFERENCES.newAppointmentRequests,
+                upcomingSessionReminders: typeof d.upcomingSessionReminders === "boolean" ? d.upcomingSessionReminders : DEFAULT_CLINICAL_ALERT_PREFERENCES.upcomingSessionReminders,
+                intakeFormSubmissions: typeof d.intakeFormSubmissions === "boolean" ? d.intakeFormSubmissions : DEFAULT_CLINICAL_ALERT_PREFERENCES.intakeFormSubmissions,
+                secureChatMessages: typeof d.secureChatMessages === "boolean" ? d.secureChatMessages : DEFAULT_CLINICAL_ALERT_PREFERENCES.secureChatMessages,
+                quietHoursDutyOff: typeof d.quietHoursDutyOff === "boolean" ? d.quietHoursDutyOff : DEFAULT_CLINICAL_ALERT_PREFERENCES.quietHoursDutyOff,
+                advanceReminderMinutes: typeof d.advanceReminderMinutes === "number" ? d.advanceReminderMinutes : DEFAULT_CLINICAL_ALERT_PREFERENCES.advanceReminderMinutes,
+                advanceReminderType: d.advanceReminderType === "standard" ? "standard" : "gentle",
+                scheduledWindow: typeof d.scheduledWindow === "string" ? d.scheduledWindow : DEFAULT_CLINICAL_ALERT_PREFERENCES.scheduledWindow,
+                previewStudentIdentityHidden: typeof d.previewStudentIdentityHidden === "boolean" ? d.previewStudentIdentityHidden : DEFAULT_CLINICAL_ALERT_PREFERENCES.previewStudentIdentityHidden,
+                priorityOverrideAlwaysOn: typeof d.priorityOverrideAlwaysOn === "boolean" ? d.priorityOverrideAlwaysOn : DEFAULT_CLINICAL_ALERT_PREFERENCES.priorityOverrideAlwaysOn,
+              },
+              settings: {
+                ...state.settings,
+                ...(typeof d.quietHoursDutyOff === "boolean" ? { quietHoursEnabled: d.quietHoursDutyOff } : {}),
+                ...(typeof d.twoFactorEnabled === "boolean" ? { twoFactorEnabled: d.twoFactorEnabled } : {}),
               },
             };
+            if (avatar) {
+              AsyncStorage.setItem(`counsellor_avatar_${counselorUid}`, avatar).catch(() => {});
+              AsyncStorage.setItem("counsellor_avatar_active", avatar).catch(() => {});
+            }
             notifyListeners();
+          } else {
+            // First-time counselor: initialize preferences document in Firestore with real schema
+            setDoc(
+              prefDocRef,
+              {
+                ...DEFAULT_CLINICAL_ALERT_PREFERENCES,
+                counselorId: counselorUid,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              },
+              { merge: true }
+            ).catch(() => {});
           }
         },
         (err: any) => {
-          if (err?.code !== "permission-denied") {
+          if (!isFirestorePermissionError(err)) {
             console.warn("[counsellorStore] Prefs onSnapshot error:", err?.message || err);
           }
         }
       );
       unsubscribers.push(unsubPrefs);
     } catch (err) {
-      // Graceful fallback to mock data
+      // Graceful fallback to default preferences
     }
 
     // 5. Sync Counselor Profile & Availability
@@ -1215,7 +1362,17 @@ export function initFirebaseSync() {
                 ...state.profile,
                 fullName: data.fullName || state.profile.fullName,
                 title: data.title || state.profile.title,
+                bio: data.bio || state.profile.bio,
+                specialties: Array.isArray(data.specialties) ? data.specialties : state.profile.specialties,
+                languages: Array.isArray(data.languages) ? data.languages : state.profile.languages,
+                experienceYears: typeof data.experienceYears === "number" ? data.experienceYears : state.profile.experienceYears,
+                organization: data.organization || state.profile.organization,
                 isAvailable: typeof data.isAvailable === "boolean" ? data.isAvailable : state.profile.isAvailable,
+              },
+              settings: {
+                ...state.settings,
+                bio: data.bio || state.settings.bio,
+                specialties: Array.isArray(data.specialties) ? data.specialties : state.settings.specialties,
               },
             };
             notifyListeners();
@@ -1419,6 +1576,9 @@ export const counsellorStore = {
             batch.update(slotRef, {
               isBooked: true,
               bookingId: targetReq.id,
+              bookedStudentAnonId: studentAnonId,
+              studentAnonId: studentAnonId,
+              sessionType: targetReq.sessionType || "video",
               updatedAt: serverTimestamp(),
             });
           }
@@ -1536,16 +1696,32 @@ export const counsellorStore = {
     notifyListeners();
   },
 
-  // Toggle 2FA switch
-  toggleTwoFactor() {
+  // Toggle 2FA switch with real database persistence
+  async toggleTwoFactor(forcedValue?: boolean) {
+    const nextVal = typeof forcedValue === "boolean" ? forcedValue : !state.settings.twoFactorEnabled;
     state = {
       ...state,
       settings: {
         ...state.settings,
-        twoFactorEnabled: !state.settings.twoFactorEnabled,
+        twoFactorEnabled: nextVal,
       },
     };
     notifyListeners();
+
+    if (isFirebaseConfigured() && db) {
+      const uid = auth.currentUser?.uid || "counselor-anjali";
+      try {
+        await setDoc(
+          doc(db, FIRESTORE_COLLECTIONS.COUNSELOR_PREFERENCES, uid),
+          { twoFactorEnabled: nextVal, updatedAt: serverTimestamp() },
+          { merge: true }
+        );
+      } catch (e: any) {
+        if (!isFirestorePermissionError(e)) {
+          console.warn("[counsellorStore] toggleTwoFactor sync error:", e);
+        }
+      }
+    }
   },
 
   // Toggle quiet hours
@@ -1977,8 +2153,8 @@ export const counsellorStore = {
     notifyListeners();
   },
 
-  // Update clinical alert preferences
-  updateAlertPreferences(partial: Partial<ClinicalAlertPreferences>) {
+  // Update clinical alert preferences with real database persistence
+  async updateAlertPreferences(partial: Partial<ClinicalAlertPreferences>): Promise<void> {
     state = {
       ...state,
       alertPreferences: {
@@ -1995,17 +2171,28 @@ export const counsellorStore = {
     };
     notifyListeners();
 
-    if (isFirebaseConfigured() && auth.currentUser) {
-      const uid = auth.currentUser.uid;
-      setDoc(
-        doc(db, FIRESTORE_COLLECTIONS.COUNSELOR_PREFERENCES, uid),
-        { ...partial, updatedAt: serverTimestamp() },
-        { merge: true }
-      ).catch((e) => {
+    if (isFirebaseConfigured() && db) {
+      const uid = auth.currentUser?.uid || "counselor-anjali";
+      try {
+        const payload: Record<string, any> = {};
+        for (const [key, val] of Object.entries(partial)) {
+          if (val !== undefined) {
+            payload[key] = val;
+          }
+        }
+        payload.counselorId = uid;
+        payload.updatedAt = serverTimestamp();
+
+        await setDoc(
+          doc(db, FIRESTORE_COLLECTIONS.COUNSELOR_PREFERENCES, uid),
+          payload,
+          { merge: true }
+        );
+      } catch (e: any) {
         if (!isFirestorePermissionError(e)) {
           console.warn("[counsellorStore] updateAlertPreferences sync error:", e);
         }
-      });
+      }
     }
   },
 
@@ -2519,6 +2706,8 @@ export const counsellorStore = {
           batch.update(prevSlotRef, {
             isBooked: false,
             bookingId: null,
+            bookedStudentAnonId: null,
+            studentAnonId: null,
             updatedAt: serverTimestamp(),
           });
         }
@@ -2529,6 +2718,9 @@ export const counsellorStore = {
           batch.update(newSlotRef, {
             isBooked: true,
             bookingId,
+            bookedStudentAnonId: targetReq?.studentAnonId || "Student #5104",
+            studentAnonId: targetReq?.studentAnonId || "Student #5104",
+            sessionType: targetReq?.sessionType || "video",
             updatedAt: serverTimestamp(),
           });
         }
