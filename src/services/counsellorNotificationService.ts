@@ -298,6 +298,24 @@ export function subscribeToCounsellorAlertsRealtime(
               type: "session_reminder",
               createdAt: updatedAt || createdAt,
             });
+          } else if (data.status === "cancelled") {
+            const alertId = `alert-can-${docId}`;
+            alerts.push({
+              id: alertId,
+              title: "Session Cancelled",
+              description: `The ${data.sessionType || "video"} consultation with ${studentAnonId} was cancelled (${data.cancelReason || "No reason provided"}).`,
+              timestamp: formatNotificationTime(updatedAt || createdAt),
+              isUnread: !readAlertIds.has(alertId),
+              category: "reschedule",
+              priority: "urgent",
+              iconName: "close-circle-outline",
+              badgeLabel: "Cancelled",
+              refType: "session",
+              refId: docId,
+              studentAnonId,
+              type: "session_cancelled",
+              createdAt: updatedAt || createdAt,
+            });
           } else if (data.status === "declined") {
             const alertId = `alert-dec-${docId}`;
             alerts.push({

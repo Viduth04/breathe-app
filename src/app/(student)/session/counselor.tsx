@@ -253,7 +253,7 @@ export default function CounselorProfileScreen() {
 
               
               {(counsellor?.availableSlots && counsellor.availableSlots.length > 0) ? (
-                counsellor.availableSlots.map((time, idx) => (
+                counsellor.availableSlots.map((time: string, idx: number) => (
                   <Pressable 
                     key={idx} 
                     style={[styles.slotBox, selectedTime === time && styles.slotBoxActive]}

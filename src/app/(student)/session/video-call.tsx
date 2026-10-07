@@ -323,7 +323,7 @@ const styles = StyleSheet.create({
     width: 100,
     height: 140,
     backgroundColor: "#374151",
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     overflow: "hidden",
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.2)",

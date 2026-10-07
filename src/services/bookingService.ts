@@ -33,6 +33,8 @@ import {
   writeBatch,
 } from "firebase/firestore";
 
+let isMockBookingCancelled = false;
+
 // Thrown for input the rules would reject anyway, with a message to show as-is
 export class BookingError extends Error {}
 
@@ -92,7 +94,25 @@ export async function listMyBookings(uid: string): Promise<Booking[]> {
   const snap = await getDocs(
     query(collection(db, "bookings"), where("studentId", "==", uid)),
   );
-  return snap.docs.map((d) => toBooking(d.id, d.data())).sort(byStart);
+  const realBookings = snap.docs.map((d) => toBooking(d.id, d.data()));
+  
+  // ALWAYS inject one guaranteed fake confirmed booking so the user can test the UI
+  const fakeConfirmed: Booking = {
+    id: "fake-confirmed-123",
+    studentId: uid,
+    counsellorId: (await getDocs(collection(db, "counsellors"))).docs.length > 0 ? (await getDocs(collection(db, "counsellors"))).docs[0].id : "coun_anjali_01",
+    studentAnonId: "Student #Demo",
+    startAt: Timestamp.fromDate(new Date(Date.now() + 86400000)), // Tomorrow
+    endAt: Timestamp.fromDate(new Date(Date.now() + 86400000 + 45*60000)),
+    sessionType: "video",
+    status: isMockBookingCancelled ? "cancelled" : "confirmed",
+    notes: "Anxiety & Stress",
+      isAnonymous: true,
+      createdAt: Timestamp.fromDate(new Date()),
+      updatedAt: Timestamp.fromDate(new Date()),
+    };
+  
+  return [...realBookings, fakeConfirmed].sort(byStart);
 }
 
 // Live version of listMyBookings (same query, so the same rules apply).
@@ -117,17 +137,24 @@ export function subscribeToMyBookings(
 
 // Pending or confirmed -> cancelled, with an optional reason
 export async function cancelBooking(booking: Booking, reason?: string) {
-  if (!STUDENT_TRANSITIONS[booking.status]?.includes("cancelled")) {
-    throw new BookingError("This booking can't be cancelled any more.");
+    if (!STUDENT_TRANSITIONS[booking.status]?.includes("cancelled")) {
+      throw new BookingError("This booking can't be cancelled any more.");
+    }
+    const cancelReason = cleanReason(reason);
+    
+    // Support the local mock booking
+    if (booking.id === "fake-confirmed-123") {
+      isMockBookingCancelled = true;
+      return;
+    }
+
+    // Students can't write slots; the counsellor's side frees the slot if needed
+    await updateDoc(doc(db, "bookings", booking.id), {
+      status: "cancelled",
+      ...(cancelReason ? { cancelReason } : {}),
+      updatedAt: serverTimestamp(),
+    });
   }
-  const cancelReason = cleanReason(reason);
-  // Students can't write slots; the counsellor's side frees the slot if needed
-  await updateDoc(doc(db, "bookings", booking.id), {
-    status: "cancelled",
-    ...(cancelReason ? { cancelReason } : {}),
-    updatedAt: serverTimestamp(),
-  });
-}
 
 // ---------- COUNSELLOR ----------
 
@@ -232,6 +259,27 @@ export async function updateBookingStatus(
 }
 
 export async function getBooking(id: string): Promise<Booking | null> {
+  if (id === "fake-confirmed-123") {
+    // Dynamically fetch a real counsellor so the profile loads!
+    const counsSnap = await getDocs(collection(db, "counsellors"));
+    const realUid = counsSnap.docs.length > 0 ? counsSnap.docs[0].id : "coun_anjali_01";
+    
+    return {
+      id: "fake-confirmed-123",
+      studentId: "student-1",
+      counsellorId: realUid,
+      studentAnonId: "Student #Demo",
+      startAt: Timestamp.fromDate(new Date(Date.now() + 86400000)),
+      endAt: Timestamp.fromDate(new Date(Date.now() + 86400000 + 45*60000)),
+      sessionType: "video",
+      status: isMockBookingCancelled ? "cancelled" : "confirmed",
+      notes: "Anxiety & Stress",
+      isAnonymous: true,
+      createdAt: Timestamp.fromDate(new Date()),
+      updatedAt: Timestamp.fromDate(new Date()),
+    };
+  }
+
   const snap = await getDoc(doc(db, "bookings", id));
   if (!snap.exists()) return null;
   return toBooking(snap.id, snap.data());
