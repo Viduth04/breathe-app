@@ -9,7 +9,7 @@ import { isStaffRequest, Role, StaffRole, UserProfile } from "@/services/authSer
 import { setCachedCounsellorPhoto } from "@/services/counsellorPhotoService";
 import type { CounsellorInput, CounsellorProfile, PhotoChange } from "@/types/counsellor";
 import type { Resource, ResourceInput } from "@/types/resource";
-import type { WeekStats } from "@/types/stats";
+import type { FactorKey, WeekStats } from "@/types/stats";
 import { recentWeeks } from "@/utils/week";
 import {
   addDoc,
@@ -257,6 +257,20 @@ const DEMO_WEEKS: [number, number, number, number, number][] = [
   [1, 3, 8, 10, 5],
 ];
 
+// Sample "What's affecting your mood?" counts for the same weeks. Students
+// can tag several reasons or none, so a week's counts don't add up to its
+// total. Exams climb towards the exam-season weeks (5 and 6), then fall away.
+const DEMO_FACTORS: Partial<Record<FactorKey, number>>[] = [
+  { studies: 9, sleep: 6, exams: 4, friends: 3, money: 3, family: 2, loneliness: 2, work: 2, health: 1, relationships: 1, other: 1 },
+  { studies: 10, exams: 6, sleep: 6, money: 4, friends: 3, loneliness: 3, family: 2, work: 2, health: 2, other: 1 },
+  { studies: 11, exams: 10, sleep: 8, money: 3, loneliness: 3, friends: 2, family: 2, health: 2, work: 1 },
+  { studies: 1, sleep: 1 },
+  { exams: 18, studies: 13, sleep: 12, health: 4, loneliness: 4, money: 3, family: 2, friends: 1, relationships: 1 },
+  { exams: 20, sleep: 13, studies: 12, health: 5, loneliness: 4, money: 3, family: 2, other: 1 },
+  { studies: 10, exams: 9, sleep: 8, money: 4, friends: 4, loneliness: 3, family: 2, work: 2, relationships: 2 },
+  { studies: 8, sleep: 6, friends: 5, money: 5, exams: 3, family: 3, work: 3, loneliness: 2, relationships: 2, health: 1, other: 1 },
+];
+
 // Writes demo stats for the 8 weeks BEFORE the current one, skipping any week
 // that already has a doc (real data is never overwritten). The current week is
 // left alone so real student check-ins keep working. Returns weeks written.
@@ -276,6 +290,7 @@ export async function loadDemoStats() {
       mood3: m3,
       mood4: m4,
       mood5: m5,
+      factors: DEMO_FACTORS[i],
       demo: true,
     };
     batch.set(doc(db, "stats", week.id), data);

@@ -234,7 +234,7 @@ export default function Dashboard() {
             </Text>
             <Card>
               <Text style={typography.caption}>
-                Adds sample weekly mood totals for the 8 weeks before this one, so
+                Adds sample weekly mood totals and reasons for the 8 weeks before this one, so
                 the lecturer charts can be demoed. Weeks that already have real
                 data are skipped, this week is never touched, and demo weeks are
                 labelled for lecturers. Remove them before real use.
