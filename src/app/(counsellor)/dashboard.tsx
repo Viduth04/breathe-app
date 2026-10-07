@@ -8,11 +8,6 @@ import SegmentedControl, {
 } from "@/components/counsellor/SegmentedControl";
 import SessionCard from "@/components/counsellor/SessionCard";
 import StatCard from "@/components/counsellor/StatCard";
-import {
-  MOCK_COUNSELLOR_PROFILE,
-  MOCK_PENDING_REQUESTS,
-  MOCK_SESSIONS_TODAY,
-} from "@/services/mockCounsellorData";
 import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
 import {
   BookingRequestItem,
@@ -24,7 +19,7 @@ import { useCounsellorStore } from "@/services/counsellorStore";
 import { usePopup } from "@/components/common/popup";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -46,11 +41,27 @@ export default function CounsellorDashboard() {
   const {
     requests,
     sessions,
+    pastSessions = [],
+    patients = [],
     isAvailable,
     profile,
     toggleAvailability,
   } = useCounsellorStore();
   const { showToast } = usePopup();
+
+  // Compute exact session records and pending request counts from database
+  const totalHistoryRecords = useMemo(() => {
+    return pastSessions.length;
+  }, [pastSessions]);
+
+  const pendingRequestsCount = useMemo(() => {
+    return requests.filter((r) => r.status === "pending").length;
+  }, [requests]);
+
+  const studentRequestsCount = useMemo(() => {
+    // Accurately reflect active student booking requests from real database
+    return pendingRequestsCount > 0 ? pendingRequestsCount : requests.length;
+  }, [pendingRequestsCount, requests]);
 
   const [activeFilter, setActiveFilter] = useState<TimeFilter>("Day");
   const [activeModalData, setActiveModalData] = useState<{
@@ -76,9 +87,21 @@ export default function CounsellorDashboard() {
   // If navigated here after completing a live session
   useEffect(() => {
     if (params?.sessionCompleted) {
-      showToast({ message: "Consultation with Student #4021 concluded. Case audit logged.", type: "success" });
+      showToast({ message: "Consultation concluded. Case audit logged.", type: "success" });
     }
   }, [params?.sessionCompleted]);
+
+  const handleSelectFilter = (filter: TimeFilter) => {
+    setActiveFilter(filter);
+    if (filter === "Session History") {
+      router.navigate("/(counsellor-detail)/past-sessions");
+    } else if (filter === "Week" || filter === "Month") {
+      router.navigate({
+        pathname: "/(counsellor)/schedule",
+        params: { viewMode: filter.toLowerCase() },
+      });
+    }
+  };
 
   // Toggle availability state with inline feedback
   const handleToggleAvailability = (value: boolean) => {
@@ -107,40 +130,79 @@ export default function CounsellorDashboard() {
     });
   };
 
-  // Action button pressed on a session card: navigate to Confirmed Session for Student #4021
+  // Action button pressed on a session card: follow exact modality screen flow
   const handleSessionAction = (session: SessionItem) => {
-    if (session.status === "completed") {
-      setActiveModalData({
-        title: `Completed Session: ${session.displayName}`,
-        description: `${session.timeRange} (${session.sessionTypeLabel})`,
-        details: `Clinical consultation concluded. Case notes safely archived under student's anonymous profile.`,
-      });
-      return;
-    }
+    const isExpired = Boolean(
+      session.isExpired ||
+      session.status === "completed" ||
+      (() => {
+        if (session.endAt) {
+          const endMs = session.endAt.toDate ? session.endAt.toDate().getTime() : new Date(session.endAt).getTime();
+          return !isNaN(endMs) && endMs < Date.now();
+        }
+        return false;
+      })()
+    );
 
-    if (session.studentAnonId === "Student #4021" || session.id === "session-1") {
-      router.navigate("/(counsellor-detail)/confirmed-session");
-    } else if (
-      session.sessionType === "chat" ||
-      session.displayName === "Maya Senanayake" ||
-      session.studentId === "std-maya"
-    ) {
+    if (isExpired) {
       router.navigate({
         pathname: "/(counsellor-detail)/session-notes",
         params: {
           sessionId: session.id,
           studentAnonId: session.studentAnonId,
           studentName: session.displayName,
-          idMode: session.idMode,
         },
       });
-    } else {
+      return;
+    }
+
+    if (session.sessionType === "video") {
+      // 1. VIDEO SESSION FLOW: Ready to Join Lobby -> Active Video Call
+      if (session.isNext) {
+        router.navigate({
+          pathname: "/(counsellor-detail)/ready-to-join",
+          params: {
+            sessionId: session.id,
+            studentAnonId: session.studentAnonId,
+            sessionTitle: session.sessionTypeLabel || "Encrypted Video Consultation",
+            timeRange: session.timeRange,
+          },
+        });
+      } else {
+        router.navigate({
+          pathname: "/(counsellor-detail)/confirmed-session",
+          params: {
+            sessionId: session.id,
+            studentAnonId: session.studentAnonId,
+            sessionType: "video",
+          },
+        });
+      }
+    } else if (session.sessionType === "chat") {
+      // 2. SECURE CHAT SESSION FLOW: Real-time confidential messaging thread
+      router.navigate({
+        pathname: "/(counsellor)/messages",
+        params: {
+          studentAnonId: session.studentAnonId,
+          sessionId: session.id,
+        },
+      });
+    } else if (session.sessionType === "in-person") {
+      // 3. IN-PERSON SESSION FLOW: Room 302 attendance check-in & clinical notes
       router.navigate({
         pathname: "/(counsellor-detail)/anonymous-session-details",
         params: {
           sessionId: session.id,
           studentAnonId: session.studentAnonId,
-          sessionType: session.sessionType,
+          sessionType: "in-person",
+        },
+      });
+    } else {
+      router.navigate({
+        pathname: "/(counsellor-detail)/confirmed-session",
+        params: {
+          sessionId: session.id,
+          studentAnonId: session.studentAnonId,
         },
       });
     }
@@ -205,7 +267,7 @@ export default function CounsellorDashboard() {
         {/* Controls Row: Time Filter & Add Session CTA */}
         <SegmentedControl
           activeFilter={activeFilter}
-          onSelectFilter={setActiveFilter}
+          onSelectFilter={handleSelectFilter}
           onAddSession={handleAddSession}
         />
 
@@ -218,9 +280,9 @@ export default function CounsellorDashboard() {
             accessibilityLabel="View Past Sessions History"
           >
             <StatCard
-              title="Sessions"
-              value={sessions.length}
-              subtitle="Scheduled today"
+              title="History"
+              value={totalHistoryRecords}
+              subtitle="Session records"
               iconName="calendar-outline"
               iconColor="#0369A1"
               iconBg="#E0F2FE"
@@ -232,16 +294,17 @@ export default function CounsellorDashboard() {
             style={{ flex: 1 }}
             onPress={() => router.navigate("/(counsellor-detail)/requests")}
             accessibilityRole="button"
-            accessibilityLabel="View All Pending Booking Requests"
+            accessibilityLabel="View All Student Booking Requests"
           >
             <StatCard
               title="Requests"
-              value={requests.length}
+              value={studentRequestsCount}
               subtitle="Awaiting action"
               iconName="clipboard-outline"
               iconColor="#065F46"
               iconBg={colors.success}
               iconBorder="rgba(110, 231, 183, 0.6)"
+              subtitleColor="#0369A1"
             />
           </Pressable>
           <Pressable
@@ -252,12 +315,13 @@ export default function CounsellorDashboard() {
           >
             <StatCard
               title="Patients"
-              value="24"
+              value={patients.length}
               subtitle="Caseload directory"
               iconName="people-outline"
               iconColor={colors.primary}
               iconBg="#ECFDF5"
               iconBorder="rgba(5, 150, 105, 0.2)"
+              subtitleColor="#0369A1"
             />
           </Pressable>
         </View>
@@ -299,11 +363,11 @@ export default function CounsellorDashboard() {
           <SectionHeader
             title="Pending Requests"
             subtitle="Awaiting Confirmation"
-            badgeText={`${requests.length} awaiting`}
+            badgeText={`${requests.filter((r) => r.status === "pending").length} awaiting`}
           />
         </Pressable>
 
-        {requests.length === 0 ? (
+        {requests.filter((r) => r.status === "pending").length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons
               name="checkmark-done-circle-outline"
@@ -317,14 +381,16 @@ export default function CounsellorDashboard() {
             </Text>
           </View>
         ) : (
-          requests.map((request) => (
-            <RequestCard
-              key={request.id}
-              request={request}
-              onAccept={handleAcceptRequest}
-              onView={handleViewRequest}
-            />
-          ))
+          requests
+            .filter((r) => r.status === "pending")
+            .map((request) => (
+              <RequestCard
+                key={request.id}
+                request={request}
+                onAccept={handleAcceptRequest}
+                onView={handleViewRequest}
+              />
+            ))
         )}
 
         {/* Shortcut Notice Banner: Block Clinic Hours */}

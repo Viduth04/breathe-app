@@ -1,28 +1,25 @@
 // Counsellor Past Sessions History Screen - Muaath (Member 4). Supports FR01, FR08.
 // Completed and logged clinical session history matching high-fidelity design.
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
   ScrollView,
   Pressable,
   StyleSheet,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import {
-  MOCK_PAST_SESSIONS,
-  MOCK_PAST_SESSIONS_STATS,
-} from "@/services/mockDetailScreensData";
-import {
   PastSessionFilter,
   PastSessionItem,
-  PastSessionsStats,
 } from "@/types/counsellorDetailScreens";
 import { usePopup } from "@/components/common/popup";
+import { useCounsellorStore } from "@/services/counsellorStore";
 
 export default function PastSessionsHistoryScreen() {
   const params = useLocalSearchParams<{
@@ -31,28 +28,38 @@ export default function PastSessionsHistoryScreen() {
   }>();
 
   const { alert, showToast } = usePopup();
-  const [sessions, setSessions] = useState<PastSessionItem[]>(MOCK_PAST_SESSIONS);
-  const [stats, setStats] = useState<PastSessionsStats>(MOCK_PAST_SESSIONS_STATS);
+  const store = useCounsellorStore();
+  const rawSessions = store.pastSessions || [];
+
   const [activeFilter, setActiveFilter] = useState<PastSessionFilter>("all");
-  const [expandedId, setExpandedId] = useState<string | null>("past-5"); // Default expanded wrap-up card per PNG
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [activeStudentFilter, setActiveStudentFilter] = useState<string | null>(
     params.studentAnonId || null
   );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchVisible, setIsSearchVisible] = useState(false);
+
+  // Live real data statistics derived from database records
+  const completedCount = rawSessions.filter((s) => s.status === "completed").length;
+  const rescheduledCount = rawSessions.filter((s) => s.status === "rescheduled").length;
+  const wrapUpCount = rawSessions.filter((s) => s.status === "pending-wrapup").length;
+  const totalCount = rawSessions.length;
+  const completionRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 100;
+  const clinicalHours = (completedCount * 0.75).toFixed(1);
 
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
   };
 
-  const handleMarkCompleted = (id: string) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, status: "completed" } : s))
-    );
-    setStats((prev) => ({
-      ...prev,
-      completedSessions: prev.completedSessions + 1,
-    }));
-    setFeedback("Session notes sealed and marked as completed.");
+  const handleMarkCompleted = async (id: string) => {
+    try {
+      await store.completeSession(id);
+      showToast("Session notes sealed and saved to database.");
+      setFeedback("Session notes sealed and marked as completed in database.");
+    } catch {
+      showToast("Failed to update session status.");
+    }
   };
 
   const handleScheduleFollowUp = () => {
@@ -66,24 +73,52 @@ export default function PastSessionsHistoryScreen() {
     });
   };
 
-  // Filter sessions
-  const filteredSessions = sessions.filter((s) => {
-    if (activeStudentFilter) {
-      const match =
-        s.studentAnonId.toLowerCase() === activeStudentFilter.toLowerCase() ||
-        s.displayName.toLowerCase().includes(activeStudentFilter.toLowerCase()) ||
-        (params.displayName &&
-          s.displayName.toLowerCase() === params.displayName.toLowerCase());
-      if (!match) return false;
-    }
-    if (activeFilter === "completed") return s.status === "completed";
-    if (activeFilter === "rescheduled") return s.status === "rescheduled";
-    return true; // 'all'
-  });
+  // Filter real sessions dynamically
+  const filteredSessions = useMemo(() => {
+    return rawSessions.filter((s) => {
+      if (activeStudentFilter) {
+        const match =
+          s.studentAnonId.toLowerCase() === activeStudentFilter.toLowerCase() ||
+          s.displayName.toLowerCase().includes(activeStudentFilter.toLowerCase()) ||
+          (params.displayName &&
+            s.displayName.toLowerCase() === params.displayName.toLowerCase());
+        if (!match) return false;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const matchesQuery =
+          s.studentAnonId.toLowerCase().includes(q) ||
+          s.displayName.toLowerCase().includes(q) ||
+          s.concern.toLowerCase().includes(q) ||
+          s.date.toLowerCase().includes(q);
+        if (!matchesQuery) return false;
+      }
+      if (activeFilter === "completed") return s.status === "completed";
+      if (activeFilter === "rescheduled") return s.status === "rescheduled";
+      if (activeFilter === "pending-wrapup") return s.status === "pending-wrapup";
+      return true; // 'all'
+    });
+  }, [rawSessions, activeStudentFilter, params.displayName, searchQuery, activeFilter]);
 
-  // Group by month
-  const augustSessions = filteredSessions.filter((s) => s.monthGroup === "August 2026");
-  const julySessions = filteredSessions.filter((s) => s.monthGroup === "July 2026");
+  // Dynamically group completed sessions by month
+  const groupedByMonth = useMemo(() => {
+    const groups: { month: string; sessions: PastSessionItem[] }[] = [];
+    const map = new Map<string, PastSessionItem[]>();
+
+    filteredSessions.forEach((s) => {
+      const monthKey = s.monthGroup || "Recent Sessions";
+      if (!map.has(monthKey)) {
+        map.set(monthKey, []);
+      }
+      map.get(monthKey)!.push(s);
+    });
+
+    map.forEach((sessions, month) => {
+      groups.push({ month, sessions });
+    });
+
+    return groups;
+  }, [filteredSessions]);
 
   const renderSessionCard = (item: PastSessionItem) => {
     const isExpanded = expandedId === item.id;
@@ -94,15 +129,9 @@ export default function PastSessionsHistoryScreen() {
         {/* Card Header Row */}
         <Pressable
           style={styles.cardHeaderPressable}
-          onPress={() =>
-            isWrapUp
-              ? toggleExpand(item.id)
-              : handleMessageStudent(item.studentAnonId || item.displayName)
-          }
+          onPress={() => toggleExpand(item.id)}
           accessibilityRole="button"
-          accessibilityLabel={`Session for ${item.displayName}. Tap to ${
-            isWrapUp ? "toggle wrap-up details" : "message student"
-          }`}
+          accessibilityLabel={`Session for ${item.displayName}. Tap to toggle clinical details`}
         >
           <View style={styles.cardTopRow}>
             <View style={styles.studentNameCol}>
@@ -136,14 +165,12 @@ export default function PastSessionsHistoryScreen() {
               </View>
             )}
 
-            {isWrapUp && (
-              <Ionicons
-                name={isExpanded ? "chevron-up" : "chevron-down"}
-                size={16}
-                color={colors.textSecondary}
-                style={{ marginLeft: 6 }}
-              />
-            )}
+            <Ionicons
+              name={isExpanded ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={colors.textSecondary}
+              style={{ marginLeft: 6 }}
+            />
           </View>
 
           {/* Type & Room */}
@@ -194,18 +221,20 @@ export default function PastSessionsHistoryScreen() {
           </View>
         </Pressable>
 
-        {/* ─── Expanded Wrap-up Card Section ─── */}
-        {isWrapUp && isExpanded && (
+        {/* ─── Expanded Card Section ─── */}
+        {isExpanded && (
           <View style={styles.expandedWrapUpBox}>
             <View style={styles.privateNotesHeader}>
-              <Ionicons name="lock-closed" size={13} color="#475569" />
-              <Text style={styles.privateNotesTitle}>
-                Private notes (visible only to you)
+              <Ionicons name={isWrapUp ? "alert-circle-outline" : "shield-checkmark"} size={14} color={isWrapUp ? "#D97706" : "#047857"} />
+              <Text style={[styles.privateNotesTitle, !isWrapUp && { color: "#047857" }]}>
+                {isWrapUp ? "Private Notes (Pending Wrap-up Sign-off)" : "Clinical Record (Sealed & Verified)"}
               </Text>
             </View>
 
             <View style={styles.notesTextBox}>
-              <Text style={styles.notesText}>{item.privateNotes}</Text>
+              <Text style={styles.notesText}>
+                {item.privateNotes || (isWrapUp ? "Consultation window elapsed. Please verify case notes and seal record." : "Clinical encounter completed and verified in audit log.")}
+              </Text>
             </View>
 
             <Pressable
@@ -228,15 +257,38 @@ export default function PastSessionsHistoryScreen() {
               <Text style={styles.scheduleFollowUpText}>Schedule Follow Up</Text>
             </Pressable>
 
-            <Pressable
-              style={styles.markCompletedBtn}
-              onPress={() => handleMarkCompleted(item.id)}
-              accessibilityLabel="Mark as Completed"
-              accessibilityRole="button"
-            >
-              <Ionicons name="checkmark-outline" size={16} color={colors.white} />
-              <Text style={styles.markCompletedText}>Mark as Completed</Text>
-            </Pressable>
+            {isWrapUp ? (
+              <Pressable
+                style={styles.markCompletedBtn}
+                onPress={() => handleMarkCompleted(item.id)}
+                accessibilityLabel="Mark as Completed"
+                accessibilityRole="button"
+              >
+                <Ionicons name="checkmark-outline" size={16} color={colors.white} />
+                <Text style={styles.markCompletedText}>Mark as Completed</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={[styles.scheduleFollowUpBtn, { marginTop: 4 }]}
+                onPress={() =>
+                  router.navigate({
+                    pathname: "/(counsellor-detail)/session-notes",
+                    params: {
+                      sessionId: item.id,
+                      studentAnonId: item.studentAnonId,
+                      studentName: item.displayName,
+                    },
+                  })
+                }
+                accessibilityLabel="Review Full Clinical Notes"
+                accessibilityRole="button"
+              >
+                <Ionicons name="document-text-outline" size={15} color="#047857" />
+                <Text style={[styles.scheduleFollowUpText, { color: "#047857", fontWeight: "700" }]}>
+                  Review Full Clinical Notes
+                </Text>
+              </Pressable>
+            )}
           </View>
         )}
       </View>
@@ -257,7 +309,7 @@ export default function PastSessionsHistoryScreen() {
           <Ionicons name="arrow-back" size={20} color={colors.text} />
         </Pressable>
 
-        <Text style={styles.headerTitle}>Sessions</Text>
+        <Text style={styles.headerTitle}>History</Text>
 
         <View style={styles.avatarWrapper}>
           <View style={styles.avatarCircle}>
@@ -284,27 +336,50 @@ export default function PastSessionsHistoryScreen() {
           <View style={styles.portalPill}>
             <Ionicons name="business-outline" size={13} color="#047857" />
             <Text style={styles.portalPillText} numberOfLines={1}>
-              COUNSELOR PORTAL • DR. ...
+              COUNSELOR PORTAL • DR. ANJALI PERERA
             </Text>
           </View>
 
           <Pressable
-            style={styles.searchIconButton}
-            onPress={() => alert("Search Records", "Search by student ID, clinical topic, or date")}
+            style={[styles.searchIconButton, isSearchVisible && styles.searchIconButtonActive]}
+            onPress={() => setIsSearchVisible((prev) => !prev)}
             accessibilityLabel="Search sessions"
+            accessibilityRole="button"
           >
-            <Ionicons name="search" size={17} color={colors.textSecondary} />
+            <Ionicons name="search" size={17} color={isSearchVisible ? colors.primary : colors.textSecondary} />
           </Pressable>
 
           <Pressable
             style={styles.filterButton}
-            onPress={() => alert("Filter Records", "Filter by semester, modality, or counselor notes status")}
+            onPress={() => alert("Filter Records", "Filter clinical records by status, modality, or search by student ID.")}
             accessibilityLabel="Filter sessions"
+            accessibilityRole="button"
           >
             <Ionicons name="options-outline" size={15} color={colors.text} />
             <Text style={styles.filterButtonText}>Filter</Text>
           </Pressable>
         </View>
+
+        {/* ─── Search Bar ─── */}
+        {isSearchVisible && (
+          <View style={styles.searchBoxContainer}>
+            <Ionicons name="search-outline" size={16} color={colors.textSecondary} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search by student ID, concern, or date..."
+              placeholderTextColor={colors.textSecondary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCapitalize="none"
+              autoFocus
+            />
+            {searchQuery.length > 0 && (
+              <Pressable onPress={() => setSearchQuery("")} hitSlop={8} accessibilityLabel="Clear search">
+                <Ionicons name="close-circle" size={16} color={colors.textSecondary} />
+              </Pressable>
+            )}
+          </View>
+        )}
 
         {/* ─── Stats Row ─── */}
         <View style={styles.statsRow}>
@@ -317,13 +392,13 @@ export default function PastSessionsHistoryScreen() {
               </View>
             </View>
             <View style={styles.statNumberRow}>
-              <Text style={styles.statMainNumber}>{stats.completedSessions}</Text>
+              <Text style={styles.statMainNumber}>{completedCount}</Text>
               <Text style={styles.statTotalLabel}>total</Text>
             </View>
             <View style={styles.statFooterRow}>
               <View style={styles.greenStatDot} />
               <Text style={styles.statFootnoteText}>
-                {stats.completionRate}% completion rate
+                {completionRate}% completion rate
               </Text>
             </View>
           </View>
@@ -335,7 +410,7 @@ export default function PastSessionsHistoryScreen() {
               <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
             </View>
             <View style={styles.statNumberRow}>
-              <Text style={styles.statMainNumber}>{stats.clinicalHours}</Text>
+              <Text style={styles.statMainNumber}>{clinicalHours}</Text>
               <Text style={styles.statTotalLabel}>hrs</Text>
             </View>
             <View style={styles.statFooterRow}>
@@ -386,7 +461,7 @@ export default function PastSessionsHistoryScreen() {
                 activeFilter === "all" && styles.filterPillTextActive,
               ]}
             >
-              All (52)
+              All ({totalCount})
             </Text>
           </Pressable>
 
@@ -400,9 +475,26 @@ export default function PastSessionsHistoryScreen() {
                 activeFilter === "completed" && styles.filterPillTextActive,
               ]}
             >
-              Completed 48
+              Completed {completedCount}
             </Text>
           </Pressable>
+
+          {wrapUpCount > 0 && (
+            <Pressable
+              style={[styles.filterPill, activeFilter === "pending-wrapup" && styles.filterPillActive]}
+              onPress={() => setActiveFilter("pending-wrapup")}
+            >
+              <Text
+                style={[
+                  styles.filterPillText,
+                  activeFilter === "pending-wrapup" && styles.filterPillTextActive,
+                  { color: activeFilter === "pending-wrapup" ? colors.white : "#D97706" },
+                ]}
+              >
+                Notes Pending ({wrapUpCount})
+              </Text>
+            </Pressable>
+          )}
 
           <Pressable
             style={[styles.filterPill, activeFilter === "rescheduled" && styles.filterPillActive]}
@@ -414,48 +506,48 @@ export default function PastSessionsHistoryScreen() {
                 activeFilter === "rescheduled" && styles.filterPillTextActive,
               ]}
             >
-              Rescheduled 3
+              Rescheduled {rescheduledCount}
             </Text>
-          </Pressable>
-
-          <Pressable
-            style={styles.filterPill}
-            onPress={() => alert("No-Show Records", "0 unexcused no-shows recorded in the past 6 months.")}
-          >
-            <Text style={styles.filterPillText}>No-show 1</Text>
           </Pressable>
         </ScrollView>
 
-        {/* ─── August 2026 Section ─── */}
-        {augustSessions.length > 0 && (
-          <View style={styles.monthSection}>
-            <View style={styles.monthHeaderRow}>
-              <View style={styles.monthDotRow}>
-                <View style={styles.greenSectionDot} />
-                <Text style={styles.monthSectionTitle}>August 2026</Text>
-              </View>
-              <Text style={styles.sessionCountText}>
-                {augustSessions.length} Sessions
-              </Text>
+        {/* ─── Dynamic Month Sections / Empty State ─── */}
+        {groupedByMonth.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <View style={styles.emptyIconCircle}>
+              <Ionicons name="time-outline" size={30} color={colors.primary} />
             </View>
-            {augustSessions.map(renderSessionCard)}
+            <Text style={styles.emptyTitle}>No Completed Sessions Found</Text>
+            <Text style={styles.emptyDescription}>
+              {activeFilter !== "all" || searchQuery
+                ? "No consultation records match the active filter criteria."
+                : "Completed sessions will appear here once consultations conclude and clinical notes are sealed in the database."}
+            </Text>
+            <Pressable
+              style={styles.emptyActionBtn}
+              onPress={() => router.navigate("/(counsellor)/dashboard")}
+              accessibilityRole="button"
+              accessibilityLabel="View Today's Schedule"
+            >
+              <Ionicons name="calendar-outline" size={16} color={colors.white} />
+              <Text style={styles.emptyActionText}>View Today's Schedule</Text>
+            </Pressable>
           </View>
-        )}
-
-        {/* ─── July 2026 Section ─── */}
-        {julySessions.length > 0 && (
-          <View style={styles.monthSection}>
-            <View style={styles.monthHeaderRow}>
-              <View style={styles.monthDotRow}>
-                <View style={styles.greenSectionDot} />
-                <Text style={styles.monthSectionTitle}>July 2026</Text>
+        ) : (
+          groupedByMonth.map((group) => (
+            <View key={group.month} style={styles.monthSection}>
+              <View style={styles.monthHeaderRow}>
+                <View style={styles.monthDotRow}>
+                  <View style={styles.greenSectionDot} />
+                  <Text style={styles.monthSectionTitle}>{group.month}</Text>
+                </View>
+                <Text style={styles.sessionCountText}>
+                  {group.sessions.length} Session{group.sessions.length === 1 ? "" : "s"}
+                </Text>
               </View>
-              <Text style={styles.sessionCountText}>
-                {julySessions.length} Sessions
-              </Text>
+              {group.sessions.map(renderSessionCard)}
             </View>
-            {julySessions.map(renderSessionCard)}
-          </View>
+          ))
         )}
 
         {/* ─── Compliance Notice Footer ─── */}
@@ -974,5 +1066,78 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textSecondary,
     lineHeight: 16,
+  },
+  searchIconButtonActive: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#A7F3D0",
+  },
+  searchBoxContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.text,
+    paddingVertical: 2,
+  },
+  emptyContainer: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    padding: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginVertical: spacing.md,
+  },
+  emptyIconCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.md,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.text,
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  emptyDescription: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 18,
+    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.sm,
+  },
+  emptyActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    minHeight: TOUCH_TARGET,
+  },
+  emptyActionText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: "700",
   },
 });

@@ -18,7 +18,10 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import { Audio } from "expo-av";
+let Audio: any = null;
+try {
+  Audio = require("expo-av")?.Audio;
+} catch (_) {}
 import EmojiPicker from "rn-emoji-keyboard";
 
 import { colors, radius, spacing, typography } from "@/theme";
@@ -142,6 +145,13 @@ export default function ChatUI({
   };
 
   const startRecording = async () => {
+    if (!Audio?.requestPermissionsAsync) {
+      Alert.alert(
+        "Audio Not Supported",
+        "Voice recording requires a custom development build and is unavailable in standard Expo Go."
+      );
+      return;
+    }
     try {
       const permission = await Audio.requestPermissionsAsync();
       if (permission.status === "granted") {

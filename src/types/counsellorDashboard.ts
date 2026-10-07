@@ -25,6 +25,7 @@ export type SessionItem = {
   slotId?: string;
   startAt?: any;
   endAt?: any;
+  isExpired?: boolean;
 };
 
 export type BookingRequestItem = {
@@ -44,6 +45,12 @@ export type BookingRequestItem = {
   startAt?: any;
   endAt?: any;
   notes?: string;
+  cancelReason?: string;
+  phqScore?: number;
+  phqRange?: string;
+  isExpired?: boolean;
+  createdAt?: any;
+  updatedAt?: any;
 };
 
 export type DashboardStats = {

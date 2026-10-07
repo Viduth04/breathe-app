@@ -24,7 +24,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function CounsellorAlertsScreen() {
   const { alertsUnread, markAlertsAsRead } = useCounsellorBadges();
-  const { alertPreferences, alerts: storeAlerts } = useCounsellorStore();
+  const { alertPreferences, alerts: storeAlerts, requests } = useCounsellorStore();
   const [activeFilter, setActiveFilter] = useState<AlertFilter>("all");
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -34,6 +34,8 @@ export default function CounsellorAlertsScreen() {
     description: string;
     details?: string;
   } | null>(null);
+
+  const pendingRequestsCount = requests.filter((r) => r.status === "pending").length;
 
   const handleMarkAllRead = () => {
     setIsAllRead(true);
@@ -155,16 +157,26 @@ export default function CounsellorAlertsScreen() {
             </View>
             <Pressable
               style={styles.bannerContent}
-              onPress={() => router.navigate("/(counsellor-detail)/clinical-alerts-preferences")}
+              onPress={() => {
+                if (pendingRequestsCount > 0) {
+                  router.navigate({
+                    pathname: "/(counsellor-detail)/requests",
+                    params: { status: "pending" },
+                  });
+                } else {
+                  router.navigate("/(counsellor-detail)/clinical-alerts-preferences");
+                }
+              }}
               accessibilityRole="button"
-              accessibilityLabel="Manage Clinical Alerts and Schedule Updates"
+              accessibilityLabel="Clinical Alerts & Schedule Updates"
             >
               <Text style={styles.bannerTitle}>
                 Clinical Alerts & Schedule Updates
               </Text>
               <Text style={styles.bannerDesc}>
-                2 pending student triage requests and 1 intake assessment
-                awaiting clinical review. Tap to manage preferences.
+                {pendingRequestsCount > 0
+                  ? `${pendingRequestsCount} pending student triage request${pendingRequestsCount === 1 ? "" : "s"} awaiting clinical review. Tap to review requests.`
+                  : "All student triage requests and clinical intakes are up to date. Tap to manage preferences."}
               </Text>
             </Pressable>
             <Pressable
@@ -222,9 +234,11 @@ export default function CounsellorAlertsScreen() {
               >
                 Unread
               </Text>
-              {!isAllRead && (
+              {!isAllRead && allAlerts.filter((a) => a.isUnread).length > 0 && (
                 <View style={styles.filterBadge}>
-                  <Text style={styles.filterBadgeText}>3</Text>
+                  <Text style={styles.filterBadgeText}>
+                    {allAlerts.filter((a) => a.isUnread).length}
+                  </Text>
                 </View>
               )}
             </Pressable>
@@ -321,22 +335,14 @@ export default function CounsellorAlertsScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={alert.title}
                     onPress={() => {
-                      if (alert.refType === "request") {
-                        router.navigate({
-                          pathname: "/(counsellor-detail)/request-detail",
-                          params: { requestId: alert.refId, studentAnonId: alert.studentAnonId },
-                        });
-                      } else if (alert.category === "session") {
-                        router.navigate({
-                          pathname: "/(counsellor-detail)/confirmed-session",
-                          params: { sessionId: alert.refId },
-                        });
-                      } else {
-                        router.navigate({
-                          pathname: "/(counsellor-detail)/notification-detail",
-                          params: { notificationId: alert.id, requestId: alert.refId, studentAnonId: alert.studentAnonId },
-                        });
-                      }
+                      router.navigate({
+                        pathname: "/(counsellor-detail)/notification-detail",
+                        params: {
+                          notificationId: alert.id,
+                          requestId: alert.refId,
+                          studentAnonId: alert.studentAnonId,
+                        },
+                      });
                     }}
                   >
                     <View style={styles.cardMainRow}>
@@ -382,10 +388,26 @@ export default function CounsellorAlertsScreen() {
                                     params: { requestId: alert.refId, studentAnonId: alert.studentAnonId },
                                   });
                                 } else if (alert.category === "session") {
-                                  router.navigate({
-                                    pathname: "/(counsellor-detail)/ready-to-join",
-                                    params: { studentAnonId: alert.studentAnonId },
-                                  });
+                                  const desc = (alert.description || "").toLowerCase();
+                                  const title = (alert.title || "").toLowerCase();
+                                  const isChat = desc.includes("chat") || title.includes("chat");
+                                  const isInPerson = desc.includes("in-person") || title.includes("in-person") || desc.includes("room");
+                                  if (isChat) {
+                                    router.navigate({
+                                      pathname: "/(counsellor)/messages",
+                                      params: { studentAnonId: alert.studentAnonId, sessionId: alert.refId },
+                                    });
+                                  } else if (isInPerson) {
+                                    router.navigate({
+                                      pathname: "/(counsellor-detail)/anonymous-session-details",
+                                      params: { studentAnonId: alert.studentAnonId, sessionId: alert.refId, sessionType: "in-person" },
+                                    });
+                                  } else {
+                                    router.navigate({
+                                      pathname: "/(counsellor-detail)/ready-to-join",
+                                      params: { studentAnonId: alert.studentAnonId, sessionId: alert.refId },
+                                    });
+                                  }
                                 } else if (alert.category === "message") {
                                   router.navigate({
                                     pathname: "/(counsellor)/messages",
@@ -433,17 +455,14 @@ export default function CounsellorAlertsScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={alert.title}
                     onPress={() => {
-                      if (alert.refType === "request") {
-                        router.navigate({
-                          pathname: "/(counsellor-detail)/request-detail",
-                          params: { requestId: alert.refId, studentAnonId: alert.studentAnonId },
-                        });
-                      } else {
-                        router.navigate({
-                          pathname: "/(counsellor-detail)/notification-detail",
-                          params: { notificationId: alert.id, requestId: alert.refId, studentAnonId: alert.studentAnonId },
-                        });
-                      }
+                      router.navigate({
+                        pathname: "/(counsellor-detail)/notification-detail",
+                        params: {
+                          notificationId: alert.id,
+                          requestId: alert.refId,
+                          studentAnonId: alert.studentAnonId,
+                        },
+                      });
                     }}
                   >
                     <View style={styles.cardMainRow}>
@@ -477,7 +496,12 @@ export default function CounsellorAlertsScreen() {
                               style={styles.actionBtnGray}
                               onPress={(e) => {
                                 e.stopPropagation();
-                                if (alert.category === "message") {
+                                if (alert.refType === "request") {
+                                  router.navigate({
+                                    pathname: "/(counsellor-detail)/request-detail",
+                                    params: { requestId: alert.refId, studentAnonId: alert.studentAnonId },
+                                  });
+                                } else if (alert.category === "message") {
                                   router.navigate({
                                     pathname: "/(counsellor)/messages",
                                     params: { studentAnonId: alert.studentAnonId },
@@ -522,7 +546,7 @@ export default function CounsellorAlertsScreen() {
           <Text style={styles.footerText}>
             All clinical notifications synced with portal •{" "}
             <Text style={{ fontWeight: "700", color: colors.primary }}>
-              HIPAA compliant
+              Access-Controlled & Encrypted at Rest
             </Text>
           </Text>
         </View>

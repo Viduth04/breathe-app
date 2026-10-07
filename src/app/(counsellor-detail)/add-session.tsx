@@ -1,15 +1,14 @@
-// Add Session Screen = Multi-Slot Availability Publisher - Muaath (Member 4). Supports FR08, NFR01, NFR06.
-// Live clinical availability publisher: allows counsellors to publish open slots for specific dates and times
-// (Single, Multi-Time, Date Range, Recurring) so students can view and book them anonymously.
+// Add Session Screen - Multi-Slot Availability Publisher - Muaath (Member 4). Supports FR08, NFR01, NFR06.
+// Focused, essential clinical availability publisher: allows counsellors to publish open slots for specific dates and times
+// (visible in detail on both the student side for all students and on the counsellor side in Sessions, My Calendar, and Schedule).
 // Real Firestore batch writes to slots/{slotId} and counsellors/{uid}.
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Image,
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
@@ -21,8 +20,7 @@ import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { PublishSlotInput, useCounsellorStore } from "@/services/counsellorStore";
 import { SessionType } from "@/types/counsellorDashboard";
 
-type PublisherMode = "single" | "multi_time" | "date_range" | "recurring";
-type DurationOption = "15m" | "30m" | "45m" | "60m";
+type DurationOption = "30m" | "45m" | "60m";
 
 const QUICK_TIMES = [
   "09:00 AM",
@@ -34,29 +32,15 @@ const QUICK_TIMES = [
   "04:00 PM",
 ];
 
-const WEEKDAYS = [
-  { key: "1", label: "Mon" },
-  { key: "2", label: "Tue" },
-  { key: "3", label: "Wed" },
-  { key: "4", label: "Thu" },
-  { key: "5", label: "Fri" },
-  { key: "6", label: "Sat" },
-];
-
 export default function AddSessionScreen() {
   const store = useCounsellorStore();
 
-  // Mode selection
-  const [publisherMode, setPublisherMode] = useState<PublisherMode>("single");
-
-  // Dynamic Colombo date generation
-  const todayColombo = useMemo(() => {
-    return new Date();
-  }, []);
+  // Dynamic Colombo date generation (next 14 days)
+  const todayColombo = useMemo(() => new Date(), []);
 
   const upcomingDays = useMemo(() => {
     const days = [];
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 14; i++) {
       const d = new Date(todayColombo);
       d.setDate(d.getDate() + i);
       const dayNum = d.getDate();
@@ -70,25 +54,113 @@ export default function AddSessionScreen() {
         month,
         label: i === 0 ? "Today" : i === 1 ? "Tomorrow" : `${weekday}, ${month} ${dayNum}`,
         dateObj: d,
+        isWeekend: d.getDay() === 0 || d.getDay() === 6,
       });
     }
     return days;
   }, [todayColombo]);
 
-  const [selectedDayKey, setSelectedDayKey] = useState<string>(upcomingDays[1].dateKey);
-  const [selectedWeekdays, setSelectedWeekdays] = useState<string[]>(["1", "2", "3", "4", "5"]);
-  const [weeksToExpand, setWeeksToExpand] = useState<number>(2);
-
-  // Time & Duration
+  // Essential state: Selected dates (multi-select), selected times, duration, modality
+  const [selectedDateKeys, setSelectedDateKeys] = useState<string[]>([
+    upcomingDays[1]?.dateKey || upcomingDays[0].dateKey,
+  ]);
   const [selectedTimes, setSelectedTimes] = useState<string[]>(["10:00 AM"]);
   const [duration, setDuration] = useState<DurationOption>("45m");
-  const [sessionModality, setSessionModality] = useState<SessionType>("video");
+  const [selectedModalities, setSelectedModalities] = useState<SessionType[]>(["video"]);
   const [customTime, setCustomTime] = useState("");
-  const [sessionNotes, setSessionNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
 
-  // Calculate slots to publish based on mode
+  // Auto-dismiss toast feedback
+  useEffect(() => {
+    if (!feedbackToast) return;
+    const timer = setTimeout(() => {
+      setFeedbackToast(null);
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, [feedbackToast]);
+
+  const toggleDate = (dateKey: string) => {
+    if (selectedDateKeys.includes(dateKey)) {
+      if (selectedDateKeys.length > 1) {
+        setSelectedDateKeys(selectedDateKeys.filter((k) => k !== dateKey));
+      } else {
+        setFeedbackToast("At least one date must remain selected.");
+      }
+    } else {
+      setSelectedDateKeys([...selectedDateKeys, dateKey]);
+    }
+  };
+
+  const selectAllWeekdays = () => {
+    const weekdays = upcomingDays.filter((d) => !d.isWeekend).slice(0, 5).map((d) => d.dateKey);
+    setSelectedDateKeys(weekdays);
+    setFeedbackToast("Selected Mon–Fri clinical weekdays.");
+  };
+
+  const toggleModality = (modality: SessionType) => {
+    if (selectedModalities.includes(modality)) {
+      if (selectedModalities.length > 1) {
+        setSelectedModalities(selectedModalities.filter((m) => m !== modality));
+      } else {
+        setFeedbackToast("At least one consultation modality must remain selected.");
+      }
+    } else {
+      setSelectedModalities([...selectedModalities, modality]);
+    }
+  };
+
+  // Helper to parse "HH:MM AM/PM" into minutes from midnight (0..1439)
+  const parseTimeToMinutes = (timeStr: string): number => {
+    const parts = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!parts) return -1;
+    let h = parseInt(parts[1], 10);
+    const m = parseInt(parts[2], 10);
+    const meridiem = parts[3].toUpperCase();
+    if (h < 1 || h > 12 || m < 0 || m > 59) return -1;
+    if (meridiem === "PM" && h < 12) h += 12;
+    if (meridiem === "AM" && h === 12) h = 0;
+    return h * 60 + m;
+  };
+
+  const handleAddCustomTime = () => {
+    const trimmed = customTime.trim();
+    if (!trimmed) return;
+    const match = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!match) {
+      setFeedbackToast("Time format must be 'HH:MM AM' or 'HH:MM PM' (e.g. 09:30 AM).");
+      return;
+    }
+    let h = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    const mer = match[3].toUpperCase();
+    if (h < 1 || h > 12 || m < 0 || m > 59) {
+      setFeedbackToast("Please enter valid hours (1-12) and minutes (00-59).");
+      return;
+    }
+    const formatted = `${h < 10 ? `0${h}` : h}:${m < 10 ? `0${m}` : m} ${mer}`;
+    if (selectedTimes.includes(formatted)) {
+      setFeedbackToast(`Time slot ${formatted} is already in the selection.`);
+      return;
+    }
+    setSelectedTimes([...selectedTimes, formatted]);
+    setCustomTime("");
+    setFeedbackToast(`Added custom time slot: ${formatted}`);
+  };
+
+  const toggleTimeSelection = (time: string) => {
+    if (selectedTimes.includes(time)) {
+      if (selectedTimes.length > 1) {
+        setSelectedTimes(selectedTimes.filter((t) => t !== time));
+      } else {
+        setFeedbackToast("At least one time slot must remain selected.");
+      }
+    } else {
+      setSelectedTimes([...selectedTimes, time]);
+    }
+  };
+
+  // Calculate slots to publish based on selected dates and times
   const computedSlotsToPublish = useMemo<PublishSlotInput[]>(() => {
     const durationMinutes = parseInt(duration.replace("m", ""), 10) || 45;
     const slots: PublishSlotInput[] = [];
@@ -130,10 +202,17 @@ export default function AddSessionScreen() {
       return { start, end };
     };
 
-    const activeTimes = selectedTimes.length > 0 ? selectedTimes : ["10:00 AM"];
+    // Sort selected times chronologically
+    const sortedTimes = [...selectedTimes].sort(
+      (a, b) => parseTimeToMinutes(a) - parseTimeToMinutes(b)
+    );
+    const activeTimes = sortedTimes.length > 0 ? sortedTimes : ["10:00 AM"];
+    const activeModalities: SessionType[] = selectedModalities.length > 0 ? selectedModalities : ["video"];
 
-    if (publisherMode === "single" || publisherMode === "multi_time") {
-      const dayObj = upcomingDays.find((d) => d.dateKey === selectedDayKey) || upcomingDays[1];
+    selectedDateKeys.forEach((dKey) => {
+      const dayObj = upcomingDays.find((d) => d.dateKey === dKey);
+      if (!dayObj) return;
+
       activeTimes.forEach((t) => {
         const { start, end } = makeDate(dayObj.dateKey, t);
         slots.push({
@@ -143,76 +222,105 @@ export default function AddSessionScreen() {
           endTime: getEndTime(t),
           startAt: start,
           endAt: end,
-          sessionTypes: [sessionModality],
+          sessionTypes: activeModalities,
         });
       });
-    } else if (publisherMode === "date_range" || publisherMode === "recurring") {
-      const daysCount = publisherMode === "recurring" ? weeksToExpand * 7 : 7;
-      for (let i = 0; i < daysCount; i++) {
-        const d = new Date(todayColombo);
-        d.setDate(d.getDate() + i);
-        const dayOfWeekStr = String(d.getDay() === 0 ? 7 : d.getDay());
-
-        if (selectedWeekdays.includes(dayOfWeekStr)) {
-          const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-          const dateDisplay = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-
-          activeTimes.forEach((t) => {
-            const { start, end } = makeDate(dateKey, t);
-            slots.push({
-              dateKey,
-              dateDisplay,
-              startTime: t,
-              endTime: getEndTime(t),
-              startAt: start,
-              endAt: end,
-              sessionTypes: [sessionModality],
-            });
-          });
-        }
-      }
-    }
+    });
 
     return slots;
-  }, [publisherMode, selectedDayKey, upcomingDays, selectedTimes, duration, sessionModality, selectedWeekdays, weeksToExpand, todayColombo]);
-
-  const toggleTimeSelection = (time: string) => {
-    if (publisherMode === "single") {
-      setSelectedTimes([time]);
-    } else {
-      if (selectedTimes.includes(time)) {
-        if (selectedTimes.length > 1) {
-          setSelectedTimes(selectedTimes.filter((t) => t !== time));
-        }
-      } else {
-        setSelectedTimes([...selectedTimes, time]);
-      }
-    }
-  };
-
-  const toggleWeekday = (key: string) => {
-    if (selectedWeekdays.includes(key)) {
-      if (selectedWeekdays.length > 1) {
-        setSelectedWeekdays(selectedWeekdays.filter((k) => k !== key));
-      }
-    } else {
-      setSelectedWeekdays([...selectedWeekdays, key]);
-    }
-  };
+  }, [selectedDateKeys, selectedTimes, duration, selectedModalities, upcomingDays]);
 
   const handlePublishSlots = async () => {
-    if (isSubmitting || computedSlotsToPublish.length === 0) return;
+    if (isSubmitting) return;
+
+    if (selectedDateKeys.length === 0) {
+      setFeedbackToast("Please select at least one date.");
+      return;
+    }
+
+    if (selectedTimes.length === 0) {
+      setFeedbackToast("Please select at least one time slot.");
+      return;
+    }
+
+    if (selectedModalities.length === 0) {
+      setFeedbackToast("Please select at least one consultation modality.");
+      return;
+    }
+
+    // Overlap validation between selected times
+    if (selectedTimes.length > 1) {
+      const sortedTimes = [...selectedTimes].sort(
+        (a, b) => parseTimeToMinutes(a) - parseTimeToMinutes(b)
+      );
+      const durationMinutes = parseInt(duration.replace("m", ""), 10) || 45;
+      for (let i = 0; i < sortedTimes.length - 1; i++) {
+        const m1 = parseTimeToMinutes(sortedTimes[i]);
+        const m2 = parseTimeToMinutes(sortedTimes[i + 1]);
+        if (m1 >= 0 && m2 >= 0 && m1 + durationMinutes > m2) {
+          setFeedbackToast(
+            `Time slot ${sortedTimes[i]} overlaps with ${sortedTimes[i + 1]} (${duration} duration).`
+          );
+          return;
+        }
+      }
+    }
+
+    // Prevent publishing past times on today's date
+    const now = new Date();
+    const todayDateKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+    if (selectedDateKeys.includes(todayDateKey)) {
+      const pastTimes = selectedTimes.filter((t) => {
+        const m = parseTimeToMinutes(t);
+        return m >= 0 && m <= currentMinutes;
+      });
+      if (pastTimes.length > 0) {
+        setFeedbackToast(
+          `Slot(s) ${pastTimes.join(", ")} have already passed today. Please choose upcoming times.`
+        );
+        return;
+      }
+    }
+
+    // Prevent overwriting existing booked slots
+    const bookedConflicts = computedSlotsToPublish.filter((newSlot) =>
+      store.scheduleDaySlots.some(
+        (existing) =>
+          existing.isBooked &&
+          existing.dateKey === newSlot.dateKey &&
+          existing.startTime === newSlot.startTime
+      )
+    );
+    if (bookedConflicts.length > 0) {
+      setFeedbackToast(
+        `Slot on ${bookedConflicts[0].dateDisplay || bookedConflicts[0].dateKey} at ${bookedConflicts[0].startTime} has a confirmed booking.`
+      );
+      return;
+    }
+
+    if (computedSlotsToPublish.length === 0) {
+      setFeedbackToast("No slots to publish. Please check your selections.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
+      const targetDateKey = computedSlotsToPublish[0]?.dateKey;
       const count = await store.publishAvailabilityBatch(computedSlotsToPublish);
-      setFeedbackToast(`Successfully published ${count} availability slots!`);
+      setFeedbackToast(`Successfully published ${count} slots to the database! Redirecting...`);
       setTimeout(() => {
-        router.back();
-      }, 1200);
+        router.replace({
+          pathname: "/(counsellor-detail)/my-calendar",
+          params: { dateKey: targetDateKey },
+        });
+      }, 1000);
     } catch (err: any) {
       setIsSubmitting(false);
-      setFeedbackToast("Failed to publish slots. Please retry.");
+      console.error("[add-session] Publish slots error:", err);
+      setFeedbackToast(`Failed to store slots: ${err?.message || "Check permissions"}`);
     }
   };
 
@@ -231,32 +339,58 @@ export default function AddSessionScreen() {
         </Pressable>
 
         <Text style={styles.headerTitle} accessibilityRole="header">
-          Add Session Slots
+          Add Availability Slots
         </Text>
 
         <View style={styles.headerRight}>
-          <Pressable
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel="Close dialog"
-            style={({ pressed }) => [styles.closeButton, pressed && styles.pressedState]}
-            hitSlop={8}
-          >
-            <Ionicons name="close" size={20} color="#6B6A5E" />
-          </Pressable>
-          <Image
-            source={{ uri: store.profile.avatarUrl }}
-            style={styles.counselorAvatar}
-            accessibilityLabel="Counselor profile"
-          />
+          {store.profile.avatarUrl ? (
+            <Image
+              source={{ uri: store.profile.avatarUrl }}
+              style={styles.counselorAvatar}
+              accessibilityLabel="Counselor profile"
+            />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Text style={styles.avatarInitials}>DR</Text>
+            </View>
+          )}
         </View>
       </View>
 
       {/* ─── Feedback Toast ─── */}
       {feedbackToast && (
-        <View style={styles.toastContainer} accessibilityLiveRegion="polite">
-          <Ionicons name="checkmark-circle" size={18} color="#076047" />
-          <Text style={styles.toastText}>{feedbackToast}</Text>
+        <View
+          style={[
+            styles.toastContainer,
+            (feedbackToast.startsWith("Please") ||
+              feedbackToast.startsWith("At least") ||
+              feedbackToast.startsWith("Time slot") ||
+              feedbackToast.startsWith("Slot(s)") ||
+              feedbackToast.startsWith("Failed")) &&
+              styles.toastContainerError,
+          ]}
+          accessibilityLiveRegion="polite"
+        >
+          <Ionicons
+            name={
+              feedbackToast.startsWith("Successfully")
+                ? "checkmark-circle"
+                : "alert-circle"
+            }
+            size={18}
+            color={feedbackToast.startsWith("Successfully") ? "#076047" : "#DC2626"}
+          />
+          <Text
+            style={[
+              styles.toastText,
+              !feedbackToast.startsWith("Successfully") && styles.toastTextError,
+            ]}
+          >
+            {feedbackToast}
+          </Text>
+          <Pressable onPress={() => setFeedbackToast(null)} hitSlop={8} style={{ marginLeft: "auto" }}>
+            <Ionicons name="close" size={16} color="#64748B" />
+          </Pressable>
         </View>
       )}
 
@@ -267,129 +401,57 @@ export default function AddSessionScreen() {
             <Ionicons name="calendar-outline" size={22} color="#076047" />
           </View>
           <View style={styles.bannerTextCol}>
-            <Text style={styles.bannerTitle}>Availability Publisher</Text>
+            <Text style={styles.bannerTitle}>Publish Clinical Slots</Text>
             <Text style={styles.bannerSubtitle}>
-              Publish multiple time slots for students to discover and book anonymously.
+              Students can book only the time slots you publish here. These will auto-sync to your Calendar, Schedule, and Student booking directory.
             </Text>
           </View>
         </View>
 
-        {/* ─── Mode Selector Pills ─── */}
+        {/* ─── 1. Date Selection (Essential) ─── */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionLabel}>PUBLISHING MODE</Text>
+          <Text style={styles.sectionLabel}>SELECT DATE(S)</Text>
+          <Pressable onPress={selectAllWeekdays} hitSlop={6}>
+            <Text style={styles.sectionActionText}>Select Mon–Fri</Text>
+          </Pressable>
         </View>
-        <View style={styles.modePillRow}>
-          {(
-            [
-              { key: "single", label: "Single Slot" },
-              { key: "multi_time", label: "Multi-Time" },
-              { key: "date_range", label: "Date Range" },
-              { key: "recurring", label: "Recurring" },
-            ] as const
-          ).map((m) => (
-            <Pressable
-              key={m.key}
-              style={[styles.modePill, publisherMode === m.key && styles.modePillActive]}
-              onPress={() => {
-                setPublisherMode(m.key);
-                if (m.key === "single" && selectedTimes.length > 1) {
-                  setSelectedTimes([selectedTimes[0]]);
-                }
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={`Select mode ${m.label}`}
-            >
-              <Text style={[styles.modePillText, publisherMode === m.key && styles.modePillTextActive]}>
-                {m.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.daysScroll}>
+          {upcomingDays.map((d) => {
+            const isSelected = selectedDateKeys.includes(d.dateKey);
+            return (
+              <Pressable
+                key={d.dateKey}
+                style={[styles.dayCard, isSelected && styles.dayCardActive]}
+                onPress={() => toggleDate(d.dateKey)}
+                accessibilityRole="button"
+                accessibilityLabel={`Toggle ${d.label}`}
+              >
+                <Text style={[styles.dayCardWeekday, isSelected && styles.dayCardTextActive]}>
+                  {d.weekday}
+                </Text>
+                <Text style={[styles.dayCardNum, isSelected && styles.dayCardTextActive]}>
+                  {d.dayNum}
+                </Text>
+                <Text style={[styles.dayCardMonth, isSelected && styles.dayCardTextActive]}>
+                  {d.month}
+                </Text>
+                {isSelected && (
+                  <View style={styles.daySelectedDot}>
+                    <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                  </View>
+                )}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+        <Text style={styles.helperText}>
+          {selectedDateKeys.length} date{selectedDateKeys.length > 1 ? "s" : ""} selected for availability. Tap any card to toggle.
+        </Text>
 
-        {/* ─── Date Selection ─── */}
-        {(publisherMode === "single" || publisherMode === "multi_time") && (
-          <>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionLabel}>SELECT DATE</Text>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.daysScroll}>
-              {upcomingDays.map((d) => {
-                const isSelected = selectedDayKey === d.dateKey;
-                return (
-                  <Pressable
-                    key={d.dateKey}
-                    style={[styles.dayCard, isSelected && styles.dayCardActive]}
-                    onPress={() => setSelectedDayKey(d.dateKey)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Select ${d.label}`}
-                  >
-                    <Text style={[styles.dayCardWeekday, isSelected && styles.dayCardTextActive]}>
-                      {d.weekday}
-                    </Text>
-                    <Text style={[styles.dayCardNum, isSelected && styles.dayCardTextActive]}>
-                      {d.dayNum}
-                    </Text>
-                    <Text style={[styles.dayCardMonth, isSelected && styles.dayCardTextActive]}>
-                      {d.month}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </>
-        )}
-
-        {/* ─── Weekdays Selection for Range / Recurring ─── */}
-        {(publisherMode === "date_range" || publisherMode === "recurring") && (
-          <>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionLabel}>ACTIVE WEEKDAYS</Text>
-            </View>
-            <View style={styles.weekdaysRow}>
-              {WEEKDAYS.map((w) => {
-                const isActive = selectedWeekdays.includes(w.key);
-                return (
-                  <Pressable
-                    key={w.key}
-                    style={[styles.weekdayChip, isActive && styles.weekdayChipActive]}
-                    onPress={() => toggleWeekday(w.key)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Toggle ${w.label}`}
-                  >
-                    <Text style={[styles.weekdayChipText, isActive && styles.weekdayChipTextActive]}>
-                      {w.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {publisherMode === "recurring" && (
-              <View style={styles.recurringExpansionRow}>
-                <Text style={styles.recurringLabel}>Recurring for next:</Text>
-                <View style={styles.weeksPillRow}>
-                  {[1, 2, 3, 4].map((w) => (
-                    <Pressable
-                      key={w}
-                      style={[styles.weekPill, weeksToExpand === w && styles.weekPillActive]}
-                      onPress={() => setWeeksToExpand(w)}
-                    >
-                      <Text style={[styles.weekPillText, weeksToExpand === w && styles.weekPillTextActive]}>
-                        {w} {w === 1 ? "Week" : "Weeks"}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            )}
-          </>
-        )}
-
-        {/* ─── Time Slots ─── */}
+        {/* ─── 2. Time Slots (Essential) ─── */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionLabel}>
-            {publisherMode === "single" ? "START TIME" : "TIME SLOTS PER DAY"}
-          </Text>
+          <Text style={styles.sectionLabel}>AVAILABLE TIME SLOTS</Text>
+          <Text style={styles.sectionHint}>{selectedTimes.length} selected</Text>
         </View>
         <View style={styles.timesGrid}>
           {QUICK_TIMES.map((t) => {
@@ -400,8 +462,14 @@ export default function AddSessionScreen() {
                 style={[styles.timeChip, isSelected && styles.timeChipActive]}
                 onPress={() => toggleTimeSelection(t)}
                 accessibilityRole="button"
-                accessibilityLabel={`Select ${t}`}
+                accessibilityLabel={`Toggle time ${t}`}
               >
+                <Ionicons
+                  name={isSelected ? "checkmark-circle" : "time-outline"}
+                  size={14}
+                  color={isSelected ? "#076047" : "#64748B"}
+                  style={{ marginRight: 4 }}
+                />
                 <Text style={[styles.timeChipText, isSelected && styles.timeChipTextActive]}>
                   {t}
                 </Text>
@@ -410,27 +478,50 @@ export default function AddSessionScreen() {
           })}
         </View>
 
-        {/* ─── Duration ─── */}
+        {/* Custom Time Slot Input */}
+        <View style={styles.customTimeRow}>
+          <TextInput
+            style={styles.customTimeInput}
+            placeholder="Add custom time e.g. 09:30 AM"
+            placeholderTextColor="#94A3B8"
+            value={customTime}
+            onChangeText={setCustomTime}
+            autoCapitalize="characters"
+            maxLength={10}
+          />
+          <Pressable
+            style={styles.addCustomTimeBtn}
+            onPress={handleAddCustomTime}
+            accessibilityRole="button"
+            accessibilityLabel="Add custom time slot"
+          >
+            <Ionicons name="add" size={16} color="#FFFFFF" />
+            <Text style={styles.addCustomTimeBtnText}>Add</Text>
+          </Pressable>
+        </View>
+
+        {/* ─── 3. Slot Duration (Essential) ─── */}
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionLabel}>SLOT DURATION</Text>
         </View>
         <View style={styles.durationRow}>
-          {(["15m", "30m", "45m", "60m"] as DurationOption[]).map((d) => (
+          {(["30m", "45m", "60m"] as DurationOption[]).map((d) => (
             <Pressable
               key={d}
               style={[styles.durationChip, duration === d && styles.durationChipActive]}
               onPress={() => setDuration(d)}
             >
               <Text style={[styles.durationChipText, duration === d && styles.durationChipTextActive]}>
-                {d}
+                {d === "45m" ? "45m (Standard)" : d}
               </Text>
             </Pressable>
           ))}
         </View>
 
-        {/* ─── Modality ─── */}
+        {/* ─── 4. Consultation Modality (Essential) ─── */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionLabel}>CONSULTATION MODALITY</Text>
+          <Text style={styles.sectionLabel}>SUPPORTED MODALITIES</Text>
+          <Text style={styles.sectionHint}>Visible to students</Text>
         </View>
         <View style={styles.modalityRow}>
           {(
@@ -440,12 +531,12 @@ export default function AddSessionScreen() {
               { key: "in-person", label: "In-Person", icon: "people-outline" },
             ] as const
           ).map((m) => {
-            const isSelected = sessionModality === m.key;
+            const isSelected = selectedModalities.includes(m.key);
             return (
               <Pressable
                 key={m.key}
                 style={[styles.modalityCard, isSelected && styles.modalityCardActive]}
-                onPress={() => setSessionModality(m.key)}
+                onPress={() => toggleModality(m.key)}
                 accessibilityRole="button"
                 accessibilityLabel={`Modality ${m.label}`}
               >
@@ -461,14 +552,14 @@ export default function AddSessionScreen() {
         {/* ─── Summary & Batch Commit Card ─── */}
         <View style={styles.summaryCard}>
           <View style={styles.summaryTopRow}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.summaryTitle}>Publish Summary</Text>
               <Text style={styles.summarySub}>
-                {computedSlotsToPublish.length} slots ready for student booking
+                {computedSlotsToPublish.length} availability slot{computedSlotsToPublish.length > 1 ? "s" : ""} across {selectedDateKeys.length} date{selectedDateKeys.length > 1 ? "s" : ""}
               </Text>
             </View>
             <View style={styles.summaryBadge}>
-              <Text style={styles.summaryBadgeText}>{duration} slots</Text>
+              <Text style={styles.summaryBadgeText}>{duration}</Text>
             </View>
           </View>
 
@@ -479,7 +570,7 @@ export default function AddSessionScreen() {
             accessibilityRole="button"
             accessibilityLabel="Publish availability slots"
           >
-            <Ionicons name="checkmark-done" size={20} color="#FFFFFF" />
+            <Ionicons name="cloud-upload-outline" size={20} color="#FFFFFF" />
             <Text style={styles.publishButtonText}>
               {isSubmitting ? "Publishing to Cloud..." : `Publish ${computedSlotsToPublish.length} Slots`}
             </Text>
@@ -518,15 +609,6 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
-  closeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.full,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: spacing.sm,
-  },
   headerTitle: {
     fontSize: 18,
     fontWeight: "700",
@@ -543,6 +625,21 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "#076047",
   },
+  avatarPlaceholder: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1.5,
+    borderColor: "#076047",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitials: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#076047",
+  },
   pressedState: {
     opacity: 0.7,
   },
@@ -558,10 +655,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     gap: spacing.xs,
   },
+  toastContainerError: {
+    backgroundColor: "#FEF2F2",
+    borderColor: "#DC2626",
+  },
   toastText: {
+    flex: 1,
     fontSize: 13,
     fontWeight: "600",
     color: "#076047",
+  },
+  toastTextError: {
+    color: "#B91C1C",
   },
   scrollContent: {
     padding: spacing.md,
@@ -582,7 +687,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: radius.full,
-    backgroundColor: "#E5F8E4",
+    backgroundColor: "#ECFDF5",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -592,65 +697,52 @@ const styles = StyleSheet.create({
   bannerTitle: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#076047",
+    color: "#1B2B24",
+    marginBottom: 2,
   },
   bannerSubtitle: {
-    fontSize: 13,
+    fontSize: 12,
     color: "#64748B",
-    marginTop: 2,
-    lineHeight: 18,
+    lineHeight: 17,
   },
   sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginTop: spacing.md,
     marginBottom: spacing.xs,
   },
   sectionLabel: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "800",
+    color: "#076047",
     letterSpacing: 0.8,
-    color: "#6B6A5E",
   },
-  modePillRow: {
-    flexDirection: "row",
-    gap: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-  modePill: {
-    flex: 1,
-    paddingVertical: 10,
-    backgroundColor: "#FFFFFF",
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: "#E2DEC9",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modePillActive: {
-    backgroundColor: "#076047",
-    borderColor: "#076047",
-  },
-  modePillText: {
+  sectionHint: {
     fontSize: 12,
-    fontWeight: "600",
-    color: "#1B2B24",
+    color: "#64748B",
   },
-  modePillTextActive: {
-    color: "#FFFFFF",
+  sectionActionText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#076047",
+    textDecorationLine: "underline",
   },
   daysScroll: {
-    flexDirection: "row",
-    gap: spacing.sm,
     paddingVertical: spacing.xs,
+    gap: spacing.xs,
   },
   dayCard: {
-    width: 72,
-    paddingVertical: spacing.sm,
+    width: 68,
+    height: 82,
     backgroundColor: "#FFFFFF",
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: "#E2DEC9",
     alignItems: "center",
     justifyContent: "center",
+    paddingVertical: 6,
+    position: "relative",
   },
   dayCardActive: {
     backgroundColor: "#076047",
@@ -660,101 +752,57 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     color: "#64748B",
+    textTransform: "uppercase",
   },
   dayCardNum: {
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 20,
+    fontWeight: "800",
     color: "#1B2B24",
     marginVertical: 2,
   },
   dayCardMonth: {
     fontSize: 11,
-    color: "#64748B",
+    fontWeight: "500",
+    color: "#94A3B8",
   },
   dayCardTextActive: {
     color: "#FFFFFF",
   },
-  weekdaysRow: {
-    flexDirection: "row",
-    gap: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-  weekdayChip: {
-    flex: 1,
-    paddingVertical: 10,
-    backgroundColor: "#FFFFFF",
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: "#E2DEC9",
+  daySelectedDot: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#10B981",
     alignItems: "center",
+    justifyContent: "center",
   },
-  weekdayChipActive: {
-    backgroundColor: "#076047",
-    borderColor: "#076047",
-  },
-  weekdayChipText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#1B2B24",
-  },
-  weekdayChipTextActive: {
-    color: "#FFFFFF",
-  },
-  recurringExpansionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#FFFFFF",
-    padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: "#E2DEC9",
-    marginTop: spacing.xs,
-  },
-  recurringLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#1B2B24",
-  },
-  weeksPillRow: {
-    flexDirection: "row",
-    gap: spacing.xs,
-  },
-  weekPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: "#E2DEC9",
-    backgroundColor: "#F8FAFC",
-  },
-  weekPillActive: {
-    backgroundColor: "#076047",
-    borderColor: "#076047",
-  },
-  weekPillText: {
+  helperText: {
     fontSize: 11,
-    fontWeight: "600",
-    color: "#475569",
-  },
-  weekPillTextActive: {
-    color: "#FFFFFF",
+    color: "#64748B",
+    marginTop: 4,
+    marginBottom: spacing.xs,
   },
   timesGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.sm,
+    gap: spacing.xs,
+    marginVertical: spacing.xs,
   },
   timeChip: {
-    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 10,
+    paddingHorizontal: 12,
     backgroundColor: "#FFFFFF",
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: "#E2DEC9",
   },
   timeChipActive: {
-    backgroundColor: "#076047",
+    backgroundColor: "#ECFDF5",
     borderColor: "#076047",
   },
   timeChipText: {
@@ -763,58 +811,98 @@ const styles = StyleSheet.create({
     color: "#1B2B24",
   },
   timeChipTextActive: {
+    color: "#076047",
+    fontWeight: "700",
+  },
+  customTimeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  customTimeInput: {
+    flex: 1,
+    height: 44,
+    backgroundColor: "#FFFFFF",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "#E2DEC9",
+    paddingHorizontal: spacing.md,
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#1B2B24",
+  },
+  addCustomTimeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 44,
+    paddingHorizontal: spacing.md,
+    backgroundColor: "#076047",
+    borderRadius: radius.md,
+    gap: 4,
+  },
+  addCustomTimeBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
     color: "#FFFFFF",
   },
   durationRow: {
     flexDirection: "row",
     gap: spacing.sm,
+    marginVertical: spacing.xs,
   },
   durationChip: {
     flex: 1,
-    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
     backgroundColor: "#FFFFFF",
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: "#E2DEC9",
-    alignItems: "center",
   },
   durationChipActive: {
-    backgroundColor: "#076047",
+    backgroundColor: "#ECFDF5",
     borderColor: "#076047",
   },
   durationChipText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#1B2B24",
+    color: "#64748B",
   },
   durationChipTextActive: {
-    color: "#FFFFFF",
+    color: "#076047",
+    fontWeight: "800",
   },
   modalityRow: {
     flexDirection: "row",
     gap: spacing.sm,
+    marginVertical: spacing.xs,
   },
   modalityCard: {
     flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 12,
     backgroundColor: "#FFFFFF",
     borderRadius: radius.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: "#E2DEC9",
-    alignItems: "center",
     gap: 4,
   },
   modalityCardActive: {
+    backgroundColor: "#ECFDF5",
     borderColor: "#076047",
-    backgroundColor: "#E5F8E4",
   },
   modalityCardText: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#475569",
+    color: "#64748B",
   },
   modalityCardTextActive: {
     color: "#076047",
+    fontWeight: "700",
   },
   summaryCard: {
     backgroundColor: "#FFFFFF",
@@ -841,10 +929,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   summaryBadge: {
-    backgroundColor: "#E5F8E4",
+    backgroundColor: "#ECFDF5",
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
   },
   summaryBadgeText: {
     fontSize: 12,
@@ -853,15 +943,15 @@ const styles = StyleSheet.create({
   },
   publishButton: {
     flexDirection: "row",
-    backgroundColor: "#076047",
-    borderRadius: radius.md,
-    paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
+    height: 50,
+    backgroundColor: "#076047",
+    borderRadius: radius.md,
     gap: spacing.xs,
   },
   publishButtonDisabled: {
-    opacity: 0.6,
+    opacity: 0.5,
   },
   publishButtonText: {
     fontSize: 15,

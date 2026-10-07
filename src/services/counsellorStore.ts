@@ -3,10 +3,13 @@
 // alerts, badges, and settings across both tab screens and detail stack screens without external dependencies.
 
 import { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { setCachedCounsellorPhoto, subscribeToCounsellorPhoto } from "@/services/counsellorPhotoService";
 import {
   BookingRequestItem,
   CounsellorProfileInfo,
   SessionItem,
+  RequestStatus,
 } from "@/types/counsellorDashboard";
 import { AlertItem } from "@/types/counsellorAlerts";
 import {
@@ -25,6 +28,7 @@ import {
   SessionNotesData,
   ClinicalNoteEntry,
   NewSessionFormInput,
+  PastSessionItem,
 } from "@/types/counsellorDetailScreens";
 import { ChatThread, ChatBubble } from "@/types/counsellorMessages";
 import { TimeSlot } from "@/types/counsellorSchedule";
@@ -110,6 +114,12 @@ export type CalendarBooking = {
   statusText?: string; // e.g. "Case Note Ready", "Secure Thread"
   isOpenSlot?: boolean;
   isBlocked?: boolean;
+  dateStr?: string;
+  dayNum?: number;
+  dateKey?: string;
+  monthYear?: string;
+  isExpired?: boolean;
+  isPast?: boolean;
 };
 
 export const INITIAL_CALENDAR_BOOKINGS: CalendarBooking[] = [
@@ -126,6 +136,10 @@ export const INITIAL_CALENDAR_BOOKINGS: CalendarBooking[] = [
     modalityLabel: "Secure Thread",
     securityTag: "Encrypted",
     statusText: "Secure Thread",
+    dateStr: "Tue, Aug 19",
+    dayNum: 19,
+    dateKey: "2026-08-19",
+    monthYear: "August 2026",
   },
   {
     id: "cal-5104",
@@ -143,6 +157,10 @@ export const INITIAL_CALENDAR_BOOKINGS: CalendarBooking[] = [
     roomId: "mnd-5104-sec",
     isJustAdded: true,
     statusText: "Intake Complete",
+    dateStr: "Tue, Aug 19",
+    dayNum: 19,
+    dateKey: "2026-08-19",
+    monthYear: "August 2026",
   },
   {
     id: "cal-3",
@@ -157,6 +175,10 @@ export const INITIAL_CALENDAR_BOOKINGS: CalendarBooking[] = [
     modalityLabel: "Consultation",
     roomOrDetail: "Room 304",
     statusText: "Case Note Ready",
+    dateStr: "Tue, Aug 19",
+    dayNum: 19,
+    dateKey: "2026-08-19",
+    monthYear: "August 2026",
   },
   {
     id: "cal-4",
@@ -170,6 +192,10 @@ export const INITIAL_CALENDAR_BOOKINGS: CalendarBooking[] = [
     modality: "video",
     modalityLabel: "Open Slot",
     isOpenSlot: true,
+    dateStr: "Tue, Aug 19",
+    dayNum: 19,
+    dateKey: "2026-08-19",
+    monthYear: "August 2026",
   },
 ];
 
@@ -181,11 +207,16 @@ export type ScheduleDaySlot = {
   studentName?: string;
   subtitle?: string;
   modalityText: string;
-  modalityType: "video" | "voice" | "in-person" | "open";
+  modalityType: "video" | "voice" | "in-person" | "chat" | "open";
   statusBadge: "Confirmed" | "Open";
   isAnonymous?: boolean;
   intakeNote?: string;
   room?: string;
+  dateKey?: string;
+  dateDisplay?: string;
+  startTime?: string;
+  endTime?: string;
+  sessionTypes?: string[];
 };
 
 export const INITIAL_SCHEDULE_DAY_SLOTS: ScheduleDaySlot[] = [
@@ -309,6 +340,7 @@ type State = {
   selectedCalendarMonth: string;
   scheduleDaySlots: ScheduleDaySlot[];
   heldScheduleSlots: Record<string, boolean>;
+  pastSessions: PastSessionItem[];
 };
 
 let state: State = {
@@ -341,7 +373,7 @@ let state: State = {
     camOn: true,
   },
   alertPreferences: { ...DEFAULT_CLINICAL_ALERT_PREFERENCES },
-  patients: [...MOCK_PATIENTS_LIST],
+  patients: [],
   threads: [...MOCK_CHAT_THREADS],
   anonymousSession8812: { ...MOCK_ANONYMOUS_SESSION_8812 },
   sessionNotes: {
@@ -428,7 +460,24 @@ let state: State = {
   selectedCalendarMonth: "August 2026",
   scheduleDaySlots: [],
   heldScheduleSlots: {},
+  pastSessions: [],
 };
+
+// Eagerly restore real persistent profile avatar from storage on module load
+AsyncStorage.getItem("counsellor_avatar_active")
+  .then((cached) => {
+    if (cached && !state.profile.avatarUrl) {
+      state = {
+        ...state,
+        profile: {
+          ...state.profile,
+          avatarUrl: cached,
+        },
+      };
+      notifyListeners();
+    }
+  })
+  .catch(() => {});
 
 const listeners = new Set<() => void>();
 
@@ -458,14 +507,103 @@ export function initFirebaseSync() {
     isSyncInitialized = true;
     if (!user) return;
 
-    // Verify user is an active counsellor or admin before querying protected collections
+    const counselorUid = user.uid;
+
+    // 1. Sync Availability Slots (Root collection: slots - readable by all authenticated users)
+    try {
+      const slotsQuery = query(
+        collection(db, "slots"),
+        where("counsellorId", "==", counselorUid)
+      );
+      const unsubSlots = onSnapshot(
+        slotsQuery,
+        (snapshot) => {
+          const newHeldScheduleSlots: Record<string, boolean> = { ...state.heldScheduleSlots };
+          const firestoreSlots: ScheduleDaySlot[] = snapshot.docs.map((docSnap) => {
+            const d = docSnap.data();
+            const sessionTypes: string[] = Array.isArray(d.sessionTypes) ? d.sessionTypes : [];
+            const isHeld = Boolean(d.isHeld || d.status === "held");
+            newHeldScheduleSlots[docSnap.id] = isHeld;
+            const modalityText = sessionTypes.length > 0
+              ? sessionTypes.map((t: string) => t.charAt(0).toUpperCase() + t.slice(1)).join(" • ")
+              : (d.isBooked ? "Consultation" : "Open Slot");
+            return {
+              id: docSnap.id,
+              dateKey: d.dateKey || "",
+              dateDisplay: d.dateDisplay || "",
+              startTime: d.startTime || "",
+              endTime: d.endTime || "",
+              sessionTypes,
+              timeRange: d.startTime && d.endTime ? `${d.startTime} – ${d.endTime}` : (d.timeRange || "10:00 AM – 10:45 AM"),
+              isBooked: Boolean(d.isBooked),
+              isHeld,
+              studentName: d.isBooked ? (d.bookedStudentAnonId || "Booked Student") : "Open for booking",
+              subtitle: d.isBooked ? "Confirmed student booking" : `${d.dateDisplay || "Upcoming"} • Available for booking`,
+              modalityText,
+              modalityType: d.isBooked ? "video" : "open",
+              statusBadge: d.isBooked ? "Confirmed" : "Open",
+              isAnonymous: true,
+            };
+          });
+
+          const openCalendarSlots: CalendarBooking[] = firestoreSlots
+            .filter((s) => !s.isBooked)
+            .map((s) => {
+              const isBlocked = Boolean(s.isHeld || newHeldScheduleSlots[s.id]);
+              return {
+                id: s.id,
+                timeSlot: s.startTime || s.timeRange.split("–")[0]?.trim() || "01:30 PM",
+                studentId: "",
+                studentAnonId: "",
+                displayName: isBlocked ? "Blocked Slot (Paperwork)" : "Open Consultation Slot",
+                idMode: "standard",
+                subInfo: "",
+                timeRange: s.timeRange,
+                modality: (s.sessionTypes?.[0] as any) || "video",
+                modalityLabel: isBlocked ? "Blocked" : "Open Slot",
+                isOpenSlot: true,
+                isBlocked,
+                dateStr: s.dateDisplay,
+                dateKey: s.dateKey,
+                dayNum: s.dateKey ? parseInt(s.dateKey.split("-")[2], 10) : undefined,
+              };
+            });
+
+          const currentConfirmedBookings = state.calendarBookings.filter((b) => !b.isOpenSlot);
+          const existingOpen = state.calendarBookings.filter((b) => b.isOpenSlot);
+
+          state = {
+            ...state,
+            scheduleDaySlots: firestoreSlots,
+            heldScheduleSlots: newHeldScheduleSlots,
+            calendarBookings: [
+              ...currentConfirmedBookings,
+              ...(openCalendarSlots.length > 0 ? openCalendarSlots : existingOpen.map((b) => ({
+                ...b,
+                isBlocked: Boolean(newHeldScheduleSlots[b.id] ?? b.isBlocked),
+                displayName: (newHeldScheduleSlots[b.id] ?? b.isBlocked) ? "Blocked Slot (Paperwork)" : "Open Consultation Slot",
+              }))),
+            ],
+          };
+          notifyListeners();
+        },
+        (err: any) => {
+          if (!isFirestorePermissionError(err)) {
+            console.warn("[counsellorStore] Slots onSnapshot error:", err?.message || err);
+          }
+        }
+      );
+      unsubscribers.push(unsubSlots);
+    } catch (err) {
+      console.warn("[counsellorStore] Slots listener setup error:", err);
+    }
+
+    // Verify user is an active counsellor or admin before querying protected clinical collections
     const identity = await getCounselorAuthIdentity(user);
     if (!identity?.isCounselor) {
       // Non-counsellor (e.g. student or guest) - preserve rich mock state and skip restricted queries
       return;
     }
-
-    const counselorUid = user.uid;
 
     // 0. RTDB Heartbeat Presence (if configured)
     if (isRtdbConfigured()) {
@@ -474,6 +612,107 @@ export function initFirebaseSync() {
         unsubscribers.push(unsubPresence);
       } catch (_) {}
     }
+
+    // 0a. Restore & Sync Profile Avatar & Preferences from database
+    try {
+      const cachedAvatar = await AsyncStorage.getItem(`counsellor_avatar_${counselorUid}`);
+      if (cachedAvatar && !state.profile.avatarUrl) {
+        state = {
+          ...state,
+          profile: {
+            ...state.profile,
+            avatarUrl: cachedAvatar,
+          },
+        };
+        notifyListeners();
+      }
+    } catch (_) {}
+
+    try {
+      const prefDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELOR_PREFERENCES, counselorUid);
+      const unsubPref = onSnapshot(
+        prefDocRef,
+        (snap) => {
+          if (snap.exists()) {
+            const d = snap.data();
+            const avatar = d.avatarUrl || d.photo || "";
+            if (avatar) {
+              state = {
+                ...state,
+                profile: {
+                  ...state.profile,
+                  avatarUrl: avatar,
+                },
+              };
+              AsyncStorage.setItem(`counsellor_avatar_${counselorUid}`, avatar).catch(() => {});
+              AsyncStorage.setItem("counsellor_avatar_active", avatar).catch(() => {});
+              notifyListeners();
+            }
+          }
+        },
+        (err) => {
+          if (!isFirestorePermissionError(err)) {
+            console.warn("[counsellorStore] counselorPreferences onSnapshot error:", err);
+          }
+        }
+      );
+      unsubscribers.push(unsubPref);
+    } catch (err) {
+      console.warn("[counsellorStore] counselorPreferences listener error:", err);
+    }
+
+    try {
+      const userDocRef = doc(db, "users", counselorUid);
+      const unsubUser = onSnapshot(
+        userDocRef,
+        (snap) => {
+          if (snap.exists()) {
+            const d = snap.data();
+            const pic = d.avatarUrl || d.photoURL || "";
+            const name = d.displayName || d.fullName || "";
+            if (pic || name) {
+              state = {
+                ...state,
+                profile: {
+                  ...state.profile,
+                  ...(pic ? { avatarUrl: pic } : {}),
+                  ...(name ? { fullName: name } : {}),
+                },
+              };
+              if (pic) {
+                AsyncStorage.setItem(`counsellor_avatar_${counselorUid}`, pic).catch(() => {});
+                AsyncStorage.setItem("counsellor_avatar_active", pic).catch(() => {});
+              }
+              notifyListeners();
+            }
+          }
+        },
+        (err) => {
+          if (!isFirestorePermissionError(err)) {
+            console.warn("[counsellorStore] users onSnapshot error:", err);
+          }
+        }
+      );
+      unsubscribers.push(unsubUser);
+    } catch (err) {
+      console.warn("[counsellorStore] users listener error:", err);
+    }
+
+    try {
+      const unsubPhoto = subscribeToCounsellorPhoto(counselorUid, (photo) => {
+        if (photo) {
+          state = {
+            ...state,
+            profile: {
+              ...state.profile,
+              avatarUrl: photo,
+            },
+          };
+          notifyListeners();
+        }
+      });
+      unsubscribers.push(unsubPhoto);
+    } catch (_) {}
 
     // 1. Sync Bookings (Requests, Sessions, Calendar, and Live Alerts)
     try {
@@ -488,6 +727,9 @@ export function initFirebaseSync() {
           const firestoreSessions: SessionItem[] = [];
           const firestoreCalendar: CalendarBooking[] = [];
           const firestoreAlerts: AlertItem[] = [];
+          const firestorePastSessions: (PastSessionItem & { _time: number })[] = [];
+
+          const patientMap = new Map<string, PatientItem>();
 
           snapshot.docs.forEach((docSnap) => {
             const d = docSnap.data();
@@ -501,66 +743,294 @@ export function initFirebaseSync() {
             const startStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Colombo" });
             const endStr = endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Colombo" });
             const dateStr = startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "Asia/Colombo" });
-            const colomboNow = new Date().toLocaleDateString("en-US", { timeZone: "Asia/Colombo" });
-            const colomboStart = startDate.toLocaleDateString("en-US", { timeZone: "Asia/Colombo" });
-            const isToday = colomboNow === colomboStart;
+            // Strict Asia/Colombo calendar date calculation
+            const colomboFormatter = new Intl.DateTimeFormat("en-US", {
+              timeZone: "Asia/Colombo",
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+            });
+            const colomboStartParts = colomboFormatter.formatToParts(startDate);
+            const colomboNowParts = colomboFormatter.formatToParts(new Date());
+            const colomboStartDateKey = `${colomboStartParts.find((p) => p.type === "year")?.value}-${colomboStartParts.find((p) => p.type === "month")?.value}-${colomboStartParts.find((p) => p.type === "day")?.value}`;
+            const colomboNowDateKey = `${colomboNowParts.find((p) => p.type === "year")?.value}-${colomboNowParts.find((p) => p.type === "month")?.value}-${colomboNowParts.find((p) => p.type === "day")?.value}`;
+            const isToday = colomboStartDateKey === colomboNowDateKey;
+            const nowMs = Date.now();
+            const isPast = endDate.getTime() < nowMs;
 
-            if (d.status === "pending") {
-              firestoreRequests.push({
-                id,
+            // Capture all student booking requests (pending, confirmed, declined)
+            const requestItem: BookingRequestItem = {
+              id,
+              studentId,
+              studentAnonId,
+              displayName: studentAnonId,
+              idMode: "anonymous",
+              requestedTime: `${startStr}–${endStr}`,
+              sessionType: d.sessionType || "video",
+              duration: "45m",
+              topic: d.topic || (d.notes && d.notes.length < 30 ? d.notes.replace(/^ANONYMOUS:\s*/, "") : "Clinical Consultation"),
+              status: (d.status as RequestStatus) || "pending",
+              slotId: d.slotId,
+              date: dateStr,
+              startAt: d.startAt,
+              endAt: d.endAt,
+              notes: d.notes,
+              cancelReason: d.cancelReason,
+              phqScore: typeof d.phqScore === "number" ? d.phqScore : (d.notes?.includes("PHQ-9: 14") ? 14 : (d.notes?.includes("PHQ-9: 18") ? 18 : undefined)),
+              phqRange: typeof d.phqRange === "string" ? d.phqRange : (typeof d.phqScore === "number" ? (d.phqScore >= 15 ? "Moderately Severe" : d.phqScore >= 10 ? "Moderate Anxiety" : "Standard Range") : (d.notes?.includes("PHQ-9: 14") ? "Moderate Anxiety" : undefined)),
+              isExpired: isPast,
+              createdAt: d.createdAt,
+              updatedAt: d.updatedAt,
+            };
+            firestoreRequests.push(requestItem);
+
+            // Real patient directory entry from database
+            const isAnonBooking = Boolean(
+              d.notes?.includes("ANONYMOUS") ||
+              d.isAnonymous ||
+              studentAnonId.startsWith("Student #") ||
+              !d.displayName
+            );
+            const studentDisplay = isAnonBooking ? studentAnonId : (d.displayName || studentAnonId);
+            const isBookingActive = (d.status === "confirmed" && !isPast) || (d.status === "pending" && !isPast);
+
+            if (!patientMap.has(studentAnonId)) {
+              patientMap.set(studentAnonId, {
+                id: `patient-${id}`,
                 studentId,
                 studentAnonId,
-                displayName: studentAnonId,
-                idMode: "anonymous",
-                requestedTime: `${startStr}–${endStr}`,
-                sessionType: d.sessionType || "video",
-                duration: "45m",
-                topic: d.notes ? d.notes.replace(/^ANONYMOUS:\s*/, "") : "General Consultation",
-                status: "pending",
-                slotId: d.slotId,
-                date: dateStr,
-                startAt: d.startAt,
-                endAt: d.endAt,
-                notes: d.notes,
+                displayName: studentDisplay,
+                idMode: isAnonBooking ? "anonymous" : "standard",
+                avatarIcon: isAnonBooking ? "shield" : undefined,
+                initials: !isAnonBooking ? studentDisplay.slice(0, 2).toUpperCase() : undefined,
+                badgeText: isAnonBooking
+                  ? "ANONYMOUS"
+                  : (d.sessionType === "chat" ? "CHAT CARE" : d.sessionType === "in-person" ? "ON-CAMPUS" : "TELEHEALTH"),
+                badgeStyle: d.sessionType === "chat" ? "teal" : d.sessionType === "in-person" ? "indigo" : "mint",
+                sessionTimingText: isBookingActive
+                  ? `${dateStr} • ${startStr}`
+                  : `Last session: ${dateStr}`,
+                isActive: isBookingActive,
+                status: isBookingActive ? "active" : "inactive",
+                lastSessionDate: dateStr,
+                totalLogs: 1,
               });
+            } else {
+              const existing = patientMap.get(studentAnonId)!;
+              existing.totalLogs = (existing.totalLogs || 1) + 1;
+              if (isBookingActive) {
+                existing.isActive = true;
+                existing.status = "active";
+                existing.sessionTimingText = `${dateStr} • ${startStr}`;
+              } else if (!existing.isActive && d.status === "completed") {
+                existing.status = "inactive";
+                existing.sessionTimingText = `Last session: ${dateStr} • ${existing.totalLogs} completed logs`;
+              }
+            }
 
+            if (d.status === "pending") {
+              if (isPast) {
+                firestoreAlerts.push({
+                  id: `alert-req-exp-${id}`,
+                  title: "Session Request Expired",
+                  description: `${studentAnonId} requested ${d.sessionType === "chat" ? "secure chat" : d.sessionType === "in-person" ? "in-person" : "video"} consultation (${dateStr} • ${startStr}), but the requested time window has passed.`,
+                  timestamp: isToday ? "Today" : dateStr,
+                  isUnread: true,
+                  category: "request",
+                  priority: "normal",
+                  iconName: "alert-circle-outline",
+                  actionLabel: "View Request",
+                  badgeLabel: "Expired",
+                  refType: "request",
+                  refId: id,
+                  studentAnonId,
+                  createdAt: d.createdAt,
+                });
+              } else {
+                firestoreAlerts.push({
+                  id: `alert-req-${id}`,
+                  title: "New Session Request",
+                  description: `${studentAnonId} requested a ${d.sessionType === "chat" ? "secure chat" : d.sessionType === "in-person" ? "in-person" : "video"} consultation (${dateStr} • ${startStr}).`,
+                  timestamp: isToday ? "Today" : dateStr,
+                  isUnread: true,
+                  category: "request",
+                  priority: "urgent",
+                  iconName: "send-outline",
+                  actionLabel: "Review Request",
+                  badgeLabel: "Pending Review",
+                  refType: "request",
+                  refId: id,
+                  studentAnonId,
+                  createdAt: d.createdAt,
+                });
+              }
+            } else if (d.status === "confirmed") {
+              if (isPast) {
+                // Session deadline has expired: route exclusively to Past Sessions for wrap-up
+                firestorePastSessions.push({
+                  id,
+                  studentId,
+                  studentAnonId,
+                  displayName: studentAnonId,
+                  idMode: "anonymous",
+                  sessionType: d.sessionType || "video",
+                  sessionTypeLabel: d.sessionType === "chat" ? "Secured Chat Session" : d.sessionType === "in-person" ? "In-Person Consultation" : "Encrypted Video Consultation",
+                  duration: "45 min",
+                  room: d.sessionType === "in-person" ? "Room 302" : undefined,
+                  date: dateStr,
+                  time: startStr,
+                  concern: d.topic || (d.notes ? d.notes.replace(/^ANONYMOUS:\s*/, "") : "Clinical Consultation"),
+                  status: "pending-wrapup",
+                  privateNotes: d.notes ? `Clinical Record: ${d.notes.replace(/^ANONYMOUS:\s*/, "")}` : "Session concluded. Verify clinical notes and tap Mark as Completed to seal.",
+                  monthGroup: startDate.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "Asia/Colombo" }),
+                  _time: startDate.getTime(),
+                });
+
+                firestoreCalendar.push({
+                  id: `cal-${id}`,
+                  timeSlot: startStr,
+                  studentId,
+                  studentAnonId,
+                  displayName: studentAnonId,
+                  idMode: "anonymous",
+                  subInfo: `${dateStr} • Concluded`,
+                  timeRange: `${startStr} – ${endStr}`,
+                  modality: d.sessionType || "video",
+                  modalityLabel: d.sessionType === "chat" ? "Secure Thread" : "Consultation (45m)",
+                  securityTag: "E2E Encrypted",
+                  roomId: `brth-${id.slice(0, 8)}`,
+                  roomOrDetail: `Room ID: brth-${id.slice(0, 8)}`,
+                  statusText: "Concluded",
+                  dateStr,
+                  dayNum: parseInt(
+                    new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Colombo", day: "numeric" }).format(startDate),
+                    10
+                  ),
+                  dateKey: colomboStartDateKey,
+                  monthYear: startDate.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "Asia/Colombo" }),
+                  isExpired: true,
+                  isPast: true,
+                });
+
+                firestoreAlerts.push({
+                  id: `alert-wrapup-${id}`,
+                  title: "Session Concluded",
+                  description: `Consultation with ${studentAnonId} (${dateStr} • ${startStr}) has concluded. Clinical documentation pending wrap-up.`,
+                  timestamp: isToday ? "Today" : dateStr,
+                  isUnread: true,
+                  category: "session",
+                  priority: "normal",
+                  iconName: "clipboard-outline",
+                  actionLabel: "Complete Notes",
+                  badgeLabel: "Wrap-up",
+                  refType: "session",
+                  refId: id,
+                  studentAnonId,
+                  createdAt: d.updatedAt || d.createdAt,
+                });
+              } else {
+                // Active / upcoming confirmed session
+                if (isToday) {
+                  firestoreSessions.push({
+                    id,
+                    studentId,
+                    studentAnonId,
+                    displayName: studentAnonId,
+                    idMode: "anonymous",
+                    timeRange: `${startStr} – ${endStr}`,
+                    timeRelative: "Today",
+                    date: dateStr,
+                    isNext: false,
+                    sessionType: d.sessionType || "video",
+                    sessionTypeLabel: d.sessionType === "chat" ? "Secured Chat Session" : d.sessionType === "in-person" ? "In-Person Consultation" : "Encrypted Video Consultation",
+                    noteType: "Focus",
+                    noteText: d.notes ? d.notes.replace(/^ANONYMOUS:\s*/, "") : "General Consultation",
+                    status: "confirmed",
+                    slotId: d.slotId,
+                    startAt: d.startAt,
+                    endAt: d.endAt,
+                    isExpired: false,
+                  });
+                }
+
+                firestoreCalendar.push({
+                  id: `cal-${id}`,
+                  timeSlot: startStr,
+                  studentId,
+                  studentAnonId,
+                  displayName: studentAnonId,
+                  idMode: "anonymous",
+                  subInfo: `${dateStr} • Intake Complete`,
+                  timeRange: `${startStr} – ${endStr}`,
+                  modality: d.sessionType || "video",
+                  modalityLabel: d.sessionType === "chat" ? "Secure Thread" : "Consultation (45m)",
+                  securityTag: "E2E Encrypted",
+                  roomId: `brth-${id.slice(0, 8)}`,
+                  roomOrDetail: `Room ID: brth-${id.slice(0, 8)}`,
+                  statusText: "Intake Complete",
+                  dateStr,
+                  dayNum: parseInt(
+                    new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Colombo", day: "numeric" }).format(startDate),
+                    10
+                  ),
+                  dateKey: colomboStartDateKey,
+                  monthYear: startDate.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "Asia/Colombo" }),
+                  isExpired: false,
+                  isPast: false,
+                });
+
+                firestoreAlerts.push({
+                  id: `alert-conf-${id}`,
+                  title: "Upcoming Session Confirmed",
+                  description: `Confirmed ${d.sessionType === "chat" ? "secure chat" : d.sessionType === "in-person" ? "in-person" : "video"} session with ${studentAnonId} (${dateStr} • ${startStr}).`,
+                  timestamp: isToday ? "Today" : dateStr,
+                  isUnread: false,
+                  category: "session",
+                  priority: "normal",
+                  iconName: d.sessionType === "chat" ? "chatbubble-outline" : d.sessionType === "in-person" ? "business-outline" : "videocam-outline",
+                  actionLabel: d.sessionType === "chat" ? "Open Chat" : d.sessionType === "in-person" ? "View Clinic Details" : "Enter Room",
+                  badgeLabel: "Confirmed",
+                  refType: "session",
+                  refId: id,
+                  studentAnonId,
+                  createdAt: d.updatedAt || d.createdAt,
+                });
+              }
+            } else if (d.status === "declined") {
               firestoreAlerts.push({
-                id: `alert-req-${id}`,
-                title: "New Session Request",
-                description: `${studentAnonId} requested a ${d.sessionType || "video"} consultation.`,
+                id: `alert-dec-${id}`,
+                title: "Request Declined",
+                description: `Session request from ${studentAnonId} declined (${d.cancelReason || "Schedule conflict"}).`,
                 timestamp: isToday ? "Today" : dateStr,
-                isUnread: true,
+                isUnread: false,
                 category: "request",
-                priority: "urgent",
-                iconName: "send-outline",
-                actionLabel: "Review Request",
-                badgeLabel: "Urgent / Triage",
+                priority: "normal",
+                iconName: "close-circle-outline",
+                actionLabel: "View Details",
+                badgeLabel: "Declined",
                 refType: "request",
                 refId: id,
                 studentAnonId,
-                createdAt: d.createdAt,
+                createdAt: d.updatedAt || d.createdAt,
               });
-            } else if (d.status === "confirmed") {
-              firestoreSessions.push({
+            } else if (d.status === "completed") {
+              firestorePastSessions.push({
                 id,
                 studentId,
                 studentAnonId,
                 displayName: studentAnonId,
                 idMode: "anonymous",
-                timeRange: `${startStr} – ${endStr}`,
-                timeRelative: isToday ? "Today" : dateStr,
-                date: dateStr,
-                isNext: false,
                 sessionType: d.sessionType || "video",
                 sessionTypeLabel: d.sessionType === "chat" ? "Secured Chat Session" : d.sessionType === "in-person" ? "In-Person Consultation" : "Encrypted Video Consultation",
-                noteType: "Focus",
-                noteText: d.notes ? d.notes.replace(/^ANONYMOUS:\s*/, "") : "General Consultation",
-                status: "confirmed",
-                slotId: d.slotId,
-                startAt: d.startAt,
-                endAt: d.endAt,
+                duration: "45 min",
+                room: d.sessionType === "in-person" ? "Room 302" : undefined,
+                date: dateStr,
+                time: startStr,
+                concern: d.topic || (d.notes ? d.notes.replace(/^ANONYMOUS:\s*/, "") : "Clinical Consultation"),
+                status: "completed",
+                monthGroup: startDate.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "Asia/Colombo" }),
+                _time: startDate.getTime(),
               });
-
               firestoreCalendar.push({
                 id: `cal-${id}`,
                 timeSlot: startStr,
@@ -568,31 +1038,41 @@ export function initFirebaseSync() {
                 studentAnonId,
                 displayName: studentAnonId,
                 idMode: "anonymous",
-                subInfo: `${dateStr} • Intake Complete`,
+                subInfo: `${dateStr} • Completed`,
                 timeRange: `${startStr} – ${endStr}`,
                 modality: d.sessionType || "video",
                 modalityLabel: d.sessionType === "chat" ? "Secure Thread" : "Consultation (45m)",
                 securityTag: "E2E Encrypted",
                 roomId: `brth-${id.slice(0, 8)}`,
                 roomOrDetail: `Room ID: brth-${id.slice(0, 8)}`,
-                statusText: "Intake Complete",
+                statusText: "Completed",
+                dateStr,
+                dayNum: parseInt(
+                  new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Colombo", day: "numeric" }).format(startDate),
+                  10
+                ),
+                dateKey: colomboStartDateKey,
+                monthYear: startDate.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "Asia/Colombo" }),
+                isExpired: true,
+                isPast: true,
               });
-
-              firestoreAlerts.push({
-                id: `alert-conf-${id}`,
-                title: "Upcoming Session Confirmed",
-                description: `Consultation with ${studentAnonId} on ${dateStr} at ${startStr}.`,
-                timestamp: isToday ? "Today" : dateStr,
-                isUnread: false,
-                category: "session",
-                priority: "normal",
-                iconName: "videocam-outline",
-                actionLabel: "Enter Room",
-                badgeLabel: "Confirmed",
-                refType: "session",
-                refId: id,
+            } else if (d.status === "rescheduled") {
+              firestorePastSessions.push({
+                id,
+                studentId,
                 studentAnonId,
-                createdAt: d.updatedAt || d.createdAt,
+                displayName: studentAnonId,
+                idMode: "anonymous",
+                sessionType: d.sessionType || "video",
+                sessionTypeLabel: d.sessionType === "chat" ? "Secured Chat Session" : d.sessionType === "in-person" ? "In-Person Consultation" : "Encrypted Video Consultation",
+                duration: "45 min",
+                room: d.sessionType === "in-person" ? "Room 302" : undefined,
+                date: dateStr,
+                time: startStr,
+                concern: d.topic || (d.notes ? d.notes.replace(/^ANONYMOUS:\s*/, "") : "Clinical Consultation"),
+                status: "rescheduled",
+                monthGroup: startDate.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "Asia/Colombo" }),
+                _time: startDate.getTime(),
               });
             }
           });
@@ -621,13 +1101,44 @@ export function initFirebaseSync() {
             return timeB - timeA;
           });
 
+          // Sort past sessions by start date descending (most recent first)
+          firestorePastSessions.sort((a, b) => b._time - a._time);
+
+          const openCalendarSlots: CalendarBooking[] = state.scheduleDaySlots
+            .filter((s) => !s.isBooked)
+            .map((s) => {
+              const isBlocked = Boolean(s.isHeld || state.heldScheduleSlots[s.id]);
+              return {
+                id: s.id,
+                timeSlot: s.startTime || s.timeRange.split("–")[0]?.trim() || "01:30 PM",
+                studentId: "",
+                studentAnonId: "",
+                displayName: isBlocked ? "Blocked Slot (Paperwork)" : "Open Consultation Slot",
+                idMode: "standard",
+                subInfo: "",
+                timeRange: s.timeRange,
+                modality: (s.sessionTypes?.[0] as any) || "video",
+                modalityLabel: isBlocked ? "Blocked" : "Open Slot",
+                isOpenSlot: true,
+                isBlocked,
+                dateStr: s.dateDisplay,
+                dateKey: s.dateKey,
+                dayNum: s.dateKey ? parseInt(s.dateKey.split("-")[2], 10) : undefined,
+              };
+            });
+
+          const baseOpenSlots = state.calendarBookings.filter((b) => b.isOpenSlot);
+          const finalOpenSlots = openCalendarSlots.length > 0 ? openCalendarSlots : baseOpenSlots;
+
           state = {
             ...state,
             requests: firestoreRequests,
             sessions: firestoreSessions,
-            calendarBookings: firestoreCalendar,
+            calendarBookings: [...firestoreCalendar, ...finalOpenSlots],
             alerts: firestoreAlerts,
             alertsUnread: firestoreAlerts.filter((a) => a.isUnread).length,
+            patients: Array.from(patientMap.values()),
+            pastSessions: firestorePastSessions.map(({ _time, ...item }) => item),
           };
           notifyListeners();
         },
@@ -642,46 +1153,7 @@ export function initFirebaseSync() {
       console.warn("[counsellorStore] Bookings listener setup error:", err);
     }
 
-    // 2. Sync Availability Slots
-    try {
-      const slotsQuery = query(
-        collection(db, "slots"),
-        where("counsellorId", "==", counselorUid)
-      );
-      const unsubSlots = onSnapshot(
-        slotsQuery,
-        (snapshot) => {
-          const firestoreSlots: ScheduleDaySlot[] = snapshot.docs.map((docSnap) => {
-            const d = docSnap.data();
-            return {
-              id: docSnap.id,
-              timeRange: `${d.startTime || "10:00 AM"} – ${d.endTime || "10:45 AM"}`,
-              isBooked: Boolean(d.isBooked),
-              studentName: d.isBooked ? (d.bookedStudentAnonId || "Booked Student") : "Open for booking",
-              subtitle: d.isBooked ? "Confirmed student booking" : "Available for booking",
-              modalityText: d.isBooked ? "Consultation" : "Open Slot",
-              modalityType: d.isBooked ? "video" : "open",
-              statusBadge: d.isBooked ? "Confirmed" : "Open",
-              isAnonymous: true,
-            };
-          });
 
-          state = {
-            ...state,
-            scheduleDaySlots: firestoreSlots,
-          };
-          notifyListeners();
-        },
-        (err: any) => {
-          if (!isFirestorePermissionError(err)) {
-            console.warn("[counsellorStore] Slots onSnapshot error:", err?.message || err);
-          }
-        }
-      );
-      unsubscribers.push(unsubSlots);
-    } catch (err) {
-      console.warn("[counsellorStore] Slots listener setup error:", err);
-    }
 
     // 4. Sync Counselor Preferences
     try {
@@ -809,8 +1281,10 @@ export const counsellorStore = {
     const targetReq = state.requests.find((r) => r.id === requestId) || state.requests[0];
     const studentAnonId = targetReq?.studentAnonId || "Anonymous Student";
 
-    // 1. Remove from pending requests
-    const updatedRequests = state.requests.filter((r) => r.id !== targetReq?.id);
+    // 1. Mark as confirmed in requests
+    const updatedRequests = state.requests.map((r) =>
+      r.id === targetReq?.id ? { ...r, status: "confirmed" as RequestStatus } : r
+    );
 
     // 2. Add to Today's sessions
     const newSession: SessionItem = {
@@ -870,10 +1344,21 @@ export const counsellorStore = {
       roomId: `brth-${targetReq?.id ? targetReq.id.slice(0, 8) : "sec"}`,
     };
 
+    const reqStartDate = targetReq?.startAt?.toDate ? targetReq.startAt.toDate() : (targetReq?.startAt ? new Date(targetReq.startAt) : new Date());
+    const reqEndDate = targetReq?.endAt?.toDate ? targetReq.endAt.toDate() : (targetReq?.endAt ? new Date(targetReq.endAt) : new Date(reqStartDate.getTime() + 45 * 60000));
+    const isPastReq = reqEndDate.getTime() < Date.now();
+    if (isPastReq || targetReq?.isExpired) {
+      throw new Error("Cannot accept an expired booking request. The scheduled time has passed.");
+    }
+
+    const colomboTodayStr = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Colombo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const colomboReqStr = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Colombo", year: "numeric", month: "2-digit", day: "2-digit" }).format(reqStartDate);
+    const isTodaySession = colomboTodayStr === colomboReqStr;
+
     state = {
       ...state,
       requests: updatedRequests,
-      sessions: [newSession, ...state.sessions],
+      sessions: isTodaySession ? [newSession, ...state.sessions] : state.sessions,
       calendarBookings: [newCalendarBooking, ...state.calendarBookings],
       lastAcceptedSession: acceptedPayload,
     };
@@ -966,8 +1451,8 @@ export const counsellorStore = {
     }
   },
 
-  // Update profile avatar in store
-  setProfileAvatar(avatarUrl: string) {
+  // Update profile avatar in store and persist to database + AsyncStorage
+  async setProfileAvatar(avatarUrl: string) {
     state = {
       ...state,
       profile: {
@@ -976,6 +1461,34 @@ export const counsellorStore = {
       },
     };
     notifyListeners();
+
+    const uid = auth.currentUser?.uid || "counselor-anjali";
+    try {
+      if (avatarUrl) {
+        await AsyncStorage.setItem(`counsellor_avatar_${uid}`, avatarUrl);
+        await AsyncStorage.setItem("counsellor_avatar_active", avatarUrl);
+      } else {
+        await AsyncStorage.removeItem(`counsellor_avatar_${uid}`);
+        await AsyncStorage.removeItem("counsellor_avatar_active");
+      }
+    } catch (_) {}
+
+    try {
+      setCachedCounsellorPhoto(uid, avatarUrl || null);
+    } catch (_) {}
+
+    if (isFirebaseConfigured() && db) {
+      try {
+        const prefRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELOR_PREFERENCES, uid);
+        await setDoc(prefRef, { avatarUrl, photo: avatarUrl, updatedAt: serverTimestamp() }, { merge: true });
+      } catch (_) {}
+      if (auth.currentUser) {
+        try {
+          const userRef = doc(db, "users", uid);
+          await setDoc(userRef, { avatarUrl, photoURL: avatarUrl.length < 2000 ? avatarUrl : "", updatedAt: serverTimestamp() }, { merge: true });
+        } catch (_) {}
+      }
+    }
   },
 
   // Update profile details in store
@@ -1039,15 +1552,40 @@ export const counsellorStore = {
     }
   },
 
-  // Block an open calendar slot
+  // Block / unblock an open calendar slot and sync to Firestore
   blockSlot(slotId: string) {
+    const isNowBlocked = !state.calendarBookings.find((b) => b.id === slotId)?.isBlocked;
     state = {
       ...state,
+      heldScheduleSlots: {
+        ...state.heldScheduleSlots,
+        [slotId]: isNowBlocked,
+      },
+      scheduleDaySlots: state.scheduleDaySlots.map((s) =>
+        s.id === slotId ? { ...s, isHeld: isNowBlocked } : s
+      ),
       calendarBookings: state.calendarBookings.map((b) =>
-        b.id === slotId ? { ...b, isBlocked: true, displayName: "Blocked Slot (Paperwork)" } : b
+        b.id === slotId
+          ? {
+              ...b,
+              isBlocked: isNowBlocked,
+              displayName: isNowBlocked ? "Blocked Slot (Paperwork)" : "Open Consultation Slot",
+            }
+          : b
       ),
     };
     notifyListeners();
+
+    if (isFirebaseConfigured() && db && slotId) {
+      try {
+        const slotDocRef = doc(db, "slots", slotId);
+        updateDoc(slotDocRef, {
+          isHeld: isNowBlocked,
+          status: isNowBlocked ? "closed" : "open",
+          updatedAt: serverTimestamp(),
+        }).catch(() => {});
+      } catch (_) {}
+    }
   },
 
   // Mark a single alert as read
@@ -1104,8 +1642,12 @@ export const counsellorStore = {
     const targetReq = state.requests.find((r) => r.id === requestId) || state.requests[0];
     const studentAnonId = targetReq?.studentAnonId || "Anonymous Student";
 
-    // 1. Remove from pending requests
-    const updatedRequests = state.requests.filter((r) => r.id !== targetReq?.id);
+    // 1. Mark as declined in requests
+    const updatedRequests = state.requests.map((r) =>
+      r.id === targetReq?.id
+        ? { ...r, status: "declined" as RequestStatus, cancelReason: reason }
+        : r
+    );
 
     // 2. Add declined audit alert
     const newAlert: AlertItem = {
@@ -1182,13 +1724,21 @@ export const counsellorStore = {
   async publishAvailabilityBatch(slots: PublishSlotInput[]): Promise<number> {
     if (!slots || slots.length === 0) return 0;
 
+    const uid = auth?.currentUser?.uid || "coun_anjali_01";
+
     const newDaySlots: ScheduleDaySlot[] = slots.map((s) => ({
-      id: `slot_${s.dateKey}_${s.startTime.replace(/[^a-zA-Z0-9]/g, "")}`,
+      id: `slot_${uid}_${s.dateKey.replace(/-/g, "")}_${s.startTime.replace(/[^a-zA-Z0-9]/g, "")}`,
+      dateKey: s.dateKey,
+      dateDisplay: s.dateDisplay,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      sessionTypes: s.sessionTypes,
       timeRange: `${s.startTime} – ${s.endTime}`,
       isBooked: false,
+      isHeld: false,
       studentName: "Open for booking",
-      subtitle: `${s.dateDisplay} • Available`,
-      modalityText: s.sessionTypes.join(", "),
+      subtitle: `${s.dateDisplay} • Available for booking`,
+      modalityText: s.sessionTypes.map((t) => t.charAt(0).toUpperCase() + t.slice(1)).join(" • "),
       modalityType: "open",
       statusBadge: "Open",
       isAnonymous: true,
@@ -1196,16 +1746,19 @@ export const counsellorStore = {
 
     state = {
       ...state,
-      scheduleDaySlots: [...state.scheduleDaySlots, ...newDaySlots],
+      scheduleDaySlots: [
+        ...state.scheduleDaySlots.filter(
+          (existing) => !newDaySlots.some((ns) => ns.id === existing.id)
+        ),
+        ...newDaySlots,
+      ],
       isAvailable: true,
     };
     notifyListeners();
 
-    if (isFirebaseConfigured() && auth.currentUser) {
-      const uid = auth.currentUser.uid;
+    if (isFirebaseConfigured() && db) {
       try {
-        const batch = writeBatch(db);
-        const timeStrings: string[] = [];
+        const slotBatch = writeBatch(db);
 
         slots.forEach((s) => {
           const dateSlug = s.dateKey.replace(/-/g, "");
@@ -1213,7 +1766,7 @@ export const counsellorStore = {
           const slotId = `slot_${uid}_${dateSlug}_${timeSlug}`;
           const slotDocRef = doc(db, "slots", slotId);
 
-          batch.set(
+          slotBatch.set(
             slotDocRef,
             {
               id: slotId,
@@ -1222,10 +1775,12 @@ export const counsellorStore = {
               dateDisplay: s.dateDisplay,
               startTime: s.startTime,
               endTime: s.endTime,
+              timeRange: `${s.startTime} – ${s.endTime}`,
               startAt: Timestamp.fromDate(s.startAt),
               endAt: Timestamp.fromDate(s.endAt),
               sessionTypes: s.sessionTypes,
               isBooked: false,
+              isHeld: false,
               bookingId: null,
               bookedStudentAnonId: null,
               status: "open",
@@ -1234,28 +1789,23 @@ export const counsellorStore = {
             },
             { merge: true }
           );
-
-          timeStrings.push(s.startTime);
         });
 
-        const counsellorRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELORS, uid);
-        const dayNumStr = slots[0]?.startAt ? String(slots[0].startAt.getDate()) : String(new Date().getDate());
-        batch.set(
-          counsellorRef,
-          {
-            isAvailable: true,
-            availableDate: dayNumStr,
-            availableSlots: timeStrings,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
+        // Commit slots in dedicated batch (not mixed with profile)
+        await slotBatch.commit();
+        console.log(`[counsellorStore] Successfully stored ${slots.length} available slots in Firestore /slots`);
 
-        await batch.commit();
-      } catch (e) {
-        if (!isFirestorePermissionError(e)) {
-          console.warn("[counsellorStore] publishAvailabilityBatch error:", e);
-        }
+        // Update counsellor profile availability in a separate safe write
+        try {
+          const counsellorRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELORS, uid);
+          await updateDoc(counsellorRef, {
+            isAvailable: true,
+            updatedAt: serverTimestamp(),
+          });
+        } catch (_) {}
+      } catch (e: any) {
+        console.error("[counsellorStore] Error storing slots in database:", e);
+        throw e;
       }
     }
 
@@ -1298,17 +1848,69 @@ export const counsellorStore = {
     notifyListeners();
   },
 
-  // Complete an active video session
-  completeSession(sessionId: string) {
+  // Complete an active session (video, chat, in-person) and seal clinical records in database
+  async completeSession(sessionId: string, notes?: string) {
+    const existingSession = state.sessions.find((s) => s.id === sessionId);
+    let updatedPast = [...state.pastSessions];
+    const existingPastIndex = updatedPast.findIndex((p) => p.id === sessionId);
+
+    if (existingPastIndex >= 0) {
+      updatedPast[existingPastIndex] = {
+        ...updatedPast[existingPastIndex],
+        status: "completed",
+        privateNotes: notes || updatedPast[existingPastIndex].privateNotes,
+      };
+    } else if (existingSession) {
+      const startDate = existingSession.startAt?.toDate
+        ? existingSession.startAt.toDate()
+        : existingSession.startAt
+        ? new Date(existingSession.startAt)
+        : new Date();
+      const monthGroup = startDate.toLocaleDateString("en-US", {
+        month: "long",
+        year: "numeric",
+        timeZone: "Asia/Colombo",
+      });
+      updatedPast.unshift({
+        id: existingSession.id,
+        studentId: existingSession.studentId,
+        studentAnonId: existingSession.studentAnonId,
+        displayName: existingSession.displayName,
+        idMode: "anonymous",
+        sessionType: existingSession.sessionType,
+        sessionTypeLabel: existingSession.sessionTypeLabel,
+        duration: "45 min",
+        room: existingSession.sessionType === "in-person" ? "Room 302" : undefined,
+        date: existingSession.date || startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "Asia/Colombo" }),
+        time: existingSession.timeRange.split(" – ")[0] || existingSession.timeRange,
+        concern: existingSession.noteText || "Clinical Consultation",
+        status: "completed",
+        monthGroup,
+        privateNotes: notes,
+      });
+    }
+
     state = {
       ...state,
-      sessions: state.sessions.map((s) =>
-        s.id === sessionId || s.studentAnonId === "Student #4021"
-          ? { ...s, status: "completed" as const, isNext: false }
-          : s
-      ),
+      sessions: state.sessions.filter((s) => s.id !== sessionId),
+      pastSessions: updatedPast,
     };
     notifyListeners();
+
+    // Persist status update directly to Firestore bookings collection
+    if (isFirebaseConfigured() && db) {
+      try {
+        const bookingRef = doc(db, FIRESTORE_COLLECTIONS.BOOKINGS, sessionId);
+        await updateDoc(bookingRef, {
+          status: "completed",
+          updatedAt: serverTimestamp(),
+        });
+      } catch (e: any) {
+        if (!isFirestorePermissionError(e)) {
+          console.warn("[counsellorStore] completeSession Firestore update error:", e);
+        }
+      }
+    }
   },
 
   // Decrement unread messages
@@ -1761,8 +2363,8 @@ export const counsellorStore = {
     notifyListeners();
   },
 
-  // Toggle hold/block for an open slot in Schedule
-  toggleHoldScheduleSlot(slotId: string): boolean {
+  // Toggle hold/block for an open slot in Schedule (persists to Firestore slots/{slotId})
+  async toggleHoldScheduleSlot(slotId: string): Promise<boolean> {
     const currentHeld = !!state.heldScheduleSlots[slotId];
     const nextHeld = !currentHeld;
     const updatedHeld = {
@@ -1778,6 +2380,20 @@ export const counsellorStore = {
       scheduleDaySlots: updatedSlots,
     };
     notifyListeners();
+
+    if (isFirebaseConfigured() && db && slotId) {
+      try {
+        const slotDocRef = doc(db, "slots", slotId);
+        await updateDoc(slotDocRef, {
+          isHeld: nextHeld,
+          status: nextHeld ? "held" : "open",
+          updatedAt: serverTimestamp(),
+        });
+        console.log(`[counsellorStore] Slot ${slotId} hold status updated to ${nextHeld} in Firestore`);
+      } catch (err: any) {
+        console.warn("[counsellorStore] Failed to update slot hold in Firestore:", err?.message || err);
+      }
+    }
     return nextHeld;
   },
 

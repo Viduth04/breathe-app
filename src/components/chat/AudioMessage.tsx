@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { View, Pressable, Text, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
 import { colors } from '@/theme';
 
+let Audio: any = null;
+try {
+  Audio = require('expo-av')?.Audio;
+} catch (_) {}
+
 const AudioMessage = ({ audioUri, isSent = true }: { audioUri: string, isSent?: boolean }) => {
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [sound, setSound] = useState<any>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -32,6 +36,7 @@ const AudioMessage = ({ audioUri, isSent = true }: { audioUri: string, isSent?: 
           });
         }
         
+        if (!Audio?.Sound) return;
         const { sound: tempSound, status } = await Audio.Sound.createAsync(
           { uri: audioUri },
           { shouldPlay: false }

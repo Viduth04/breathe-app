@@ -29,6 +29,46 @@ export default function RequestAcceptedScreen() {
     ? `${lastAcceptedSession.date} • ${lastAcceptedSession.timeRange}`
     : "Scheduled Session Slot";
 
+  const modality = (lastAcceptedSession?.modality || "video").toLowerCase();
+  const isVideo = modality.includes("video");
+  const isChat = modality.includes("chat");
+  const isInPerson = modality.includes("in-person") || modality.includes("person");
+
+  // Follow the exact modality screen flow
+  const handleStartFlow = () => {
+    if (isVideo) {
+      // 1. VIDEO CALL FLOW: Ready to Join Lobby -> Active Video Call
+      router.navigate({
+        pathname: "/(counsellor-detail)/ready-to-join",
+        params: {
+          studentAnonId,
+          sessionTitle: "Encrypted Video Consultation",
+          timeRange: lastAcceptedSession?.timeRange || "Scheduled Time",
+          sessionId: lastAcceptedSession?.requestId,
+        },
+      });
+    } else if (isChat) {
+      // 2. SECURE CHAT FLOW: Real-time Messages screen
+      router.navigate({
+        pathname: "/(counsellor)/messages",
+        params: {
+          studentAnonId,
+          sessionId: lastAcceptedSession?.requestId,
+        },
+      });
+    } else {
+      // 3. IN-PERSON FLOW: Anonymous Session Details (Room 302 check-in & clinical notes)
+      router.navigate({
+        pathname: "/(counsellor-detail)/anonymous-session-details",
+        params: {
+          studentAnonId,
+          sessionId: lastAcceptedSession?.requestId,
+          sessionType: "in-person",
+        },
+      });
+    }
+  };
+
   const handleMessageStudent = () => {
     router.navigate({
       pathname: "/(counsellor-detail)/pre-chat-empty-state",
@@ -134,20 +174,48 @@ export default function RequestAcceptedScreen() {
                 </View>
               </View>
 
-              {/* Item 2: Modality & E2EE */}
+              {/* Item 2: Modality & Badge */}
               <View style={styles.detailItemRow}>
                 <View style={styles.detailIconBox}>
-                  <Ionicons name="videocam-outline" size={18} color="#065F46" />
+                  <Ionicons
+                    name={
+                      isVideo
+                        ? "videocam-outline"
+                        : isChat
+                        ? "chatbubble-ellipses-outline"
+                        : "location-outline"
+                    }
+                    size={18}
+                    color="#065F46"
+                  />
                 </View>
                 <View style={styles.detailTextCol}>
                   <View style={styles.modalityTitleRow}>
-                    <Text style={styles.detailPrimaryVal}>Encrypted Video Call (45m)</Text>
+                    <Text style={styles.detailPrimaryVal}>
+                      {isVideo
+                        ? "Encrypted Video Call (45m)"
+                        : isChat
+                        ? "Confidential Secure Chat (45m)"
+                        : "On-Campus In-Person Consultation (45m)"}
+                    </Text>
                     <View style={styles.e2eeBadge}>
-                      <Ionicons name="lock-closed" size={9} color="#4B5563" />
-                      <Text style={styles.e2eeBadgeText}>E2EE</Text>
+                      <Ionicons
+                        name={isInPerson ? "business" : "lock-closed"}
+                        size={9}
+                        color="#4B5563"
+                      />
+                      <Text style={styles.e2eeBadgeText}>
+                        {isInPerson ? "Room 302" : "E2EE"}
+                      </Text>
                     </View>
                   </View>
-                  <Text style={styles.detailSubtext}>Direct room link activates 5m prior</Text>
+                  <Text style={styles.detailSubtext}>
+                    {isVideo
+                      ? "Direct room link activates 5m prior"
+                      : isChat
+                      ? "Live access-controlled text channel active"
+                      : "Clinical counseling wing Room 302"}
+                  </Text>
                 </View>
               </View>
             </View>
@@ -163,7 +231,54 @@ export default function RequestAcceptedScreen() {
           <View style={styles.nextStepsSection}>
             <Text style={styles.nextStepsHeading}>NEXT STEPS</Text>
 
-            {/* Action Card 1: Message Student Securely */}
+            {/* Action Card 1: Modality Primary Screen Flow */}
+            <Pressable
+              onPress={handleStartFlow}
+              style={styles.actionCard}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isVideo
+                  ? "Enter Video Lobby / Ready to Join"
+                  : isChat
+                  ? "Open Secure Chat Room"
+                  : "In-Person Session Details & Check-In"
+              }
+            >
+              <View style={styles.actionCardLeft}>
+                <View style={[styles.actionIconBox, { backgroundColor: "#ECFDF5" }]}>
+                  <Ionicons
+                    name={
+                      isVideo
+                        ? "videocam"
+                        : isChat
+                        ? "chatbubble-ellipses"
+                        : "location"
+                    }
+                    size={20}
+                    color="#065F46"
+                  />
+                </View>
+                <View style={styles.actionCardMeta}>
+                  <Text style={styles.actionCardTitle}>
+                    {isVideo
+                      ? "Enter Video Lobby / Ready to Join"
+                      : isChat
+                      ? "Open Secure Chat Room"
+                      : "In-Person Session & Check-In"}
+                  </Text>
+                  <Text style={styles.actionCardSub}>
+                    {isVideo
+                      ? "Test AV hardware & enter waiting lobby"
+                      : isChat
+                      ? "Launch real-time encrypted messaging"
+                      : "View Room 302 details & check-in student"}
+                  </Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+            </Pressable>
+
+            {/* Action Card 2: Message Student Securely */}
             <Pressable
               onPress={handleMessageStudent}
               style={styles.actionCard}
@@ -172,11 +287,11 @@ export default function RequestAcceptedScreen() {
             >
               <View style={styles.actionCardLeft}>
                 <View style={styles.actionIconBox}>
-                  <Ionicons name="chatbubble-ellipses-outline" size={20} color="#065F46" />
+                  <Ionicons name="chatbubble-outline" size={20} color="#065F46" />
                 </View>
                 <View style={styles.actionCardMeta}>
-                  <Text style={styles.actionCardTitle}>Message Student Securely</Text>
-                  <Text style={styles.actionCardSub}>Send a check-in or pre-session instructions</Text>
+                  <Text style={styles.actionCardTitle}>Pre-Session Waiting Room & Prompts</Text>
+                  <Text style={styles.actionCardSub}>Send icebreakers or clinical intake review</Text>
                 </View>
               </View>
               <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
