@@ -47,7 +47,12 @@ export default function RequestDetailScreen() {
         primaryConcernTopic: matchedReq.topic || "General Wellbeing",
         concern: matchedReq.topic || "General Wellbeing",
         personalNote: matchedReq.notes ? matchedReq.notes.replace(/^ANONYMOUS:\s*/, "") : "No additional note provided by student.",
-        status: matchedReq.status === "confirmed" ? "accepted" : (matchedReq.status === "declined" ? "declined" : "pending"),
+        status:
+          (matchedReq.status || "").toLowerCase() === "confirmed" || (matchedReq.status || "").toLowerCase() === "completed"
+            ? "accepted"
+            : (matchedReq.status || "").toLowerCase() === "declined" || (matchedReq.status || "").toLowerCase() === "cancelled" || (matchedReq.status || "").toLowerCase() === "rejected"
+            ? "declined"
+            : "pending",
       };
     }
     return {
@@ -79,7 +84,12 @@ export default function RequestDetailScreen() {
         primaryConcernTopic: matchedReq.topic || "General Wellbeing",
         concern: matchedReq.topic || "General Wellbeing",
         personalNote: matchedReq.notes ? matchedReq.notes.replace(/^ANONYMOUS:\s*/, "") : "No additional note provided by student.",
-        status: matchedReq.status === "confirmed" ? "accepted" : (matchedReq.status === "declined" ? "declined" : "pending"),
+        status:
+          (matchedReq.status || "").toLowerCase() === "confirmed" || (matchedReq.status || "").toLowerCase() === "completed"
+            ? "accepted"
+            : (matchedReq.status || "").toLowerCase() === "declined" || (matchedReq.status || "").toLowerCase() === "cancelled" || (matchedReq.status || "").toLowerCase() === "rejected"
+            ? "declined"
+            : "pending",
       }));
     }
   }, [matchedReq]);
