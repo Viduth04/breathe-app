@@ -42,25 +42,79 @@ export default function RequestsScreen() {
     }
   }, [params.status]);
 
-  // Dynamic filter counts
-  const pendingCount = store.requests.filter((r) => r.status === "pending").length;
-  const confirmedCount = store.requests.filter((r) => r.status === "confirmed").length;
-  const declinedCount = store.requests.filter((r) => r.status === "declined").length;
+  // Helper predicates for robust status matching across live database records
+  const isPendingStatus = (status?: string) => {
+    const s = (status || "").toLowerCase().trim();
+    return s === "pending";
+  };
 
-  const videoCount = store.requests.filter((r) => r.sessionType === "video").length;
-  const chatCount = store.requests.filter((r) => r.sessionType === "chat").length;
-  const inPersonCount = store.requests.filter((r) => r.sessionType === "in-person").length;
+  const isConfirmedStatus = (status?: string) => {
+    const s = (status || "").toLowerCase().trim();
+    return s === "confirmed" || s === "completed";
+  };
+
+  const isDeclinedStatus = (status?: string) => {
+    const s = (status || "").toLowerCase().trim();
+    return s === "declined" || s === "cancelled" || s === "rejected";
+  };
+
+  // Dynamic filter counts
+  const pendingCount = useMemo(
+    () => store.requests.filter((r) => isPendingStatus(r.status)).length,
+    [store.requests]
+  );
+  const confirmedCount = useMemo(
+    () => store.requests.filter((r) => isConfirmedStatus(r.status)).length,
+    [store.requests]
+  );
+  const declinedCount = useMemo(
+    () => store.requests.filter((r) => isDeclinedStatus(r.status)).length,
+    [store.requests]
+  );
+
+  const videoCount = useMemo(
+    () =>
+      store.requests.filter((r) => {
+        const mod = (r.sessionType || "").toLowerCase().trim();
+        return mod === "video" || mod === "phone";
+      }).length,
+    [store.requests]
+  );
+  const chatCount = useMemo(
+    () =>
+      store.requests.filter(
+        (r) => (r.sessionType || "").toLowerCase().trim() === "chat"
+      ).length,
+    [store.requests]
+  );
+  const inPersonCount = useMemo(
+    () =>
+      store.requests.filter(
+        (r) => (r.sessionType || "").toLowerCase().trim() === "in-person"
+      ).length,
+    [store.requests]
+  );
 
   const filteredRequests = useMemo(() => {
     return store.requests.filter((req) => {
       // 1. Status Filter
-      if (statusFilter !== "all" && req.status !== statusFilter) {
+      if (statusFilter === "pending" && !isPendingStatus(req.status)) {
         return false;
       }
+      if (statusFilter === "confirmed" && !isConfirmedStatus(req.status)) {
+        return false;
+      }
+      if (statusFilter === "declined" && !isDeclinedStatus(req.status)) {
+        return false;
+      }
+
       // 2. Modality Filter
-      if (modalityFilter !== "all" && req.sessionType !== modalityFilter) {
+      const mod = (req.sessionType || "").toLowerCase().trim();
+      const normalizedMod = mod === "phone" ? "video" : mod;
+      if (modalityFilter !== "all" && normalizedMod !== modalityFilter) {
         return false;
       }
+
       // 3. Search Query Filter
       if (searchQuery.trim().length > 0) {
         const q = searchQuery.toLowerCase().trim();
@@ -68,7 +122,8 @@ export default function RequestsScreen() {
         const matchesAnon = (req.studentAnonId || "").toLowerCase().includes(q);
         const matchesTopic = (req.topic || "").toLowerCase().includes(q);
         const matchesNotes = (req.notes || "").toLowerCase().includes(q);
-        if (!matchesName && !matchesAnon && !matchesTopic && !matchesNotes) {
+        const matchesReason = (req.cancelReason || "").toLowerCase().includes(q);
+        if (!matchesName && !matchesAnon && !matchesTopic && !matchesNotes && !matchesReason) {
           return false;
         }
       }
@@ -407,10 +462,18 @@ export default function RequestsScreen() {
               color="#A7F3D0"
               style={{ marginBottom: 12 }}
             />
-            <Text style={styles.emptyTitle}>No matching requests found</Text>
+            <Text style={styles.emptyTitle}>
+              {statusFilter === "pending"
+                ? "No Pending Requests"
+                : statusFilter === "confirmed"
+                ? "No Confirmed Requests"
+                : statusFilter === "declined"
+                ? "No Declined Requests"
+                : "No matching requests found"}
+            </Text>
             <Text style={styles.emptySubtitle}>
               {statusFilter !== "all" || modalityFilter !== "all" || searchQuery
-                ? "Try clearing filters or search to see more requests."
+                ? "Try switching filter tabs or clearing search to view more requests."
                 : "No booking requests recorded from students at this time."}
             </Text>
           </View>
@@ -418,9 +481,9 @@ export default function RequestsScreen() {
           filteredRequests.map((req) => {
             const isAnon = req.idMode === "anonymous";
             const noteText = cleanNote(req.notes);
-            const isPending = req.status === "pending";
-            const isConfirmed = req.status === "confirmed";
-            const isDeclined = req.status === "declined";
+            const isPending = isPendingStatus(req.status);
+            const isConfirmed = isConfirmedStatus(req.status);
+            const isDeclined = isDeclinedStatus(req.status);
             const isHighlighted = params.requestId === req.id;
 
             // Prevent duplicate text in topic chip and student note
