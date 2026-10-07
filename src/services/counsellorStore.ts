@@ -10,7 +10,6 @@ import {
   CounsellorProfileInfo,
   SessionItem,
   RequestStatus,
-  SessionType,
 } from "@/types/counsellorDashboard";
 import { AlertItem } from "@/types/counsellorAlerts";
 import {
@@ -759,21 +758,7 @@ export function initFirebaseSync() {
             const nowMs = Date.now();
             const isPast = endDate.getTime() < nowMs;
 
-            // Capture all student booking requests with normalized status (pending, confirmed, declined)
-            const rawStatus = (d.status || "pending").toString().toLowerCase().trim();
-            const normalizedStatus: RequestStatus =
-              rawStatus === "confirmed" || rawStatus === "completed"
-                ? "confirmed"
-                : rawStatus === "declined" || rawStatus === "cancelled" || rawStatus === "rejected"
-                ? "declined"
-                : "pending";
-
-            const rawSessionType = (d.sessionType || "video").toString().toLowerCase().trim();
-            const normalizedSessionType: SessionType =
-              rawSessionType === "phone" ? "video" : (rawSessionType === "chat" ? "chat" : rawSessionType === "in-person" ? "in-person" : "video");
-
-            const derivedCancelReason = d.cancelReason || (rawStatus === "cancelled" ? "Cancelled by student" : (rawStatus === "declined" ? "Declined by counselor" : undefined));
-
+            // Capture all student booking requests (pending, confirmed, declined)
             const requestItem: BookingRequestItem = {
               id,
               studentId,
@@ -781,16 +766,16 @@ export function initFirebaseSync() {
               displayName: studentAnonId,
               idMode: "anonymous",
               requestedTime: `${startStr}–${endStr}`,
-              sessionType: normalizedSessionType,
+              sessionType: d.sessionType || "video",
               duration: "45m",
               topic: d.topic || (d.notes && d.notes.length < 30 ? d.notes.replace(/^ANONYMOUS:\s*/, "") : "Clinical Consultation"),
-              status: normalizedStatus,
+              status: (d.status as RequestStatus) || "pending",
               slotId: d.slotId,
               date: dateStr,
               startAt: d.startAt,
               endAt: d.endAt,
               notes: d.notes,
-              cancelReason: derivedCancelReason,
+              cancelReason: d.cancelReason,
               phqScore: typeof d.phqScore === "number" ? d.phqScore : (d.notes?.includes("PHQ-9: 14") ? 14 : (d.notes?.includes("PHQ-9: 18") ? 18 : undefined)),
               phqRange: typeof d.phqRange === "string" ? d.phqRange : (typeof d.phqScore === "number" ? (d.phqScore >= 15 ? "Moderately Severe" : d.phqScore >= 10 ? "Moderate Anxiety" : "Standard Range") : (d.notes?.includes("PHQ-9: 14") ? "Moderate Anxiety" : undefined)),
               isExpired: isPast,
@@ -1011,19 +996,18 @@ export function initFirebaseSync() {
                   createdAt: d.updatedAt || d.createdAt,
                 });
               }
-            } else if (rawStatus === "declined" || rawStatus === "cancelled" || rawStatus === "rejected") {
-              const isCancelled = rawStatus === "cancelled";
+            } else if (d.status === "declined") {
               firestoreAlerts.push({
                 id: `alert-dec-${id}`,
-                title: isCancelled ? "Booking Cancelled" : "Request Declined",
-                description: `Session request from ${studentAnonId} ${isCancelled ? "cancelled by student" : "declined"} (${derivedCancelReason || "Schedule conflict"}).`,
+                title: "Request Declined",
+                description: `Session request from ${studentAnonId} declined (${d.cancelReason || "Schedule conflict"}).`,
                 timestamp: isToday ? "Today" : dateStr,
                 isUnread: false,
                 category: "request",
                 priority: "normal",
                 iconName: "close-circle-outline",
                 actionLabel: "View Details",
-                badgeLabel: isCancelled ? "Cancelled" : "Declined",
+                badgeLabel: "Declined",
                 refType: "request",
                 refId: id,
                 studentAnonId,

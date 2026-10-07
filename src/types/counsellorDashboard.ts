@@ -4,7 +4,7 @@
 export type IdMode = "anonymous" | "standard";
 export type SessionType = "video" | "chat" | "in-person";
 export type SessionStatus = "confirmed" | "completed" | "cancelled";
-export type RequestStatus = "pending" | "confirmed" | "declined" | "cancelled" | "completed";
+export type RequestStatus = "pending" | "confirmed" | "declined";
 
 export type SessionItem = {
   id: string;
