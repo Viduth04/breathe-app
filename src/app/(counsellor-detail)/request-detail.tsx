@@ -103,6 +103,48 @@ export default function RequestDetailScreen() {
     setFeedback("Alternative slot proposed to student via secure notification.");
   };
 
+  const handleJoin = () => {
+    if (matchedReq?.isExpired) {
+      router.navigate({
+        pathname: "/(counsellor-detail)/session-notes",
+        params: {
+          sessionId: data.id,
+          studentAnonId: data.studentAnonId,
+        },
+      });
+      return;
+    }
+    if (data.sessionType === "video") {
+      router.navigate({
+        pathname: "/(counsellor-detail)/ready-to-join",
+        params: {
+          studentAnonId: data.studentAnonId,
+          sessionTitle: "Encrypted Video Consultation",
+          timeRange: data.proposedTime,
+          duration: "45m",
+          sessionId: data.id,
+        },
+      });
+    } else if (data.sessionType === "chat") {
+      router.navigate({
+        pathname: "/(counsellor)/messages",
+        params: {
+          studentAnonId: data.studentAnonId,
+          sessionId: data.id,
+        },
+      });
+    } else {
+      router.navigate({
+        pathname: "/(counsellor-detail)/anonymous-session-details",
+        params: {
+          sessionId: data.id,
+          studentAnonId: data.studentAnonId,
+          sessionType: "in-person",
+        },
+      });
+    }
+  };
+
   const handleDecline = () => {
     router.push({
       pathname: "/(counsellor-detail)/decline-request",
@@ -335,47 +377,142 @@ export default function RequestDetailScreen() {
         {/* ─── Decision & Scheduling Card ─── */}
         <View style={styles.decisionCard}>
           <View style={styles.decisionHeaderRow}>
-            <Text style={styles.decisionTitle}>Decision & Scheduling</Text>
+            <Text style={styles.decisionTitle}>
+              {data.status === "accepted"
+                ? "Confirmed Appointment"
+                : data.status === "declined"
+                ? "Request Declined"
+                : "Decision & Scheduling"}
+            </Text>
             <Text style={styles.syncHint}>Auto-syncs to calendar</Text>
           </View>
 
-          {/* Accept Button */}
-          <Pressable
-            style={[
-              styles.primaryBtn,
-              data.status === "accepted" && styles.disabledBtn,
-            ]}
-            onPress={handleAccept}
-            accessibilityLabel="Accept Request"
-            accessibilityRole="button"
-          >
-            <Ionicons name="checkmark-circle-outline" size={20} color={colors.white} />
-            <Text style={styles.primaryBtnText}>
-              {data.status === "accepted" ? "Request Accepted" : "Accept Request"}
-            </Text>
-          </Pressable>
+          {data.status === "accepted" ? (
+            <>
+              <Pressable
+                style={[styles.primaryBtn, matchedReq?.isExpired && { backgroundColor: "#065F46" }]}
+                onPress={handleJoin}
+                accessibilityLabel={matchedReq?.isExpired ? "Review Notes" : "Enter Session"}
+                accessibilityRole="button"
+              >
+                <Ionicons
+                  name={
+                    matchedReq?.isExpired
+                      ? "document-text-outline"
+                      : data.sessionType === "video"
+                      ? "videocam-outline"
+                      : data.sessionType === "chat"
+                      ? "chatbubbles-outline"
+                      : "business-outline"
+                  }
+                  size={20}
+                  color={colors.white}
+                />
+                <Text style={styles.primaryBtnText}>
+                  {matchedReq?.isExpired
+                    ? "Session Concluded • Review Notes"
+                    : data.sessionType === "video"
+                    ? "Enter Video Room"
+                    : data.sessionType === "chat"
+                    ? "Open Secured Chat"
+                    : "Session Notes & Room"}
+                </Text>
+              </Pressable>
 
-          {/* Reschedule Button */}
-          <Pressable
-            style={styles.outlineBtn}
-            onPress={handleReschedule}
-            accessibilityLabel="Reschedule or Propose New Time"
-            accessibilityRole="button"
-          >
-            <Ionicons name="calendar-outline" size={18} color={colors.text} />
-            <Text style={styles.outlineBtnText}>Reschedule / Propose New Time</Text>
-          </Pressable>
+              <Pressable
+                style={styles.outlineBtn}
+                onPress={() => router.navigate("/(counsellor)/schedule")}
+                accessibilityLabel="View in Clinical Schedule"
+                accessibilityRole="button"
+              >
+                <Ionicons name="calendar-outline" size={18} color={colors.text} />
+                <Text style={styles.outlineBtnText}>View in Clinical Schedule</Text>
+              </Pressable>
+            </>
+          ) : data.status === "declined" ? (
+            <>
+              <View style={styles.declinedNoticeBox}>
+                <Ionicons name="alert-circle" size={18} color="#DC2626" />
+                <Text style={styles.declinedNoticeText}>
+                  This booking request was declined. (Reason:{" "}
+                  {matchedReq?.cancelReason || "Schedule conflict"})
+                </Text>
+              </View>
+              <Pressable
+                style={styles.primaryBtn}
+                onPress={() =>
+                  router.navigate({
+                    pathname: "/(counsellor-detail)/requests",
+                    params: { status: "declined" },
+                  })
+                }
+                accessibilityLabel="View All Declined Requests"
+                accessibilityRole="button"
+              >
+                <Ionicons name="list-outline" size={18} color={colors.white} />
+                <Text style={styles.primaryBtnText}>View All Declined Requests</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              {matchedReq?.isExpired && (
+                <View style={styles.expiredNoticeCard}>
+                  <Ionicons name="time-outline" size={18} color="#B45309" />
+                  <Text style={styles.expiredNoticeText}>
+                    The requested session slot ({data.proposedDate} • {data.proposedTime}) has expired and cannot be accepted. Please propose an alternative time slot or decline.
+                  </Text>
+                </View>
+              )}
 
-          {/* Decline Button */}
-          <Pressable
-            style={styles.declineBtn}
-            onPress={handleDecline}
-            accessibilityLabel="Decline with note to student"
-            accessibilityRole="button"
-          >
-            <Ionicons name="close-circle-outline" size={16} color={colors.danger} />
-            <Text style={styles.declineBtnText}>Decline with note to student</Text>
-          </Pressable>
+              {/* Accept Button */}
+              <Pressable
+                style={[
+                  styles.primaryBtn,
+                  matchedReq?.isExpired && { backgroundColor: "#CBD5E1" },
+                ]}
+                disabled={Boolean(matchedReq?.isExpired)}
+                onPress={handleAccept}
+                accessibilityLabel={matchedReq?.isExpired ? "Slot Expired" : "Accept Request"}
+                accessibilityRole="button"
+              >
+                <Ionicons
+                  name={matchedReq?.isExpired ? "time-outline" : "checkmark-circle-outline"}
+                  size={20}
+                  color={matchedReq?.isExpired ? "#64748B" : colors.white}
+                />
+                <Text
+                  style={[
+                    styles.primaryBtnText,
+                    matchedReq?.isExpired && { color: "#64748B" },
+                  ]}
+                >
+                  {matchedReq?.isExpired ? "Slot Expired (Cannot Accept)" : "Accept Request"}
+                </Text>
+              </Pressable>
+
+              {/* Reschedule Button */}
+              <Pressable
+                style={styles.outlineBtn}
+                onPress={handleReschedule}
+                accessibilityLabel="Reschedule or Propose New Time"
+                accessibilityRole="button"
+              >
+                <Ionicons name="calendar-outline" size={18} color={colors.text} />
+                <Text style={styles.outlineBtnText}>Reschedule / Propose New Time</Text>
+              </Pressable>
+
+              {/* Decline Button */}
+              <Pressable
+                style={styles.declineBtn}
+                onPress={handleDecline}
+                accessibilityLabel="Decline with note to student"
+                accessibilityRole="button"
+              >
+                <Ionicons name="close-circle-outline" size={16} color={colors.danger} />
+                <Text style={styles.declineBtnText}>Decline with note to student</Text>
+              </Pressable>
+            </>
+          )}
         </View>
       </ScrollView>
 
@@ -949,6 +1086,41 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontSize: 13,
     fontWeight: "600",
+  },
+  expiredNoticeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+  },
+  expiredNoticeText: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: "#B45309",
+    fontWeight: "600",
+    flex: 1,
+  },
+  declinedNoticeBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+  },
+  declinedNoticeText: {
+    fontSize: 13,
+    color: "#991B1B",
+    fontWeight: "600",
+    flex: 1,
   },
   modalOverlay: {
     flex: 1,

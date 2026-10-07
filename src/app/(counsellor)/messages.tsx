@@ -44,6 +44,7 @@ export default function CounsellorMessagesScreen() {
   const { messagesUnread, decrementMessages } = useCounsellorBadges();
   const {
     threads: storeThreads,
+    profile,
     clearAllConversations,
     resetConversations,
     sendChatMessage,
@@ -275,15 +276,25 @@ export default function CounsellorMessagesScreen() {
             <View style={styles.headerBellBadge} />
           </Pressable>
 
-          <View style={styles.headerAvatarContainer}>
-            <Image
-              source={{
-                uri: "https://images.unsplash.com/photo-1594824813645-316b2cfd2906?auto=format&fit=crop&w=256&q=80",
-              }}
-              style={styles.headerAvatar}
-            />
+          <Pressable
+            style={styles.headerAvatarContainer}
+            onPress={() => router.navigate("/(counsellor-detail)/settings")}
+            accessibilityRole="button"
+            accessibilityLabel="Counselor Profile Settings"
+          >
+            {profile?.avatarUrl ? (
+              <Image
+                source={{ uri: profile.avatarUrl }}
+                style={styles.headerAvatar}
+                accessibilityLabel="Counselor Profile Photo"
+              />
+            ) : (
+              <View style={[styles.headerAvatar, { backgroundColor: "#ECFDF5", alignItems: "center", justifyContent: "center" }]}>
+                <Ionicons name="person" size={18} color="#065F46" />
+              </View>
+            )}
             <View style={styles.headerAvatarOnlineBadge} />
-          </View>
+          </Pressable>
         </View>
       </View>
 

@@ -29,7 +29,7 @@ export default function ReadyToJoinScreen() {
     duration?: string;
   }>();
 
-  const { callMediaState, toggleMic, toggleCam } = useCounsellorStore();
+  const { callMediaState, toggleMic, toggleCam, pastSessions, calendarBookings } = useCounsellorStore();
   const { alert } = usePopup();
 
   const sessionId = params.sessionId;
@@ -38,15 +38,38 @@ export default function ReadyToJoinScreen() {
   const timeRange = params.timeRange || "02:00 PM – 02:45 PM";
   const duration = params.duration || "45 min session";
 
+  const matchedPast = pastSessions.find(
+    (p) => p.id === sessionId || p.studentAnonId === studentAnonId
+  );
+  const matchedBooking = calendarBookings.find(
+    (b) => b.id === sessionId || b.id === `cal-${sessionId}`
+  );
+  const isExpired = Boolean(
+    matchedPast ||
+    matchedBooking?.isExpired ||
+    matchedBooking?.isPast
+  );
+
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
 
   useEffect(() => {
+    if (isExpired) return;
     const roomId = `mnd-${studentAnonId.replace(/[^0-9]/g, "") || "4021"}-sec`;
     const counselorUid = "coun_anjali_01";
     initLobbySession(roomId, counselorUid, "Dr. Anjali Perera", callMediaState).catch(() => {});
-  }, [studentAnonId]);
+  }, [studentAnonId, isExpired]);
 
   const handleJoinCall = () => {
+    if (isExpired) {
+      router.navigate({
+        pathname: "/(counsellor-detail)/session-notes",
+        params: {
+          sessionId,
+          studentAnonId,
+        },
+      });
+      return;
+    }
     router.navigate({
       pathname: "/(counsellor-detail)/active-video-call",
       params: {
@@ -90,6 +113,19 @@ export default function ReadyToJoinScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* ─── Expired Consultation Banner ─── */}
+        {isExpired && (
+          <View style={styles.expiredNoticeCard}>
+            <Ionicons name="time-outline" size={22} color="#D97706" style={{ marginTop: 2 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.expiredNoticeTitle}>Session Window Expired</Text>
+              <Text style={styles.expiredNoticeDesc}>
+                This session was scheduled for {matchedBooking?.dateStr || matchedPast?.date || timeRange} and the deadline has passed. Video room entry is disabled. Please review or complete the clinical documentation below.
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* ─── Camera Preview Card ─── */}
         <View style={styles.cameraPreviewCard}>
           {/* Top Left Status Pill */}
@@ -244,13 +280,15 @@ export default function ReadyToJoinScreen() {
 
         {/* ─── Join Now CTA ─── */}
         <Pressable
-          style={styles.joinNowBtn}
+          style={[styles.joinNowBtn, isExpired && styles.expiredConcludeBtn]}
           onPress={handleJoinCall}
           accessibilityRole="button"
-          accessibilityLabel="Join Now"
+          accessibilityLabel={isExpired ? "Conclude & Review Notes" : "Join Now"}
         >
-          <Ionicons name="call" size={18} color={colors.white} />
-          <Text style={styles.joinNowBtnText}>Join Now</Text>
+          <Ionicons name={isExpired ? "document-text" : "call"} size={18} color={colors.white} />
+          <Text style={styles.joinNowBtnText}>
+            {isExpired ? "Conclude & Review Notes" : "Join Now"}
+          </Text>
         </Pressable>
 
         {/* ─── Diagnostics Link ─── */}
@@ -595,5 +633,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: "#475569",
+  },
+  expiredNoticeCard: {
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    borderRadius: 14,
+    padding: spacing.md,
+    flexDirection: "row",
+    gap: spacing.sm + 2,
+    marginBottom: spacing.md,
+  },
+  expiredNoticeTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#92400E",
+    marginBottom: 3,
+  },
+  expiredNoticeDesc: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: "#B45309",
+  },
+  expiredConcludeBtn: {
+    backgroundColor: "#047857",
   },
 });

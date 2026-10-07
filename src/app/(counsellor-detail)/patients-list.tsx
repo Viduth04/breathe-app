@@ -3,6 +3,7 @@
 
 import React, { useState, useMemo } from "react";
 import {
+  Image,
   View,
   Text,
   StyleSheet,
@@ -21,14 +22,31 @@ import { usePopup } from "@/components/common/popup";
 type FilterTab = "all" | "active" | "anonymous" | "past";
 
 export default function PatientsListScreen() {
-  const { patients } = useCounsellorStore();
+  const { patients = [], profile } = useCounsellorStore();
   const { alert } = usePopup();
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"recent" | "name">("recent");
 
+  // Dynamic counts computed from actual real caseload data
+  const tabCounts = useMemo(() => {
+    const activeCount = patients.filter(
+      (p) => p.isActive || p.status === "active"
+    ).length;
+    const anonCount = patients.filter((p) => p.idMode === "anonymous").length;
+    const pastCount = patients.filter(
+      (p) => p.status === "inactive" || !p.isActive
+    ).length;
+    return {
+      all: patients.length,
+      active: activeCount,
+      anonymous: anonCount,
+      past: pastCount,
+    };
+  }, [patients]);
+
   const filteredPatients = useMemo(() => {
-    return patients.filter((patient) => {
+    let result = patients.filter((patient) => {
       // Tab filter
       if (activeTab === "active" && !patient.isActive && patient.status !== "active") {
         return false;
@@ -36,7 +54,7 @@ export default function PatientsListScreen() {
       if (activeTab === "anonymous" && patient.idMode !== "anonymous") {
         return false;
       }
-      if (activeTab === "past" && patient.status !== "inactive") {
+      if (activeTab === "past" && patient.status !== "inactive" && patient.isActive) {
         return false;
       }
 
@@ -51,7 +69,16 @@ export default function PatientsListScreen() {
 
       return true;
     });
-  }, [patients, activeTab, searchQuery]);
+
+    // Apply sorting
+    if (sortBy === "name") {
+      result = [...result].sort((a, b) => a.displayName.localeCompare(b.displayName));
+    } else {
+      result = [...result].sort((a, b) => (b.isActive ? 1 : 0) - (a.isActive ? 1 : 0));
+    }
+
+    return result;
+  }, [patients, activeTab, searchQuery, sortBy]);
 
   const handlePatientPress = (patient: PatientItem) => {
     router.navigate({
@@ -144,7 +171,15 @@ export default function PatientsListScreen() {
           hitSlop={8}
         >
           <View style={styles.counselorAvatarCircle}>
-            <Text style={styles.counselorAvatarText}>DR</Text>
+            {profile?.avatarUrl ? (
+              <Image
+                source={{ uri: profile.avatarUrl }}
+                style={styles.counselorAvatarImg}
+                accessibilityLabel="Counselor Profile Photo"
+              />
+            ) : (
+              <Text style={styles.counselorAvatarText}>DR</Text>
+            )}
           </View>
           <View style={styles.counselorOnlineDot} />
         </Pressable>
@@ -203,7 +238,7 @@ export default function PatientsListScreen() {
                 activeTab === "all" && styles.tabChipTextActive,
               ]}
             >
-              All (24)
+              All ({tabCounts.all})
             </Text>
           </Pressable>
 
@@ -220,7 +255,7 @@ export default function PatientsListScreen() {
                 activeTab === "active" && styles.tabChipTextActive,
               ]}
             >
-              Active (18)
+              Active ({tabCounts.active})
             </Text>
           </Pressable>
 
@@ -243,7 +278,7 @@ export default function PatientsListScreen() {
                 activeTab === "anonymous" && styles.tabChipTextActive,
               ]}
             >
-              Anonymous (6)
+              Anonymous ({tabCounts.anonymous})
             </Text>
           </Pressable>
 
@@ -260,7 +295,7 @@ export default function PatientsListScreen() {
                 activeTab === "past" && styles.tabChipTextActive,
               ]}
             >
-              Past Cases
+              Past Cases{tabCounts.past > 0 ? ` (${tabCounts.past})` : ""}
             </Text>
           </Pressable>
         </ScrollView>
@@ -363,6 +398,21 @@ export default function PatientsListScreen() {
                 {patient.status === "pending" && (
                   <View style={styles.pendingCircle} />
                 )}
+                <Pressable
+                  style={styles.cardChatBtn}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    router.navigate({
+                      pathname: "/(counsellor)/messages",
+                      params: { studentAnonId: patient.studentAnonId },
+                    });
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Message ${patient.displayName}`}
+                  hitSlop={6}
+                >
+                  <Ionicons name="chatbubble-ellipses-outline" size={15} color="#065F46" />
+                </Pressable>
                 <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
               </View>
             </Pressable>
@@ -417,6 +467,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 2,
     borderColor: "rgba(6, 95, 70, 0.2)",
+    overflow: "hidden",
+  },
+  counselorAvatarImg: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
   },
   counselorAvatarText: {
     fontSize: 13,
@@ -624,6 +680,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  cardChatBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    alignItems: "center",
+    justifyContent: "center",
   },
   activeDot: {
     width: 9,

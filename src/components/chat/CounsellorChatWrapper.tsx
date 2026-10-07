@@ -64,15 +64,16 @@ export default function CounsellorChatWrapper({ activeThread, onBack }: { active
   let lastSeenDate: Date | undefined = undefined;
 
   if (lastSeenField) {
-    lastSeenDate = lastSeenField.toDate ? lastSeenField.toDate() : new Date(lastSeenField.seconds * 1000);
-    const diffMinutes = (currentTime - lastSeenDate.getTime()) / 60000;
+    const validDate = lastSeenField.toDate ? lastSeenField.toDate() : new Date(lastSeenField.seconds * 1000);
+    lastSeenDate = validDate;
+    const diffMinutes = (currentTime - validDate.getTime()) / 60000;
     isOnline = diffMinutes < 1.5;
     
     if (isOnline) {
       statusText = "Online";
     } else {
-      const isToday = new Date().toDateString() === lastSeenDate.toDateString();
-      statusText = `Last seen ${isToday ? 'today at ' : ''}${lastSeenDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+      const isToday = new Date().toDateString() === validDate.toDateString();
+      statusText = `Last seen ${isToday ? 'today at ' : ''}${validDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
     }
   }
 

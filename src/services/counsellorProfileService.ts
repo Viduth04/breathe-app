@@ -4,6 +4,7 @@
 
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { updateProfile } from "firebase/auth";
 import {
   doc,
@@ -237,9 +238,9 @@ export async function generatePhotoDataUrl(imageUri: string): Promise<string> {
 }
 
 /**
- * Uploads an avatar image to Firebase Storage, sets Auth photoURL, and syncs Firestore.
+ * Uploads an avatar image to Firebase Storage, sets Auth photoURL, and syncs Firestore database.
  * Resilient against Spark plan / uninitialized Cloud Storage by falling back seamlessly
- * to a base64 data URL.
+ * to an optimized base64 data URL saved in Firestore counselorPreferences and users collections.
  */
 export async function uploadCounsellorAvatar(
   counsellorId: string,
@@ -252,31 +253,58 @@ export async function uploadCounsellorAvatar(
 
   // 2. Generate optimized data URL (under 150KB per Member 1 PHOTO_MAX_BYTES)
   const dataUrl = await generatePhotoDataUrl(cleanUri);
-  onProgress?.(70);
+  onProgress?.(60);
 
-  let finalAvatarUrl = dataUrl;
+  const finalAvatarUrl = dataUrl;
 
-  // 3. Dual-sync to counsellorPhotos collection (the designated Firestore store for data URLs)
+  // 3. Persist to Firestore counselorPreferences collection (full owner access allowed by rules)
   try {
-    const photoDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELLOR_PHOTOS, counsellorId);
+    const prefDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELOR_PREFERENCES, counsellorId);
     await setDoc(
-      photoDocRef,
+      prefDocRef,
       {
-        photo: dataUrl,
+        avatarUrl: finalAvatarUrl,
+        photo: finalAvatarUrl,
         updatedAt: serverTimestamp(),
       },
       { merge: true }
     );
-  } catch (photoErr) {
-    console.warn("[counsellorProfileService] counsellorPhotos sync warning:", photoErr);
+  } catch (prefErr) {
+    console.warn("[counsellorProfileService] counselorPreferences avatar sync warning:", prefErr);
   }
 
-  // 4. Update in-memory photo cache so all avatar components re-render immediately
+  // 4. Persist to Firestore users collection (owner update allowed by rules)
+  if (auth.currentUser && auth.currentUser.uid === counsellorId) {
+    try {
+      const userDocRef = doc(db, "users", counsellorId);
+      await setDoc(
+        userDocRef,
+        {
+          avatarUrl: finalAvatarUrl,
+          photoURL: finalAvatarUrl.length < 2000 ? finalAvatarUrl : "",
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (userErr) {
+      console.warn("[counsellorProfileService] users collection avatar sync warning:", userErr);
+    }
+  }
+
+  // 5. Persist to local AsyncStorage for permanent offline/instant recovery
   try {
-    setCachedCounsellorPhoto(counsellorId, dataUrl);
+    await AsyncStorage.setItem(`counsellor_avatar_${counsellorId}`, finalAvatarUrl);
+    await AsyncStorage.setItem("counsellor_avatar_active", finalAvatarUrl);
+  } catch (storageErr) {
+    console.warn("[counsellorProfileService] AsyncStorage save warning:", storageErr);
+  }
+
+  // 6. Update in-memory photo cache so all avatar components re-render immediately
+  try {
+    setCachedCounsellorPhoto(counsellorId, finalAvatarUrl);
   } catch (_) {}
 
-  // 5. Update Auth profile photoURL ONLY if it's a short URL (Firebase Auth limit is 2048 chars)
+  // 7. Update Auth profile photoURL ONLY if it's a short URL (Firebase Auth limit is 2048 chars)
   if (
     auth.currentUser &&
     auth.currentUser.uid === counsellorId &&
@@ -289,29 +317,12 @@ export async function uploadCounsellorAvatar(
     }
   }
 
-  // 6. Update Firestore counsellor document photoURL ONLY if it's a short HTTP URL (rules limit is 2000 chars)
-  if (finalAvatarUrl.startsWith("http") && auth.currentUser) {
-    try {
-      const counsellorDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELORS, counsellorId);
-      await setDoc(
-        counsellorDocRef,
-        {
-          photoURL: finalAvatarUrl,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-    } catch (fsErr) {
-      console.warn("[counsellorProfileService] Firestore photoURL update error:", fsErr);
-    }
-  }
-
   onProgress?.(100);
   return finalAvatarUrl;
 }
 
 /**
- * Removes the counsellor avatar from Storage, Auth, and Firestore.
+ * Removes the counsellor avatar from Storage, Auth, and Firestore database.
  */
 export async function deleteCounsellorAvatar(counsellorId: string): Promise<void> {
   // 1. Delete from Firebase Storage if present
@@ -333,28 +344,59 @@ export async function deleteCounsellorAvatar(counsellorId: string): Promise<void
     }
   }
 
-  // 3. Clear Firestore counsellor doc photoURL
+  // 3. Clear from counselorPreferences collection
   try {
-    const counsellorDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELORS, counsellorId);
+    const prefDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELOR_PREFERENCES, counsellorId);
     await setDoc(
-      counsellorDocRef,
+      prefDocRef,
       {
-        photoURL: "",
+        avatarUrl: "",
+        photo: "",
         updatedAt: serverTimestamp(),
       },
       { merge: true }
     );
   } catch (e) {
-    console.warn("[counsellorProfileService] Firestore photoURL clear error:", e);
+    console.warn("[counsellorProfileService] counselorPreferences avatar clear error:", e);
   }
 
-  // 4. Clear counsellorPhotos document and cache
+  // 4. Clear from users collection
+  if (auth.currentUser && auth.currentUser.uid === counsellorId) {
+    try {
+      const userDocRef = doc(db, "users", counsellorId);
+      await setDoc(
+        userDocRef,
+        {
+          avatarUrl: "",
+          photoURL: "",
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  // 5. Clear from local AsyncStorage
+  try {
+    await AsyncStorage.removeItem(`counsellor_avatar_${counsellorId}`);
+    await AsyncStorage.removeItem("counsellor_avatar_active");
+  } catch (e) {
+    // Ignore
+  }
+
+  // 6. Clear counsellorPhotos document and cache
   try {
     const photoDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELLOR_PHOTOS, counsellorId);
     await deleteDoc(photoDocRef);
-    setCachedCounsellorPhoto(counsellorId, null);
   } catch (e) {
     // Ignore if not present
+  }
+  try {
+    setCachedCounsellorPhoto(counsellorId, null);
+  } catch (e) {
+    // Ignore
   }
 }
 
@@ -403,26 +445,50 @@ export async function persistCounsellorProfile(
   };
 
   if (input.photoURL) {
-    if (input.photoURL.startsWith("http")) {
-      // Short Cloud Storage URL <= 2000 chars allowed by firestore.rules
-      firestorePayload.photoURL = input.photoURL;
-    } else if (input.photoURL.startsWith("data:")) {
-      // Base64 data URL belongs in counsellorPhotos collection
+    // 1. Sync to counselorPreferences collection
+    try {
+      const prefDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELOR_PREFERENCES, counsellorId);
+      await setDoc(
+        prefDocRef,
+        {
+          avatarUrl: input.photoURL,
+          photo: input.photoURL,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (prefErr) {
+      console.warn("[counsellorProfileService] counselorPreferences photoURL sync error:", prefErr);
+    }
+
+    // 2. Sync to users collection
+    if (auth.currentUser && auth.currentUser.uid === counsellorId) {
       try {
-        const photoDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELLOR_PHOTOS, counsellorId);
+        const userDocRef = doc(db, "users", counsellorId);
         await setDoc(
-          photoDocRef,
+          userDocRef,
           {
-            photo: input.photoURL,
+            avatarUrl: input.photoURL,
+            photoURL: input.photoURL.length < 2000 ? input.photoURL : "",
             updatedAt: serverTimestamp(),
           },
           { merge: true }
         );
-        setCachedCounsellorPhoto(counsellorId, input.photoURL);
-      } catch (photoErr) {
-        console.warn("[counsellorProfileService] counsellorPhotos sync error:", photoErr);
+      } catch (userErr) {
+        console.warn("[counsellorProfileService] users collection photoURL sync error:", userErr);
       }
     }
+
+    // 3. Save to AsyncStorage
+    try {
+      await AsyncStorage.setItem(`counsellor_avatar_${counsellorId}`, input.photoURL);
+      await AsyncStorage.setItem("counsellor_avatar_active", input.photoURL);
+    } catch (_) {}
+
+    // 4. Update memory cache
+    try {
+      setCachedCounsellorPhoto(counsellorId, input.photoURL);
+    } catch (_) {}
   }
 
   // Persist to Cloud Firestore if an authenticated user session is active
