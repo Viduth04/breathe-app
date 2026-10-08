@@ -81,6 +81,20 @@ function parseTimeToMinutes(timeStr?: string): number {
   return hours * 60 + minutes;
 }
 
+/**
+ * Normalizes time strings to clean 2-digit hour display like "02:00 PM" for perfect vertical column alignment.
+ */
+function formatTimeAxis(timeStr?: string): string {
+  if (!timeStr) return "";
+  const firstPart = timeStr.split(/[–\-]/)[0].trim();
+  const match = firstPart.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return firstPart;
+  const h = match[1].padStart(2, "0");
+  const m = match[2];
+  const mer = match[3] ? match[3].toUpperCase() : (parseInt(match[1], 10) < 8 ? "PM" : "AM");
+  return `${h}:${m} ${mer}`;
+}
+
 export default function MyCalendarScreen() {
   const params = useLocalSearchParams<{
     view?: string;
@@ -321,12 +335,25 @@ export default function MyCalendarScreen() {
     store.scheduleDaySlots
       .filter((s) => s.isBooked && (s.dateKey === targetDayDateKey || (s.dateKey && getBookingDayNum({ dateKey: s.dateKey } as any) === selectedDay)))
       .forEach((s) => {
+        // If an open slot was already in the list at this exact time, remove it since it is now booked
+        const openSlotIdx = list.findIndex(
+          (b) =>
+            b.isOpenSlot &&
+            (b.dateKey === (s.dateKey || targetDayDateKey) || !b.dateKey) &&
+            parseTimeToMinutes(b.timeSlot || b.timeRange) === parseTimeToMinutes(s.startTime || s.timeRange)
+        );
+        if (openSlotIdx !== -1) {
+          list.splice(openSlotIdx, 1);
+        }
+
         const alreadyExists = list.some(
           (b) =>
-            b.id === `cal-slot-${s.id}` ||
-            b.id === s.id ||
-            (b.dateKey === (s.dateKey || targetDayDateKey) &&
-              (b.timeSlot === s.startTime || b.timeRange === s.timeRange))
+            !b.isOpenSlot &&
+            (b.id === `cal-slot-${s.id}` ||
+              b.id === s.id ||
+              b.id === `cal-${s.id}` ||
+              (b.dateKey === (s.dateKey || targetDayDateKey) &&
+                parseTimeToMinutes(b.timeSlot || b.timeRange) === parseTimeToMinutes(s.startTime || s.timeRange)))
         );
         if (!alreadyExists) {
           const rawTime = s.startTime || s.timeRange.split("–")[0]?.trim() || "10:00 AM";
@@ -381,12 +408,25 @@ export default function MyCalendarScreen() {
     store.scheduleDaySlots
       .filter((s) => s.isBooked && (s.dateKey === targetDayDateKey || (s.dateKey && getBookingDayNum({ dateKey: s.dateKey } as any) === selectedDay)))
       .forEach((s) => {
+        // If an open slot was already in the list at this exact time, remove it since it is now booked
+        const openSlotIdx = list.findIndex(
+          (b) =>
+            b.isOpenSlot &&
+            (b.dateKey === (s.dateKey || targetDayDateKey) || !b.dateKey) &&
+            parseTimeToMinutes(b.timeSlot || b.timeRange) === parseTimeToMinutes(s.startTime || s.timeRange)
+        );
+        if (openSlotIdx !== -1) {
+          list.splice(openSlotIdx, 1);
+        }
+
         const alreadyExists = list.some(
           (b) =>
-            b.id === `cal-slot-${s.id}` ||
-            b.id === s.id ||
-            (b.dateKey === (s.dateKey || targetDayDateKey) &&
-              (b.timeSlot === s.startTime || b.timeRange === s.timeRange))
+            !b.isOpenSlot &&
+            (b.id === `cal-slot-${s.id}` ||
+              b.id === s.id ||
+              b.id === `cal-${s.id}` ||
+              (b.dateKey === (s.dateKey || targetDayDateKey) &&
+                parseTimeToMinutes(b.timeSlot || b.timeRange) === parseTimeToMinutes(s.startTime || s.timeRange)))
         );
         if (!alreadyExists) {
           const rawTime = s.startTime || s.timeRange.split("–")[0]?.trim() || "10:00 AM";
@@ -830,7 +870,7 @@ export default function MyCalendarScreen() {
                     return (
                       <View key={booking.id} style={styles.timelineRow}>
                         <View style={styles.timeAxisColumn}>
-                          <Text style={styles.timeAxisText}>{booking.timeSlot}</Text>
+                          <Text style={styles.timeAxisText}>{formatTimeAxis(booking.timeSlot)}</Text>
                           <View style={styles.timelineBar} />
                           {!isLast && <View style={styles.dashedTimelineLine} />}
                         </View>
@@ -868,7 +908,7 @@ export default function MyCalendarScreen() {
                     <View key={booking.id} style={styles.timelineRow}>
                       <View style={styles.timeAxisColumn}>
                         <Text style={[styles.timeAxisText, (isFeatured || isVideo) && styles.timeAxisTextFeatured]}>
-                          {booking.timeSlot}
+                          {formatTimeAxis(booking.timeSlot)}
                         </Text>
                         <View style={styles.timelineBar} />
                         {!isLast && <View style={styles.solidTimelineLine} />}
@@ -994,12 +1034,12 @@ export default function MyCalendarScreen() {
                           <View style={styles.standardCardFooter}>
                             <View style={styles.standardFooterLeft}>
                               <Text style={styles.standardCategoryTag}>[CHAT]</Text>
-                              <Text style={styles.standardCategoryValue}>
+                              <Text style={styles.standardCategoryValue} numberOfLines={1}>
                                 {booking.modalityLabel || "Secure Thread"}
                               </Text>
                               <View style={styles.encryptedTagGroup}>
-                                <Ionicons name="lock-closed-outline" size={12} color="#076047" />
-                                <Text style={styles.encryptedTagText}>
+                                <Ionicons name="lock-closed-outline" size={11} color="#076047" />
+                                <Text style={styles.encryptedTagText} numberOfLines={1}>
                                   {booking.isExpired || booking.isPast ? "Concluded" : (booking.securityTag || "Encrypted")}
                                 </Text>
                               </View>
@@ -1798,12 +1838,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    padding: spacing.md,
+    padding: 12,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
     shadowRadius: 4,
     elevation: 1,
+    overflow: "hidden",
   },
   sessionCardFeatured: {
     borderWidth: 2,
@@ -1811,6 +1852,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 3,
+    overflow: "hidden",
   },
   justAddedBadge: {
     position: "absolute",
@@ -1898,6 +1940,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F1F5F9",
     borderWidth: 1,
     borderColor: "#E2E8F0",
+    flexShrink: 0,
   },
   timeRangeCapsuleText: {
     fontSize: 11,
@@ -1907,7 +1950,7 @@ const styles = StyleSheet.create({
   featuredChipsRow: {
     flexDirection: "row",
     gap: 8,
-    marginTop: 12,
+    marginTop: 10,
   },
   featuredTagBox: {
     flex: 1,
@@ -1935,38 +1978,45 @@ const styles = StyleSheet.create({
     color: "#1E293B",
   },
   roomActionFooter: {
-    marginTop: 12,
+    marginTop: 10,
     paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: "#F1F5F9",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 8,
   },
   roomIdGroup: {
+    flex: 1,
+    flexShrink: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    overflow: "hidden",
   },
   roomIdCategory: {
     fontSize: 9,
     fontWeight: "800",
     color: "#94A3B8",
     textTransform: "uppercase",
+    flexShrink: 0,
   },
   roomIdText: {
     fontSize: 12,
     fontFamily: "monospace",
     fontWeight: "700",
     color: "#0F172A",
+    flexShrink: 1,
   },
   enterRoomButton: {
     backgroundColor: "#000000",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: radius.md - 4,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   concludedRoomButton: {
     backgroundColor: "#F1F5F9",
@@ -1977,34 +2027,45 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: "#FFFFFF",
+    letterSpacing: -0.2,
   },
   concludedRoomButtonText: {
     color: "#475569",
     fontWeight: "600",
   },
   standardCardFooter: {
-    marginTop: 12,
+    marginTop: 10,
     paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: "#F1F5F9",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 8,
   },
   standardFooterLeft: {
+    flex: 1,
+    flexShrink: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 5,
+    overflow: "hidden",
   },
   standardCategoryTag: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#64748B",
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: "#065F46",
+    backgroundColor: "#ECFDF5",
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    flexShrink: 0,
   },
   standardCategoryValue: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: "600",
     color: "#334155",
+    flexShrink: 1,
   },
   standardFooterRight: {
     flexDirection: "row",
@@ -2014,10 +2075,11 @@ const styles = StyleSheet.create({
   encryptedTagGroup: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 3,
+    flexShrink: 0,
   },
   encryptedTagText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: "600",
     color: "#076047",
   },
@@ -2025,6 +2087,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
+    flexShrink: 0,
   },
   readyTagText: {
     fontSize: 11,
@@ -2035,24 +2098,28 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 12,
+    marginTop: 10,
     paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: "#F1F5F9",
+    gap: 8,
   },
   inPersonTagBox: {
+    flex: 1,
+    flexShrink: 1,
     backgroundColor: "#F8FAFC",
     borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderWidth: 1,
     borderColor: "#E2E8F0",
+    overflow: "hidden",
   },
   inPersonTagVal: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: "700",
     color: "#1E293B",
-    marginTop: 2,
+    marginTop: 1,
   },
   openSlotCard: {
     flex: 1,
@@ -2061,10 +2128,12 @@ const styles = StyleSheet.create({
     borderStyle: "dashed",
     borderColor: "#CBD5E1",
     borderRadius: radius.md,
-    padding: spacing.md - 2,
+    padding: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 8,
+    overflow: "hidden",
   },
   openSlotLeft: {
     flexDirection: "row",

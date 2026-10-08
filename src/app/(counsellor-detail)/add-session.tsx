@@ -14,7 +14,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { PublishSlotInput, useCounsellorStore } from "@/services/counsellorStore";
@@ -120,16 +120,18 @@ export default function AddSessionScreen() {
     return days;
   }, [colomboNowInfo.dateKey]);
 
-  // Essential state: Selected dates (multi-select), selected times, duration, modality
-  const [selectedDateKeys, setSelectedDateKeys] = useState<string[]>([
-    upcomingDays[1]?.dateKey || upcomingDays[0].dateKey,
-  ]);
+  const { dateKey: initialDateKeyParam } = useLocalSearchParams<{ dateKey?: string }>();
 
-  // Check if a time slot is passed for any of the active selected dates
-  const isTimeSlotPassedForSelectedDates = (timeStr: string): boolean => {
-    if (selectedDateKeys.includes(colomboNowInfo.dateKey)) {
-      return isSlotInPast(colomboNowInfo.dateKey, timeStr);
+  // Essential state: Selected dates (multi-select), selected times, duration, modality
+  const [selectedDateKeys, setSelectedDateKeys] = useState<string[]>(() => {
+    if (initialDateKeyParam && /^\d{4}-\d{2}-\d{2}$/.test(initialDateKeyParam)) {
+      return [initialDateKeyParam];
     }
+    return [upcomingDays[1]?.dateKey || upcomingDays[0].dateKey];
+  });
+
+  // Check if a time slot has passed for all of the active selected dates
+  const isTimeSlotPassedForSelectedDates = (timeStr: string): boolean => {
     return selectedDateKeys.every((dKey) => isSlotInPast(dKey, timeStr));
   };
 
@@ -377,7 +379,12 @@ export default function AddSessionScreen() {
         if (meridiem === "PM" && h < 12) h += 12;
         if (meridiem === "AM" && h === 12) h = 0;
       }
-      const start = new Date(year, month - 1, day, h, m);
+      const yStr = String(year);
+      const mStr = String(month).padStart(2, "0");
+      const dStr = String(day).padStart(2, "0");
+      const hStr = String(h).padStart(2, "0");
+      const minStr = String(m).padStart(2, "0");
+      const start = new Date(`${yStr}-${mStr}-${dStr}T${hStr}:${minStr}:00+05:30`);
       const end = new Date(start.getTime() + durationMinutes * 60000);
       return { start, end };
     };
@@ -472,7 +479,7 @@ export default function AddSessionScreen() {
     const pastSlots = computedSlotsToPublish.filter((s) => s.startAt.getTime() <= nowMs);
     if (pastSlots.length > 0) {
       setFeedbackToast(
-        `Slot(s) ${pastSlots.map((s) => s.startTime).join(", ")} have already passed today. Please choose upcoming times.`
+        `Slot(s) ${pastSlots.map((s) => s.startTime).join(", ")} have already passed relative to current time (${colomboNowInfo.timeDisplay}). Only future slots can be created.`
       );
       return;
     }
