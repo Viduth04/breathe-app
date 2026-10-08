@@ -137,7 +137,7 @@ University students often struggle quietly with stress, exam pressure and low mo
 | **Viduth** (Jayasinghe J M V A, IT23845800) | Authentication, onboarding, privacy, crisis support, admin panel, lecturer side, AI companion, staff approval, counsellor photos | [@Viduth04](https://github.com/Viduth04) |
 | **Ishara** (TODO: student ID) | Home, mood check-in, mood history, exercises, profile, reminders | TODO |
 | **Minhaj** (TODO: student ID) | Student booking and sessions | TODO |
-| **Muaath** (TODO: student ID) | Counsellor dashboard, chat, notifications, testing | TODO |
+| **Muaath** (Muaath I M, IT23833616) | Counsellor dashboard, chat, notifications, testing | [@muaath-im].(https://github.com/muaath-im). |
 
 ## 🛠️ Tech stack
 
