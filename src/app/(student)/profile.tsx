@@ -1,8 +1,9 @@
-// Profile - Ishara (Member 2). Supports FR01, NFR01.
-//
-// Who you are in Breathe (name, email, anonymous ID), a small summary of your
-// own check-ins, editing your name, links to Check-in reminders, Privacy & Data, Crisis Support
-// and the Privacy Policy, and logging out. Delete My Data stays in Privacy & Data.
+/**
+ * Shows the student's name, email, role, anonymous ID, check-in summary,
+ * name editor, support and privacy links, and log out action.
+ * Identity comes from AuthContext, check-ins from checkinService, and name
+ * updates and logout use authService.
+ */
 
 import RoleBadge from "@/components/admin/RoleBadge";
 import Button from "@/components/common/Button";
@@ -26,6 +27,11 @@ import { Href, router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
+/**
+ * Gets up to two initials from a full name for the profile avatar.
+ * @param name The name to shorten.
+ * @returns The first letter of up to the first two name parts.
+ */
 const initials = (name: string) =>
   name
     .trim()
@@ -66,6 +72,10 @@ const LINKS: {
   },
 ];
 
+/**
+ * Renders the student's profile details, check-in summary, and account actions.
+ * @returns The profile screen.
+ */
 export default function Profile() {
   const { user, profile } = useAuth();
   const isGuest = !!profile?.isGuest || !!user?.isAnonymous;
@@ -115,6 +125,7 @@ export default function Profile() {
 
   const saveName = async () => {
     if (!user || name === null) return;
+    // authService accepts names from 2 to 60 characters and returns any validation error.
     const problem = validateFullName(name);
     setNameError(problem);
     setSaveResult(null);
@@ -134,6 +145,7 @@ export default function Profile() {
   };
 
   const handleLogout = async () => {
+    // Confirmation explains the effect of logout; guest data cannot be recovered afterward.
     const ok = await confirmAction(
       isGuest
         ? {
@@ -197,6 +209,7 @@ export default function Profile() {
           accessible
           accessibilityLabel={`Your anonymous ID: ${profile?.anonId ?? "not set"}. Counsellors only see this ID, not your name or email, unless you choose to share them.`}
         >
+          {/* Counsellors use this ID because they do not see the student's name or email by default. */}
           <Text style={typography.caption}>Your anonymous ID</Text>
           <Text style={styles.anonId}>{profile?.anonId ?? "–"}</Text>
           <Text style={typography.caption}>
@@ -264,6 +277,7 @@ export default function Profile() {
       <Card>
         <Text style={typography.heading}>Your details</Text>
         {isGuest ? (
+          // Guest profiles have no account name to update.
           <Text style={[typography.body, styles.muted, styles.cardText]}>
             Guest profiles can't be edited. Create an account if you'd like to add your
             name and keep your check-ins safe.
