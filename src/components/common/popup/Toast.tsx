@@ -161,7 +161,7 @@ export function Toast({
         accessibilityLabel={`Dismiss notification: ${message}`}
       >
         <Ionicons name={s.icon} size={18} color={s.iconColor} />
-        <Text style={[styles.messageText, { color: s.text }]} numberOfLines={2}>
+        <Text style={[styles.messageText, { color: s.text }]} numberOfLines={4}>
           {message}
         </Text>
 

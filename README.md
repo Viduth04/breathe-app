@@ -341,6 +341,12 @@ gitGraph
 
 </details>
 
+### Video consultations
+
+Student and counsellor video calls use Jitsi Meet embedded in the app. Calls use a stable room name derived from the booking ID, so both participants join the same room without Cloud Functions, an API key, or Firebase Blaze billing.
+
+Jitsi Meet is a public meeting service: access is based on having the room name, not on Breathe account authorization. Anyone who obtains that name may be able to join. Keep booking documents protected by Firestore rules and avoid sharing room links outside the participants.
+
 ## ⚠️ Known limitations
 
 We'd rather be honest about what Breathe doesn't do yet:
@@ -351,14 +357,13 @@ We'd rather be honest about what Breathe doesn't do yet:
 - 🧪 **Demo stats**: lecturer charts can show admin-generated sample data (marked `demo: true`) so every state can be shown.
 - 💸 **Spark (free) plan**: no Cloud Functions, so there are no server-side triggers or push notifications; reminders are local only.
 - 🟢 **Online status is visible to any signed-in user** through the Realtime Database presence data.
-- 🎥 **Video calls are a UI prototype**: no video provider is connected yet.
+- 🎥 **Jitsi room access is link-based**: Breathe does not authenticate meeting participants with Jitsi; anyone with a room name may be able to join.
 - 🧩 **Some counsellor screens still use sample data** (`src/services/mock*.ts`).
 
 ## 🔭 Future work
 
 - Enforce App Check and move stats aggregation into Cloud Functions (Blaze plan)
 - True end-to-end encrypted chat
-- A real video provider for tele-health sessions
 - Server push notifications for booking updates
 - Sinhala and Tamil translations
 - Replace the remaining sample data on the counsellor side with live Firestore data

@@ -214,7 +214,9 @@ export default function CounselorSettingsScreen() {
       setIsSavingProfile(true);
       const counsellorId = auth.currentUser?.uid || "counselor-anjali";
 
-      // 1. Optimistic store update
+      // Persist before updating local state so a rejected write cannot look saved.
+      await persistCounsellorProfile(counsellorId, payload);
+
       updateProfile?.({
         fullName: payload.fullName,
         title: payload.title,
@@ -225,14 +227,19 @@ export default function CounselorSettingsScreen() {
         organization: payload.organization,
       });
 
-      // 2. Persist to Firestore
-      await persistCounsellorProfile(counsellorId, payload);
-
       setEditProfileModalVisible(false);
       showToast(POPUP_MESSAGES.toasts.profileSaved, "success");
     } catch (err: any) {
       console.warn("[settings] Save profile error:", err);
-      showToast(err?.message || "Failed to save profile. Please try again.", "error");
+      const permissionDenied =
+        err?.code === "permission-denied" ||
+        err?.message?.includes("Missing or insufficient permissions");
+      showToast(
+        permissionDenied
+          ? 'Firestore blocked the counsellor profile write. Confirm this account has role "counsellor" and the deployed rules allow it to update counsellors/{uid}.'
+          : err?.message || "Failed to save profile. Please try again.",
+        "error"
+      );
     } finally {
       setIsSavingProfile(false);
     }

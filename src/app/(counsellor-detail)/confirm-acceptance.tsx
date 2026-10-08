@@ -23,9 +23,9 @@ export default function ConfirmAcceptanceModal() {
   const { confirmAcceptance, requests } = useCounsellorStore();
   const { showToast } = usePopup();
 
-  const targetReq =
-    requests.find((r) => r.id === params.requestId || r.studentAnonId === params.studentAnonId) ||
-    requests[0];
+  const targetReq = params.requestId
+    ? requests.find((request) => request.id === params.requestId)
+    : undefined;
 
   const studentAnonId = targetReq?.studentAnonId || params.studentAnonId || "Anonymous Student";
   const requestedDate = targetReq?.date
@@ -49,13 +49,19 @@ export default function ConfirmAcceptanceModal() {
     }
     setIsSubmitting(true);
     try {
-      if (targetReq?.id) {
-        confirmAcceptance(targetReq.id, note.trim());
+      if (!targetReq?.id) {
+        throw new Error("Booking request not found. Refresh the requests list and try again.");
       }
+      await confirmAcceptance(targetReq.id, note.trim());
       router.replace("/(counsellor-detail)/request-accepted");
     } catch (e: any) {
       setIsSubmitting(false);
-      showToast({ message: e?.message || "Could not confirm acceptance. Please check connection.", type: "error" });
+      console.error("[confirm-acceptance] Failed to accept booking:", e);
+      const message =
+        e?.code === "permission-denied"
+          ? "Firestore denied the confirmation. Check the deployed booking and slot rules, and confirm this account has the counsellor role."
+          : e?.message || "Could not confirm acceptance. Please check connection.";
+      showToast({ message, type: "error" });
     }
   };
 
@@ -151,6 +157,18 @@ export default function ConfirmAcceptanceModal() {
               </Text>
             </View>
 
+            {!targetReq && (
+              <View style={styles.expiredNoticeCard}>
+                <Ionicons name="alert-circle" size={18} color="#D97706" />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={styles.expiredNoticeTitle}>Request unavailable</Text>
+                  <Text style={styles.expiredNoticeText}>
+                    This request could not be loaded. Close this dialog, refresh the request list, and try again.
+                  </Text>
+                </View>
+              </View>
+            )}
+
             {/* ─── Expired Notice Banner ─── */}
             {targetReq?.isExpired && (
               <View style={styles.expiredNoticeCard}>
@@ -168,22 +186,32 @@ export default function ConfirmAcceptanceModal() {
             <View style={styles.actionsContainer}>
               <Pressable
                 onPress={handleConfirm}
-                disabled={isSubmitting || targetReq?.isExpired}
+                disabled={isSubmitting || !targetReq || targetReq.isExpired}
                 style={[
                   styles.confirmButton,
                   isSubmitting && { opacity: 0.6 },
-                  targetReq?.isExpired && { backgroundColor: "#94A3B8", opacity: 0.8 },
+                  (!targetReq || targetReq.isExpired) && { backgroundColor: "#94A3B8", opacity: 0.8 },
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel={targetReq?.isExpired ? "Slot Expired (Cannot Confirm)" : "Confirm & Accept Request"}
+                accessibilityLabel={
+                  !targetReq
+                    ? "Request unavailable"
+                    : targetReq.isExpired
+                      ? "Slot Expired (Cannot Confirm)"
+                      : "Confirm & Accept Request"
+                }
               >
                 <Ionicons
-                  name={targetReq?.isExpired ? "ban-outline" : "checkmark-circle-outline"}
+                  name={!targetReq || targetReq.isExpired ? "ban-outline" : "checkmark-circle-outline"}
                   size={20}
-                  color={targetReq?.isExpired ? "#FFFFFF" : "#A7F3D0"}
+                  color={!targetReq || targetReq.isExpired ? "#FFFFFF" : "#A7F3D0"}
                 />
                 <Text style={styles.confirmButtonText}>
-                  {targetReq?.isExpired ? "Slot Expired (Cannot Confirm)" : "Confirm & Accept"}
+                  {!targetReq
+                    ? "Request Unavailable"
+                    : targetReq.isExpired
+                      ? "Slot Expired (Cannot Confirm)"
+                      : "Confirm & Accept"}
                 </Text>
               </Pressable>
 

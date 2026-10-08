@@ -264,8 +264,12 @@ export function subscribeToCounsellorAlertsRealtime(
             const alertId = `alert-req-${docId}`;
             alerts.push({
               id: alertId,
-              title: "New Session Request",
-              description: `${studentAnonId} requested a ${data.sessionType || "video"} consultation.`,
+              title: typeof data.rescheduledFrom === "string"
+                ? "Session Reschedule Request"
+                : "New Session Request",
+              description: typeof data.rescheduledFrom === "string"
+                ? `${studentAnonId} requested a new time for a confirmed consultation.`
+                : `${studentAnonId} requested a ${data.sessionType || "video"} consultation.`,
               timestamp: formatNotificationTime(createdAt || data.startAt),
               isUnread: !readAlertIds.has(alertId),
               category: "request",
@@ -298,12 +302,12 @@ export function subscribeToCounsellorAlertsRealtime(
               type: "session_reminder",
               createdAt: updatedAt || createdAt,
             });
-          } else if (data.status === "cancelled") {
+          } else if (data.status === "cancelled" && data.cancelledBy === "student") {
             const alertId = `alert-can-${docId}`;
             alerts.push({
               id: alertId,
-              title: "Session Cancelled",
-              description: `The ${data.sessionType || "video"} consultation with ${studentAnonId} was cancelled (${data.cancelReason || "No reason provided"}).`,
+              title: "Student Cancelled Session",
+              description: `${studentAnonId} cancelled their ${data.sessionType || "video"} consultation. Reason: ${data.cancelReason || "No reason provided"}.`,
               timestamp: formatNotificationTime(updatedAt || createdAt),
               isUnread: !readAlertIds.has(alertId),
               category: "reschedule",

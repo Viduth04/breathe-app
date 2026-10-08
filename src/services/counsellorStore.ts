@@ -32,6 +32,8 @@ import {
 } from "@/types/counsellorDetailScreens";
 import { ChatThread, ChatBubble } from "@/types/counsellorMessages";
 import { TimeSlot } from "@/types/counsellorSchedule";
+import type { Booking } from "@/types/booking";
+import { updateBookingStatus } from "@/services/bookingService";
 import {
   DEFAULT_CLINICAL_ALERT_PREFERENCES,
   MOCK_PATIENTS_LIST,
@@ -58,6 +60,7 @@ import {
   updateDoc,
   addDoc,
   getDocs,
+  getDoc,
   serverTimestamp,
   writeBatch,
   Timestamp,
@@ -201,6 +204,7 @@ export const INITIAL_CALENDAR_BOOKINGS: CalendarBooking[] = [
 
 export type ScheduleDaySlot = {
   id: string;
+  bookingId?: string;
   timeRange: string;
   isBooked: boolean;
   isHeld?: boolean;
@@ -322,6 +326,7 @@ type State = {
   calendarBookings: CalendarBooking[];
   alerts: AlertItem[];
   alertsUnread: number;
+  latestCancellationAlert: AlertItem | null;
   messagesUnread: number;
   isAvailable: boolean;
   profile: CounsellorProfileInfo;
@@ -349,6 +354,7 @@ let state: State = {
   calendarBookings: [],
   alerts: [],
   alertsUnread: 0,
+  latestCancellationAlert: null,
   messagesUnread: 0,
   isAvailable: true,
   profile: { ...MOCK_COUNSELLOR_PROFILE },
@@ -529,6 +535,7 @@ export function initFirebaseSync() {
               : (d.isBooked ? "Consultation" : "Open Slot");
             return {
               id: docSnap.id,
+              bookingId: typeof d.bookingId === "string" ? d.bookingId : undefined,
               dateKey: d.dateKey || "",
               dateDisplay: d.dateDisplay || "",
               startTime: d.startTime || "",
@@ -637,6 +644,16 @@ export function initFirebaseSync() {
             const d = snap.data();
             const avatar = d.avatarUrl || d.photo || "";
             if (avatar) {
+              if (avatar.startsWith("data:image/jpeg;base64,") && avatar.length < 200000) {
+                setDoc(
+                  doc(db, FIRESTORE_COLLECTIONS.COUNSELLOR_PHOTOS, counselorUid),
+                  { photo: avatar, updatedAt: serverTimestamp() },
+                ).catch((error) => {
+                  if (!isFirestorePermissionError(error)) {
+                    console.warn("[counsellorStore] Could not sync counselor photo:", error);
+                  }
+                });
+              }
               state = {
                 ...state,
                 profile: {
@@ -720,6 +737,7 @@ export function initFirebaseSync() {
         collection(db, FIRESTORE_COLLECTIONS.BOOKINGS),
         where("counsellorId", "==", counselorUid)
       );
+      let previousBookingStatuses: Map<string, string> | null = null;
       const unsubBookings = onSnapshot(
         bookingsQuery,
         (snapshot) => {
@@ -728,6 +746,18 @@ export function initFirebaseSync() {
           const firestoreCalendar: CalendarBooking[] = [];
           const firestoreAlerts: AlertItem[] = [];
           const firestorePastSessions: (PastSessionItem & { _time: number })[] = [];
+          const newlyCancelledBooking = previousBookingStatuses
+            ? snapshot.docs
+                .filter((docSnap) =>
+                  docSnap.data().status === "cancelled" &&
+                  previousBookingStatuses?.get(docSnap.id) !== "cancelled"
+                )
+                .sort((a, b) => {
+                  const aTime = a.data().updatedAt?.toMillis?.() || 0;
+                  const bTime = b.data().updatedAt?.toMillis?.() || 0;
+                  return bTime - aTime;
+                })[0]
+            : undefined;
 
           const patientMap = new Map<string, PatientItem>();
 
@@ -829,10 +859,11 @@ export function initFirebaseSync() {
             }
 
             if (d.status === "pending") {
+              const isRescheduleRequest = typeof d.rescheduledFrom === "string";
               if (isPast) {
                 firestoreAlerts.push({
                   id: `alert-req-exp-${id}`,
-                  title: "Session Request Expired",
+                  title: isRescheduleRequest ? "Reschedule Request Expired" : "Session Request Expired",
                   description: `${studentAnonId} requested ${d.sessionType === "chat" ? "secure chat" : d.sessionType === "in-person" ? "in-person" : "video"} consultation (${dateStr} • ${startStr}), but the requested time window has passed.`,
                   timestamp: isToday ? "Today" : dateStr,
                   isUnread: true,
@@ -849,8 +880,10 @@ export function initFirebaseSync() {
               } else {
                 firestoreAlerts.push({
                   id: `alert-req-${id}`,
-                  title: "New Session Request",
-                  description: `${studentAnonId} requested a ${d.sessionType === "chat" ? "secure chat" : d.sessionType === "in-person" ? "in-person" : "video"} consultation (${dateStr} • ${startStr}).`,
+                  title: isRescheduleRequest ? "Session Reschedule Request" : "New Session Request",
+                  description: isRescheduleRequest
+                    ? `${studentAnonId} requested a new time for a confirmed consultation (${dateStr} • ${startStr}). The original appointment has been cancelled.`
+                    : `${studentAnonId} requested a ${d.sessionType === "chat" ? "secure chat" : d.sessionType === "in-person" ? "in-person" : "video"} consultation (${dateStr} • ${startStr}).`,
                   timestamp: isToday ? "Today" : dateStr,
                   isUnread: true,
                   category: "request",
@@ -930,15 +963,14 @@ export function initFirebaseSync() {
                 });
               } else {
                 // Active / upcoming confirmed session
-                if (isToday) {
-                  firestoreSessions.push({
+                firestoreSessions.push({
                     id,
                     studentId,
                     studentAnonId,
                     displayName: studentAnonId,
                     idMode: "anonymous",
                     timeRange: `${startStr} – ${endStr}`,
-                    timeRelative: "Today",
+                    timeRelative: isToday ? "Today" : dateStr,
                     date: dateStr,
                     isNext: false,
                     sessionType: d.sessionType || "video",
@@ -951,7 +983,6 @@ export function initFirebaseSync() {
                     endAt: d.endAt,
                     isExpired: false,
                   });
-                }
 
                 firestoreCalendar.push({
                   id: `cal-${id}`,
@@ -1011,6 +1042,24 @@ export function initFirebaseSync() {
                 refType: "request",
                 refId: id,
                 studentAnonId,
+                createdAt: d.updatedAt || d.createdAt,
+              });
+            } else if (d.status === "cancelled" && d.cancelledBy === "student") {
+              firestoreAlerts.push({
+                id: `alert-can-${id}`,
+                title: "Student Cancelled Session",
+                description: `${studentAnonId} cancelled their ${d.sessionType === "chat" ? "secure chat" : d.sessionType === "in-person" ? "in-person" : d.sessionType || "video"} session (${dateStr} • ${startStr}). Reason: ${d.cancelReason || "No reason provided"}.`,
+                timestamp: isToday ? "Today" : dateStr,
+                isUnread: true,
+                category: "reschedule",
+                priority: "urgent",
+                iconName: "close-circle-outline",
+                actionLabel: "View Details",
+                badgeLabel: "Cancelled",
+                refType: "session",
+                refId: id,
+                studentAnonId,
+                type: "session_cancelled",
                 createdAt: d.updatedAt || d.createdAt,
               });
             } else if (d.status === "completed") {
@@ -1077,11 +1126,11 @@ export function initFirebaseSync() {
             }
           });
 
-          // Sort requests by startAt ascending
+          // Sort requests by updatedAt descending so recently accepted/modified requests show at the top
           firestoreRequests.sort((a, b) => {
-            const timeA = a.startAt?.toMillis?.() || 0;
-            const timeB = b.startAt?.toMillis?.() || 0;
-            return timeA - timeB;
+            const timeA = a.updatedAt?.toMillis?.() || a.createdAt?.toMillis?.() || a.startAt?.toMillis?.() || 0;
+            const timeB = b.updatedAt?.toMillis?.() || b.createdAt?.toMillis?.() || b.startAt?.toMillis?.() || 0;
+            return timeB - timeA;
           });
 
           // Sort sessions by startAt ascending
@@ -1129,6 +1178,9 @@ export function initFirebaseSync() {
 
           const baseOpenSlots = state.calendarBookings.filter((b) => b.isOpenSlot);
           const finalOpenSlots = openCalendarSlots.length > 0 ? openCalendarSlots : baseOpenSlots;
+          const cancellationAlert = newlyCancelledBooking
+            ? firestoreAlerts.find((alert) => alert.refId === newlyCancelledBooking.id) ?? null
+            : null;
 
           state = {
             ...state,
@@ -1137,9 +1189,13 @@ export function initFirebaseSync() {
             calendarBookings: [...firestoreCalendar, ...finalOpenSlots],
             alerts: firestoreAlerts,
             alertsUnread: firestoreAlerts.filter((a) => a.isUnread).length,
+            latestCancellationAlert: cancellationAlert ?? state.latestCancellationAlert,
             patients: Array.from(patientMap.values()),
             pastSessions: firestorePastSessions.map(({ _time, ...item }) => item),
           };
+          previousBookingStatuses = new Map(
+            snapshot.docs.map((docSnap) => [docSnap.id, docSnap.data().status as string]),
+          );
           notifyListeners();
         },
         (err: any) => {
@@ -1276,151 +1332,85 @@ export const counsellorStore = {
     return state;
   },
 
-  // Confirm request acceptance using real Firestore atomic batch
-  confirmAcceptance(requestId: string, counselorNote?: string): AcceptedSessionPayload {
-    const targetReq = state.requests.find((r) => r.id === requestId) || state.requests[0];
-    const studentAnonId = targetReq?.studentAnonId || "Anonymous Student";
+  // Persist acceptance before showing success; the bookings listener updates
+  // requests, sessions, and the counselor calendar from the committed record.
+  async confirmAcceptance(requestId: string, counselorNote?: string): Promise<AcceptedSessionPayload> {
+    const counselorUid = auth.currentUser?.uid;
+    if (!counselorUid) {
+      throw new Error("You must be signed in to accept a booking request.");
+    }
 
-    // 1. Mark as confirmed in requests
-    const updatedRequests = state.requests.map((r) =>
-      r.id === targetReq?.id ? { ...r, status: "confirmed" as RequestStatus } : r
-    );
+    const bookingRef = doc(db, FIRESTORE_COLLECTIONS.BOOKINGS, requestId);
+    const bookingSnap = await getDoc(bookingRef);
+    if (!bookingSnap.exists()) {
+      throw new Error("This booking request no longer exists. Refresh the requests list and try again.");
+    }
 
-    // 2. Add to Today's sessions
-    const newSession: SessionItem = {
-      id: targetReq?.id || `session-${Date.now()}`,
-      studentId: targetReq?.studentId || "",
-      studentAnonId,
-      displayName: studentAnonId,
-      idMode: "anonymous",
-      timeRange: targetReq?.requestedTime || "10:00 AM – 10:45 AM",
-      timeRelative: targetReq?.date || "Today",
-      date: targetReq?.date || "Today",
-      isNext: false,
-      sessionType: targetReq?.sessionType || "video",
-      sessionTypeLabel:
-        targetReq?.sessionType === "video"
-          ? "Encrypted Video Consultation"
-          : targetReq?.sessionType === "chat"
-          ? "Secured Chat Session"
-          : "In-Person Consultation",
-      noteType: "Focus",
-      noteText: counselorNote || targetReq?.topic || "General Consultation",
-      status: "confirmed",
-      slotId: targetReq?.slotId,
-    };
+    const data = bookingSnap.data();
+    if (data.counsellorId !== counselorUid) {
+      throw new Error("You can only accept requests assigned to your account.");
+    }
+    if (data.status !== "pending") {
+      throw new Error("This booking request has already been handled.");
+    }
+    if (!data.studentId || !data.startAt || !data.endAt) {
+      throw new Error("The booking is missing required student or appointment details.");
+    }
 
-    // 3. Add to Calendar bookings
-    const newCalendarBooking: CalendarBooking = {
-      id: `cal-booking-${Date.now()}`,
-      timeSlot: targetReq?.requestedTime?.split("–")[0]?.trim() || "10:00 AM",
-      studentId: targetReq?.studentId || "",
-      studentAnonId,
-      displayName: studentAnonId,
-      idMode: "anonymous",
-      subInfo: `${targetReq?.date || "Today"} • Confirmed`,
-      timeRange: targetReq?.requestedTime || "10:00 AM – 10:45 AM",
-      modality: targetReq?.sessionType || "video",
-      modalityLabel: targetReq?.sessionType === "chat" ? "Secure Thread" : "Consultation (45m)",
-      securityTag: "E2E Encrypted",
-      roomOrDetail: `Room ID: brth-${targetReq?.id ? targetReq.id.slice(0, 8) : "sec"}`,
-      roomId: `brth-${targetReq?.id ? targetReq.id.slice(0, 8) : "sec"}`,
-      isJustAdded: true,
-      statusText: "Intake Complete",
-    };
-
-    const acceptedPayload: AcceptedSessionPayload = {
-      requestId: targetReq?.id || requestId,
-      studentAnonId,
-      date: targetReq?.date || "Today",
-      timeRange: targetReq?.requestedTime || "10:00–10:45 AM",
-      modality:
-        targetReq?.sessionType === "video"
-          ? "Encrypted Video Call (45m)"
-          : targetReq?.sessionType === "chat"
-          ? "Secured Chat Session"
-          : "In-Person Consultation",
-      counselorNote,
-      roomId: `brth-${targetReq?.id ? targetReq.id.slice(0, 8) : "sec"}`,
-    };
-
-    const reqStartDate = targetReq?.startAt?.toDate ? targetReq.startAt.toDate() : (targetReq?.startAt ? new Date(targetReq.startAt) : new Date());
-    const reqEndDate = targetReq?.endAt?.toDate ? targetReq.endAt.toDate() : (targetReq?.endAt ? new Date(targetReq.endAt) : new Date(reqStartDate.getTime() + 45 * 60000));
-    const isPastReq = reqEndDate.getTime() < Date.now();
-    if (isPastReq || targetReq?.isExpired) {
+    const studentAnonId = data.studentAnonId || "Anonymous Student";
+    const startAt = data.startAt;
+    const endAt = data.endAt;
+    const startDate = startAt.toDate ? startAt.toDate() : new Date(startAt);
+    const endDate = endAt.toDate ? endAt.toDate() : new Date(endAt);
+    if (
+      !Number.isFinite(startDate.getTime()) ||
+      !Number.isFinite(endDate.getTime()) ||
+      endDate.getTime() <= Date.now()
+    ) {
       throw new Error("Cannot accept an expired booking request. The scheduled time has passed.");
     }
 
-    const colomboTodayStr = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Colombo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-    const colomboReqStr = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Colombo", year: "numeric", month: "2-digit", day: "2-digit" }).format(reqStartDate);
-    const isTodaySession = colomboTodayStr === colomboReqStr;
-
-    state = {
-      ...state,
-      requests: updatedRequests,
-      sessions: isTodaySession ? [newSession, ...state.sessions] : state.sessions,
-      calendarBookings: [newCalendarBooking, ...state.calendarBookings],
-      lastAcceptedSession: acceptedPayload,
+    const request = state.requests.find((item) => item.id === requestId);
+    const acceptedPayload: AcceptedSessionPayload = {
+      requestId,
+      studentAnonId,
+      date: request?.date || startDate.toLocaleDateString("en-LK", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        timeZone: "Asia/Colombo",
+      }),
+      timeRange: request?.requestedTime || `${startDate.toLocaleTimeString("en-LK", {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "Asia/Colombo",
+      })}–${endDate.toLocaleTimeString("en-LK", {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "Asia/Colombo",
+      })}`,
+      modality:
+        data.sessionType === "video"
+          ? "Encrypted Video Call (45m)"
+          : data.sessionType === "chat"
+          ? "Secured Chat Session"
+          : "In-Person Consultation",
+      counselorNote,
+      roomId: `brth-${requestId.slice(0, 8)}`,
     };
 
+    const booking: Booking = {
+      ...(data as Omit<Booking, "id">),
+      id: bookingSnap.id,
+      studentId: data.studentId,
+      counsellorId: data.counsellorId,
+      studentAnonId,
+    };
+
+    await updateBookingStatus(counselorUid, booking, "confirmed");
+
+    state = { ...state, lastAcceptedSession: acceptedPayload };
     notifyListeners();
-
-    // Background Firebase atomic batch write (bookings, slots, careLinks)
-    if (isFirebaseConfigured() && auth.currentUser && targetReq?.id) {
-      const uid = auth.currentUser.uid;
-      (async () => {
-        try {
-          const studentId = targetReq.studentId;
-          const batch = writeBatch(db);
-
-          // 1. Update Booking status to confirmed
-          const bookingRef = doc(db, FIRESTORE_COLLECTIONS.BOOKINGS, targetReq.id);
-          batch.update(bookingRef, {
-            status: "confirmed",
-            updatedAt: serverTimestamp(),
-          });
-
-          // 2. Mark slot booked if slotId exists
-          if (targetReq.slotId) {
-            const slotRef = doc(db, "slots", targetReq.slotId);
-            batch.update(slotRef, {
-              isBooked: true,
-              bookingId: targetReq.id,
-              updatedAt: serverTimestamp(),
-            });
-          }
-
-          // 3. Atomically create careLinks/{counsellorId}_{studentId}
-          if (studentId) {
-            const careLinkId = `${uid}_${studentId}`;
-            const existingLinks = await getDocs(
-              query(
-                collection(db, "careLinks"),
-                where("counsellorId", "==", uid),
-                where("studentId", "==", studentId)
-              )
-            );
-            if (existingLinks.empty) {
-              const careLinkRef = doc(db, "careLinks", careLinkId);
-              batch.set(careLinkRef, {
-                counsellorId: uid,
-                studentId: studentId,
-                bookingId: targetReq.id,
-                createdAt: serverTimestamp(),
-              });
-            }
-          }
-
-          // Commit all operations atomically
-          await batch.commit();
-        } catch (e: any) {
-          if (!isFirestorePermissionError(e)) {
-            console.warn("[counsellorStore] Firestore confirmAcceptance atomic batch sync error:", e?.message || e);
-          }
-        }
-      })();
-    }
-
     return acceptedPayload;
   },
 
@@ -1724,7 +1714,14 @@ export const counsellorStore = {
   async publishAvailabilityBatch(slots: PublishSlotInput[]): Promise<number> {
     if (!slots || slots.length === 0) return 0;
 
-    const uid = auth?.currentUser?.uid || "coun_anjali_01";
+    if (!isFirebaseConfigured() || !db) {
+      throw new Error("Firebase is not configured. Availability was not published.");
+    }
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error("You must be signed in to publish availability.");
+    }
+    const uid = currentUser.uid;
 
     const newDaySlots: ScheduleDaySlot[] = slots.map((s) => ({
       id: `slot_${uid}_${s.dateKey.replace(/-/g, "")}_${s.startTime.replace(/[^a-zA-Z0-9]/g, "")}`,
@@ -1744,6 +1741,47 @@ export const counsellorStore = {
       isAnonymous: true,
     }));
 
+    try {
+      const slotBatch = writeBatch(db);
+
+      slots.forEach((s) => {
+        const dateSlug = s.dateKey.replace(/-/g, "");
+        const timeSlug = s.startTime.replace(/[^a-zA-Z0-9]/g, "");
+        const slotId = `slot_${uid}_${dateSlug}_${timeSlug}`;
+        const slotDocRef = doc(db, "slots", slotId);
+
+        slotBatch.set(
+          slotDocRef,
+          {
+            id: slotId,
+            counsellorId: uid,
+            dateKey: s.dateKey,
+            dateDisplay: s.dateDisplay,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            timeRange: `${s.startTime} – ${s.endTime}`,
+            startAt: Timestamp.fromDate(s.startAt),
+            endAt: Timestamp.fromDate(s.endAt),
+            sessionTypes: s.sessionTypes,
+            isBooked: false,
+            isHeld: false,
+            bookingId: null,
+            bookedStudentAnonId: null,
+            status: "open",
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      });
+
+      await slotBatch.commit();
+      console.log(`[counsellorStore] Successfully stored ${slots.length} available slots in Firestore /slots`);
+    } catch (error) {
+      console.error("[counsellorStore] Error storing slots in database:", error);
+      throw error;
+    }
+
     state = {
       ...state,
       scheduleDaySlots: [
@@ -1756,57 +1794,14 @@ export const counsellorStore = {
     };
     notifyListeners();
 
-    if (isFirebaseConfigured() && db) {
-      try {
-        const slotBatch = writeBatch(db);
-
-        slots.forEach((s) => {
-          const dateSlug = s.dateKey.replace(/-/g, "");
-          const timeSlug = s.startTime.replace(/[^a-zA-Z0-9]/g, "");
-          const slotId = `slot_${uid}_${dateSlug}_${timeSlug}`;
-          const slotDocRef = doc(db, "slots", slotId);
-
-          slotBatch.set(
-            slotDocRef,
-            {
-              id: slotId,
-              counsellorId: uid,
-              dateKey: s.dateKey,
-              dateDisplay: s.dateDisplay,
-              startTime: s.startTime,
-              endTime: s.endTime,
-              timeRange: `${s.startTime} – ${s.endTime}`,
-              startAt: Timestamp.fromDate(s.startAt),
-              endAt: Timestamp.fromDate(s.endAt),
-              sessionTypes: s.sessionTypes,
-              isBooked: false,
-              isHeld: false,
-              bookingId: null,
-              bookedStudentAnonId: null,
-              status: "open",
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            },
-            { merge: true }
-          );
-        });
-
-        // Commit slots in dedicated batch (not mixed with profile)
-        await slotBatch.commit();
-        console.log(`[counsellorStore] Successfully stored ${slots.length} available slots in Firestore /slots`);
-
-        // Update counsellor profile availability in a separate safe write
-        try {
-          const counsellorRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELORS, uid);
-          await updateDoc(counsellorRef, {
-            isAvailable: true,
-            updatedAt: serverTimestamp(),
-          });
-        } catch (_) {}
-      } catch (e: any) {
-        console.error("[counsellorStore] Error storing slots in database:", e);
-        throw e;
-      }
+    try {
+      const counsellorRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELORS, uid);
+      await updateDoc(counsellorRef, {
+        isAvailable: true,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.warn("[counsellorStore] Slots were saved, but profile availability could not be updated:", error);
     }
 
     return slots.length;

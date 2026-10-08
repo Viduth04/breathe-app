@@ -3,10 +3,12 @@
 // 100% Real Firestore database data: real counsellors, real slots, real bookings (zero mock data)
 // Privacy-first Anonymous Mode, modality-aware launching (video, chat, in-person), strict Asia/Colombo timezone alignment.
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   ActivityIndicator,
   Pressable,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -23,12 +25,41 @@ import Button from "@/components/common/Button";
 import CounsellorAvatar from "@/components/common/CounsellorAvatar";
 import Card from "@/components/common/Card";
 import { listCounsellors } from "@/services/adminService";
-import { subscribeToMyBookings } from "@/services/bookingService";
+import {
+  cancelBooking,
+  deleteCancelledBooking,
+  subscribeToMyBookings,
+} from "@/services/bookingService";
 import { Booking } from "@/types/booking";
 import { CounsellorProfile } from "@/types/counsellor";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/firebase/config";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
+
+type OpenCounsellorSlot = {
+  startAt: Date;
+  endAt: Date;
+};
+
+const webSearchInputStyle = {
+  outlineStyle: "none",
+  outlineWidth: 0,
+  borderWidth: 0,
+  boxShadow: "none",
+} as any;
+
+const toDate = (value: unknown): Date | null => {
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value : null;
+  if (value && typeof value === "object" && "toDate" in value) {
+    const date = (value as { toDate: () => Date }).toDate();
+    return date instanceof Date && Number.isFinite(date.getTime()) ? date : null;
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date : null;
+  }
+  return null;
+};
 
 export default function SessionsScreen() {
   const [filter, setFilter] = useState<"upcoming" | "past" | "cancelled">("upcoming");
@@ -41,8 +72,12 @@ export default function SessionsScreen() {
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const [sessions, setSessions] = useState<Booking[]>([]);
+  const reconciledReschedules = useRef(new Set<string>());
   const [sessionsLoading, setSessionsLoading] = useState(true);
-  const [counsellorSlotsMap, setCounsellorSlotsMap] = useState<Record<string, string[]>>({});
+  const [counsellorSlotsMap, setCounsellorSlotsMap] = useState<
+    Record<string, OpenCounsellorSlot[]>
+  >({});
+  const [availabilityNowMillis, setAvailabilityNowMillis] = useState(Date.now());
 
   useEffect(() => {
     // 1. Fetch real counsellors from Firestore
@@ -60,22 +95,32 @@ export default function SessionsScreen() {
     fetchCounsellors();
 
     // 2. Real-time Firestore synchronization with counselor availability slots
-    const slotsQuery = query(collection(db, "slots"), where("isBooked", "==", false));
+    const slotsQuery = query(collection(db, "slots"));
     const unsubSlots = onSnapshot(
       slotsQuery,
       (snapshot) => {
-        const map: Record<string, string[]> = {};
+        const map: Record<string, OpenCounsellorSlot[]> = {};
         snapshot.docs.forEach((docSnap) => {
           const d = docSnap.data();
-          if (d.counsellorId && !d.isHeld && d.status !== "held" && d.status !== "closed") {
-            const timeSlot =
-              d.timeRange || (d.startTime && d.endTime ? `${d.startTime} – ${d.endTime}` : "");
-            if (timeSlot) {
-              if (!map[d.counsellorId]) map[d.counsellorId] = [];
-              map[d.counsellorId].push(timeSlot);
-            }
-          }
+          if (
+            typeof d.counsellorId !== "string" ||
+            !d.counsellorId ||
+            d.isBooked ||
+            d.isHeld ||
+            d.status === "held" ||
+            d.status === "closed"
+          ) return;
+
+          const startAt = toDate(d.startAt);
+          const endAt = toDate(d.endAt);
+          if (!startAt || !endAt || endAt.getTime() <= startAt.getTime()) return;
+
+          if (!map[d.counsellorId]) map[d.counsellorId] = [];
+          map[d.counsellorId].push({ startAt, endAt });
         });
+        Object.values(map).forEach((slots) =>
+          slots.sort((a, b) => a.startAt.getTime() - b.startAt.getTime())
+        );
         setCounsellorSlotsMap(map);
       },
       (err) => {
@@ -106,33 +151,94 @@ export default function SessionsScreen() {
     };
   }, [user]);
 
-  // Helper to get real open slots for a counselor
-  const getCounsellorOpenSlots = (c: CounsellorProfile): string[] => {
-    const liveSlots = counsellorSlotsMap[c.uid] || [];
-    if (liveSlots.length > 0) return liveSlots;
-    return c.availableSlots || [];
+  useEffect(() => {
+    if (!user) return;
+
+    const bookingsById = new Map(sessions.map((booking) => [booking.id, booking]));
+    sessions.forEach((replacement) => {
+      if (replacement.status !== "pending" || !replacement.rescheduledFrom) return;
+      const previousBooking = bookingsById.get(replacement.rescheduledFrom);
+      if (
+        !previousBooking ||
+        previousBooking.status !== "confirmed" ||
+        previousBooking.studentId !== user.uid ||
+        previousBooking.counsellorId !== replacement.counsellorId ||
+        reconciledReschedules.current.has(previousBooking.id)
+      ) {
+        return;
+      }
+
+      reconciledReschedules.current.add(previousBooking.id);
+      void cancelBooking(previousBooking, "Rescheduled by student").catch((error) => {
+        reconciledReschedules.current.delete(previousBooking.id);
+        console.error("[sessions] Failed to cancel the original rescheduled booking:", error);
+      });
+    });
+  }, [sessions, user]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setAvailabilityNowMillis(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getCounsellorOpenSlots = (c: CounsellorProfile): OpenCounsellorSlot[] =>
+    (counsellorSlotsMap[c.uid] || []).filter(
+      (slot) => slot.startAt.getTime() > availabilityNowMillis,
+    );
+
+  const formatOpenSlot = (slot: OpenCounsellorSlot) => {
+    const date = slot.startAt.toLocaleDateString("en-LK", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      timeZone: "Asia/Colombo",
+    });
+    const start = slot.startAt.toLocaleTimeString("en-LK", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "Asia/Colombo",
+    });
+    const end = slot.endAt.toLocaleTimeString("en-LK", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "Asia/Colombo",
+    });
+    return `${date} • ${start} – ${end}`;
   };
 
   const filteredCounsellors = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+    const normalizedCategory = selectedCategory.toLocaleLowerCase();
+
     return counsellors.filter((c) => {
-      if (searchQuery.trim() !== "") {
-        const q = searchQuery.toLowerCase();
-        const matchName = c.fullName.toLowerCase().includes(q);
-        const matchSpecialty = c.specialties.some((s) => s.toLowerCase().includes(q));
-        const matchTitle = (c.title || "").toLowerCase().includes(q);
+      const specialties = Array.isArray(c.specialties) ? c.specialties : [];
+      if (normalizedQuery) {
+        const matchName = (c.fullName || "").toLocaleLowerCase().includes(normalizedQuery);
+        const matchSpecialty = specialties.some((s) =>
+          s.toLocaleLowerCase().includes(normalizedQuery)
+        );
+        const matchTitle = (c.title || "").toLocaleLowerCase().includes(normalizedQuery);
         if (!matchName && !matchSpecialty && !matchTitle) return false;
       }
-      if (selectedCategory !== "All") {
-        if (!c.specialties.includes(selectedCategory as any)) return false;
+      if (normalizedCategory !== "all") {
+        if (!specialties.some((s) => s.toLocaleLowerCase() === normalizedCategory)) return false;
       }
       if (availableNow) {
-        if (!c.isAvailable) return false;
-        const openSlots = getCounsellorOpenSlots(c);
-        if (openSlots.length === 0) return false;
+        const openSlots = (counsellorSlotsMap[c.uid] || []).filter(
+          (slot) => slot.startAt.getTime() > availabilityNowMillis,
+        );
+        if (!c.isAvailable || openSlots.length === 0) return false;
       }
       return true;
     });
-  }, [counsellors, searchQuery, selectedCategory, availableNow, counsellorSlotsMap]);
+  }, [
+    counsellors,
+    searchQuery,
+    selectedCategory,
+    availableNow,
+    counsellorSlotsMap,
+    availabilityNowMillis,
+  ]);
 
   // Asia/Colombo timezone alignment formatting
   const formatColomboDateTime = (timestamp?: any) => {
@@ -167,19 +273,28 @@ export default function SessionsScreen() {
   };
 
   const nowMillis = Date.now();
+  const compareSessionStart = (a: Booking, b: Booking) =>
+    a.startAt.toMillis() - b.startAt.toMillis();
 
   // End-to-end booking lifecycle management
   const upcomingSessions = useMemo(() => {
+    const sessionsWithPendingReschedule = new Set(
+      sessions
+        .filter((booking) => booking.status === "pending" && booking.rescheduledFrom)
+        .map((booking) => booking.rescheduledFrom),
+    );
+
     return sessions.filter((s) => {
       if (s.status === "pending") return true;
       if (s.status === "confirmed") {
+        if (sessionsWithPendingReschedule.has(s.id)) return false;
         if (s.endAt && typeof s.endAt.toMillis === "function") {
           return s.endAt.toMillis() >= nowMillis;
         }
         return true;
       }
       return false;
-    });
+    }).sort(compareSessionStart);
   }, [sessions, nowMillis]);
 
   const pastSessions = useMemo(() => {
@@ -191,19 +306,59 @@ export default function SessionsScreen() {
         }
       }
       return false;
-    });
+    }).sort(compareSessionStart);
   }, [sessions, nowMillis]);
 
   const cancelledSessions = useMemo(() => {
-    return sessions.filter((s) => s.status === "cancelled" || s.status === "declined");
+    return sessions
+      .filter((s) => s.status === "cancelled" || s.status === "declined")
+      .sort(compareSessionStart);
   }, [sessions]);
+
+  const searchedSessions = useMemo(() => {
+    const term = searchQuery.trim().toLocaleLowerCase();
+    const filterSessions = (items: Booking[]) =>
+      items.filter((session) => {
+        const counsellor = counsellors.find((item) => item.uid === session.counsellorId);
+        const searchableText = [
+          counsellor?.fullName,
+          ...(counsellor?.specialties || []),
+          session.sessionType,
+          session.sessionType.replace("-", " "),
+          session.sessionType === "video" ? "video call" : "",
+          session.sessionType === "chat" ? "chat session" : "",
+          session.sessionType === "in-person" ? "in person" : "",
+          session.status,
+          session.cancelReason,
+          session.notes,
+          formatColomboDateTime(session.startAt),
+          formatColomboDateOnly(session.startAt),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase();
+        return searchableText.includes(term);
+      });
+
+    return term
+      ? {
+          upcoming: filterSessions(upcomingSessions),
+          past: filterSessions(pastSessions),
+          cancelled: filterSessions(cancelledSessions),
+        }
+      : {
+          upcoming: upcomingSessions,
+          past: pastSessions,
+          cancelled: cancelledSessions,
+        };
+  }, [searchQuery, counsellors, upcomingSessions, pastSessions, cancelledSessions]);
 
   // Modality-aware Launching for confirmed sessions
   const handleJoinSession = (session: Booking) => {
     if (session.sessionType === "chat") {
       router.push({
         pathname: "/(student)/session/chat",
-        params: { uid: session.counsellorId },
+        params: { uid: session.counsellorId, bookingId: session.id },
       });
     } else if (session.sessionType === "in-person") {
       router.push({
@@ -217,6 +372,13 @@ export default function SessionsScreen() {
         params: { id: session.id },
       });
     }
+  };
+
+  const openSessionDetails = (session: Booking) => {
+    router.push({
+      pathname: "/(student)/session/details",
+      params: { id: session.id },
+    });
   };
 
   return (
@@ -234,8 +396,15 @@ export default function SessionsScreen() {
         <View style={styles.searchContainer}>
           <Ionicons name="search" size={20} color={colors.textSecondary} style={styles.searchIcon} />
           <TextInput
-            style={styles.searchInput}
-            placeholder="Search counselors by name, title, or specialty..."
+            style={[
+              styles.searchInput,
+              Platform.OS === "web" ? webSearchInputStyle : undefined,
+            ]}
+            placeholder={
+              mainTab === "my-sessions"
+                ? "Search sessions by counselor, date, type, or status..."
+                : "Search counselors by name, title, or specialty..."
+            }
             placeholderTextColor={colors.textSecondary}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -248,7 +417,7 @@ export default function SessionsScreen() {
         </View>
 
         {/* Categories / Specialties Filter */}
-        <ScrollView
+        {mainTab === "find-counselor" && <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.categories}
@@ -256,7 +425,10 @@ export default function SessionsScreen() {
         >
           <Pressable
             style={[styles.categoryPill, selectedCategory === "All" && styles.categoryPillActive]}
-            onPress={() => setSelectedCategory("All")}
+            onPress={() => {
+              setSelectedCategory("All");
+              setMainTab("find-counselor");
+            }}
           >
             <Text style={[styles.categoryText, selectedCategory === "All" && styles.categoryTextActive]}>
               All
@@ -270,7 +442,10 @@ export default function SessionsScreen() {
                   styles.categoryPill,
                   selectedCategory === cat && styles.categoryPillActive,
                 ]}
-                onPress={() => setSelectedCategory(cat)}
+                onPress={() => {
+                  setSelectedCategory(cat);
+                  setMainTab("find-counselor");
+                }}
               >
                 <Text
                   style={[
@@ -283,7 +458,7 @@ export default function SessionsScreen() {
               </Pressable>
             )
           )}
-        </ScrollView>
+        </ScrollView>}
 
         {/* Top Dual-Scope Tabs */}
         <View style={styles.topTabs}>
@@ -331,7 +506,7 @@ export default function SessionsScreen() {
                     filter === "upcoming" && styles.subFilterTextActive,
                   ]}
                 >
-                  Upcoming ({upcomingSessions.length})
+                  Upcoming ({searchedSessions.upcoming.length})
                 </Text>
               </Pressable>
               <Pressable
@@ -344,7 +519,7 @@ export default function SessionsScreen() {
                     filter === "past" && styles.subFilterTextActive,
                   ]}
                 >
-                  Past ({pastSessions.length})
+                  Past ({searchedSessions.past.length})
                 </Text>
               </Pressable>
               <Pressable
@@ -357,7 +532,7 @@ export default function SessionsScreen() {
                     filter === "cancelled" && styles.subFilterTextActive,
                   ]}
                 >
-                  Cancelled ({cancelledSessions.length})
+                  Cancelled ({searchedSessions.cancelled.length})
                 </Text>
               </Pressable>
             </View>
@@ -374,18 +549,20 @@ export default function SessionsScreen() {
 
                 {sessionsLoading ? (
                   <ActivityIndicator style={{ marginTop: 40 }} color={colors.primary} />
-                ) : upcomingSessions.length === 0 ? (
+                ) : searchedSessions.upcoming.length === 0 ? (
                   <View style={styles.emptyStateContainer}>
                     <View style={styles.emptyStateIconBox}>
                       <Ionicons name="calendar-outline" size={26} color={colors.primary} />
                     </View>
-                    <Text style={styles.emptyStateText}>No upcoming sessions</Text>
+                    <Text style={styles.emptyStateText}>
+                      {searchQuery.trim() ? "No matching upcoming sessions" : "No upcoming sessions"}
+                    </Text>
                     <Text style={styles.emptyStateSubtext}>
                       Find a counselor and book a consultation to begin care.
                     </Text>
                   </View>
                 ) : (
-                  upcomingSessions.map((session) => {
+                  searchedSessions.upcoming.map((session) => {
                     const isPending = session.status === "pending";
                     const matchedCounsellor = counsellors.find(
                       (c) => c.uid === session.counsellorId
@@ -404,7 +581,17 @@ export default function SessionsScreen() {
                           ]}
                         />
 
-                        <View style={styles.cardContent}>
+                        <Pressable
+                          disabled={isPending}
+                          onPress={() => openSessionDetails(session)}
+                          style={styles.cardContent}
+                          accessibilityRole={isPending ? undefined : "button"}
+                          accessibilityLabel={
+                            isPending
+                              ? undefined
+                              : `View session details for ${formatColomboDateTime(session.startAt)}`
+                          }
+                        >
                           <View style={styles.cardTopRow}>
                             <View
                               style={[
@@ -484,7 +671,7 @@ export default function SessionsScreen() {
                                   {session.sessionType === "chat"
                                     ? "Secure Chat"
                                     : session.sessionType === "in-person"
-                                    ? "In-Person Clinic"
+                                    ? "In person"
                                     : "Video Call"}
                                 </Text>
                               </View>
@@ -499,6 +686,9 @@ export default function SessionsScreen() {
                             </View>
                           </View>
 
+                        </Pressable>
+
+                        <View style={styles.cardActions}>
                           {isPending ? (
                             <View style={styles.pendingNoticeBox}>
                               <Ionicons name="hourglass-outline" size={18} color="#D97706" />
@@ -506,7 +696,7 @@ export default function SessionsScreen() {
                                 Request submitted. Awaiting counselor review and clinical confirmation.
                               </Text>
                             </View>
-                          ) : (
+                          ) : session.sessionType !== "in-person" ? (
                             <Pressable
                               style={[
                                 styles.actionBtn,
@@ -514,8 +704,6 @@ export default function SessionsScreen() {
                                   backgroundColor:
                                     session.sessionType === "chat"
                                       ? "#0D9488"
-                                      : session.sessionType === "in-person"
-                                      ? "#4338CA"
                                       : colors.primary,
                                   flexDirection: "row",
                                   justifyContent: "center",
@@ -529,8 +717,6 @@ export default function SessionsScreen() {
                                 name={
                                   session.sessionType === "chat"
                                     ? "chatbubbles-outline"
-                                    : session.sessionType === "in-person"
-                                    ? "business-outline"
                                     : "videocam-outline"
                                 }
                                 size={20}
@@ -539,12 +725,10 @@ export default function SessionsScreen() {
                               <Text style={{ color: colors.white, fontWeight: "600", fontSize: 16 }}>
                                 {session.sessionType === "chat"
                                   ? "Open Secure Chat"
-                                  : session.sessionType === "in-person"
-                                  ? "View Clinic Location & Details"
                                   : "Join Video Call"}
                               </Text>
                             </Pressable>
-                          )}
+                          ) : null}
 
                           <View style={styles.actionButtonsRow}>
                             {!isPending && (
@@ -553,7 +737,10 @@ export default function SessionsScreen() {
                                 onPress={() =>
                                   router.push({
                                     pathname: "/(student)/session/counselor",
-                                    params: { uid: session.counsellorId },
+                                    params: {
+                                      uid: session.counsellorId,
+                                      bookingId: session.id,
+                                    },
                                   })
                                 }
                               >
@@ -594,7 +781,7 @@ export default function SessionsScreen() {
 
                 {sessionsLoading ? (
                   <ActivityIndicator style={{ marginTop: 40 }} color={colors.primary} />
-                ) : pastSessions.length === 0 ? (
+                ) : searchedSessions.past.length === 0 ? (
                   <View style={styles.emptyStateContainer}>
                     <View style={styles.emptyStateIconBox}>
                       <MaterialCommunityIcons
@@ -603,13 +790,15 @@ export default function SessionsScreen() {
                         color={colors.primary}
                       />
                     </View>
-                    <Text style={styles.emptyStateText}>No past consultations yet</Text>
+                    <Text style={styles.emptyStateText}>
+                      {searchQuery.trim() ? "No matching past sessions" : "No past consultations yet"}
+                    </Text>
                     <Text style={styles.emptyStateSubtext}>
                       Completed appointments and clinical records will appear here.
                     </Text>
                   </View>
                 ) : (
-                  pastSessions.map((session) => {
+                  searchedSessions.past.map((session) => {
                     const matchedCounsellor = counsellors.find(
                       (c) => c.uid === session.counsellorId
                     );
@@ -617,6 +806,12 @@ export default function SessionsScreen() {
 
                     return (
                       <Card key={session.id} style={styles.sessionCard}>
+                        <Pressable
+                          style={StyleSheet.absoluteFill}
+                          onPress={() => openSessionDetails(session)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`View session details for ${formatColomboDateTime(session.startAt)}`}
+                        />
                         <View style={[styles.cardTopIndicator, { backgroundColor: "#9CA3AF" }]} />
                         <View style={styles.cardContent}>
                           <View style={styles.cardTopRow}>
@@ -652,7 +847,7 @@ export default function SessionsScreen() {
                                   {session.sessionType === "chat"
                                     ? "Secure Chat"
                                     : session.sessionType === "in-person"
-                                    ? "In-Person Clinic"
+                                    ? "In person"
                                     : "Telehealth Video"}
                                 </Text>
                               </Text>
@@ -678,32 +873,7 @@ export default function SessionsScreen() {
                             </View>
                           </View>
 
-                          <View style={styles.actionButtonsRow}>
-                            <Pressable
-                              style={[styles.actionBtn, styles.rescheduleBtn, { flex: 1 }]}
-                              onPress={() =>
-                                router.push({
-                                  pathname: "/(student)/session/book",
-                                  params: { uid: session.counsellorId },
-                                })
-                              }
-                            >
-                              <Text style={styles.rescheduleText}>Book Follow-up Session</Text>
-                            </Pressable>
-                            <Pressable
-                              style={[styles.actionBtn, { flex: 1, borderColor: colors.border }]}
-                              onPress={() =>
-                                router.push({
-                                  pathname: "/(student)/session/details",
-                                  params: { id: session.id },
-                                })
-                              }
-                            >
-                              <Text style={{ color: colors.text, fontWeight: "600", fontSize: 14 }}>
-                                Session Details
-                              </Text>
-                            </Pressable>
-                          </View>
+                          
                         </View>
                       </Card>
                     );
@@ -724,18 +894,20 @@ export default function SessionsScreen() {
 
                 {sessionsLoading ? (
                   <ActivityIndicator style={{ marginTop: 40 }} color={colors.primary} />
-                ) : cancelledSessions.length === 0 ? (
+                ) : searchedSessions.cancelled.length === 0 ? (
                   <View style={styles.emptyStateContainer}>
                     <View style={styles.emptyStateIconBox}>
                       <Ionicons name="close-circle-outline" size={26} color={colors.primary} />
                     </View>
-                    <Text style={styles.emptyStateText}>No cancelled sessions</Text>
+                    <Text style={styles.emptyStateText}>
+                      {searchQuery.trim() ? "No matching cancelled sessions" : "No cancelled sessions"}
+                    </Text>
                     <Text style={styles.emptyStateSubtext}>
                       All your bookings are currently active or completed.
                     </Text>
                   </View>
                 ) : (
-                  cancelledSessions.map((session) => {
+                  searchedSessions.cancelled.map((session) => {
                     const isDeclined = session.status === "declined";
                     const matchedCounsellor = counsellors.find(
                       (c) => c.uid === session.counsellorId
@@ -744,6 +916,12 @@ export default function SessionsScreen() {
 
                     return (
                       <Card key={session.id} style={styles.sessionCard}>
+                        <Pressable
+                          style={StyleSheet.absoluteFill}
+                          onPress={() => openSessionDetails(session)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`View session details for ${formatColomboDateTime(session.startAt)}`}
+                        />
                         <View style={[styles.cardTopIndicator, { backgroundColor: "#EF4444" }]} />
                         <View style={styles.cardContent}>
                           <View style={styles.cardTopRow}>
@@ -820,15 +998,34 @@ export default function SessionsScreen() {
                           </View>
 
                           <Button
-                            title={`Rebook with ${counsellorName.split(" ")[0]}`}
-                            icon="calendar-outline"
+                            title="Delete from list"
+                            icon="trash-outline"
+                            variant="danger"
                             onPress={() =>
-                              router.push({
-                                pathname: "/(student)/session/book",
-                                params: { uid: session.counsellorId },
-                              })
+                              Alert.alert(
+                                "Delete cancelled session?",
+                                "This will remove this cancelled session from your list.",
+                                [
+                                  { text: "Keep", style: "cancel" },
+                                  {
+                                    text: "Delete",
+                                    style: "destructive",
+                                    onPress: () => {
+                                      if (!user?.uid) return;
+                                      void deleteCancelledBooking(user.uid, session).catch((error) => {
+                                        console.error("[sessions] Failed to delete cancelled booking:", error);
+                                        Alert.alert(
+                                          "Could not delete session",
+                                          error instanceof Error
+                                            ? error.message
+                                            : "Please try again.",
+                                        );
+                                      });
+                                    },
+                                  },
+                                ],
+                              )
                             }
-                            style={styles.rebookButton}
                           />
                         </View>
                       </Card>
@@ -889,12 +1086,10 @@ export default function SessionsScreen() {
             ) : (
               filteredCounsellors.map((counselor) => {
                 const openSlots = getCounsellorOpenSlots(counselor);
-                const nextSlotText =
-                  counselor.isAvailable && openSlots.length > 0
-                    ? `Next: ${openSlots[0]}`
-                    : counselor.isAvailable
-                    ? "Available Today (Check calendar)"
-                    : "Currently Unavailable";
+                const isCounsellorAvailable = counselor.isAvailable && openSlots.length > 0;
+                const nextSlotText = isCounsellorAvailable
+                  ? `Next: ${formatOpenSlot(openSlots[0])}`
+                  : "No upcoming openings";
 
                 return (
                   <Card key={counselor.uid} style={styles.findCard}>
@@ -921,6 +1116,7 @@ export default function SessionsScreen() {
                                 styles.availabilityDot,
                                 {
                                   backgroundColor: counselor.isAvailable
+                                    && openSlots.length > 0
                                     ? "#10B981"
                                     : "#9CA3AF",
                                 },
@@ -929,10 +1125,10 @@ export default function SessionsScreen() {
                             <Text
                               style={[
                                 styles.findAvailability,
-                                { color: counselor.isAvailable ? "#065F46" : "#6B7280" },
+                                { color: isCounsellorAvailable ? "#065F46" : "#6B7280" },
                               ]}
                             >
-                              {counselor.isAvailable ? "Available" : "Unavailable"}
+                              {isCounsellorAvailable ? "Available" : "Unavailable"}
                             </Text>
                           </View>
                         </View>
@@ -1015,6 +1211,9 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     color: colors.text,
+    borderWidth: 0,
+    outlineWidth: 0,
+    backgroundColor: "transparent",
   },
   categories: {
     marginBottom: spacing.md,
@@ -1115,6 +1314,11 @@ const styles = StyleSheet.create({
   },
   cardContent: {
     padding: spacing.md,
+    gap: spacing.sm,
+  },
+  cardActions: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
     gap: spacing.sm,
   },
   cardTopRow: {
@@ -1344,9 +1548,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontWeight: "500",
     flex: 1,
-  },
-  rebookButton: {
-    marginTop: 4,
   },
   emptyStateContainer: {
     alignItems: "center",

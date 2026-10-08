@@ -28,7 +28,7 @@ export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 // Who may move a booking from one status to another (mirrored in the rules)
 export const STUDENT_TRANSITIONS: Partial<Record<BookingStatus, BookingStatus[]>> = {
   pending: ["cancelled"],
-  confirmed: ["cancelled"],
+  confirmed: ["cancelled", "completed"],
 };
 export const COUNSELLOR_TRANSITIONS: Partial<Record<BookingStatus, BookingStatus[]>> = {
   pending: ["confirmed", "declined"],
@@ -47,13 +47,17 @@ export type Booking = {
   counsellorId: string; // Also the counsellors/{id} doc id
   studentAnonId: string; // Copy of the student's anonId (counsellors never read users)
   slotId?: string; // slots/{id} this booking was made from, if any
+  rescheduledFrom?: string; // Previous booking cancelled when this request is submitted
   startAt: Timestamp;
   endAt: Timestamp; // After startAt
+  dateKey?: string; // Counselor-local calendar date, YYYY-MM-DD
   sessionType: SessionType;
   isAnonymous: boolean;
   status: BookingStatus;
   cancelReason?: string; // Max CANCEL_REASON_MAX; only on cancelled/declined
+  cancelledBy?: "student" | "counsellor";
   notes?: string; // Student's note when booking, max BOOKING_NOTES_MAX
+  meetingLink?: string; // External manual video call link
   createdAt: Timestamp | null; // null only while a local write is pending
   updatedAt: Timestamp | null;
 };
@@ -66,8 +70,9 @@ export type BookingInput = {
   counsellorId: string;
   startAt: Date;
   endAt: Date;
+  dateKey: string;
   sessionType: SessionType;
   isAnonymous: boolean;
-  slotId?: string;
+  slotId: string;
   notes?: string;
 };

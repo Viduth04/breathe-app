@@ -2,7 +2,7 @@
 
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, usePathname } from "expo-router";
 import { Pressable, StyleSheet, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -38,6 +38,15 @@ export const FLOATING_HELP_CLEARANCE = spacing.md + TOUCH_TARGET + spacing.sm;
 // area (rendered by the (student) layout, so it's on every student screen)
 export function FloatingHelpButton() {
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+
+  if (
+    pathname.includes("/session/counselor") ||
+    pathname.includes("/session/book")
+  ) {
+    return null;
+  }
+
   return (
     <Pressable
       onPress={openCrisis}

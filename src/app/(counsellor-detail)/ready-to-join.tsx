@@ -1,7 +1,7 @@
 // Counsellor Ready to Join (Pre-call Lobby) - Muaath (Member 4). Supports FR07, NFR01, NFR02.
 // Encrypted video consultation staging room with hardware toggles and connection telemetry.
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -14,10 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { colors, radius, spacing, TOUCH_TARGET } from "@/theme";
 import { useCounsellorStore } from "@/services/counsellorStore";
-import {
-  initLobbySession,
-  runTelehealthDiagnostics,
-} from "@/services/telehealthVideoService";
+import { runTelehealthDiagnostics } from "@/services/telehealthVideoService";
 import { usePopup } from "@/components/common/popup";
 
 export default function ReadyToJoinScreen() {
@@ -38,12 +35,8 @@ export default function ReadyToJoinScreen() {
   const timeRange = params.timeRange || "02:00 PM – 02:45 PM";
   const duration = params.duration || "45 min session";
 
-  const matchedPast = pastSessions.find(
-    (p) => p.id === sessionId || p.studentAnonId === studentAnonId
-  );
-  const matchedBooking = calendarBookings.find(
-    (b) => b.id === sessionId || b.id === `cal-${sessionId}`
-  );
+  const matchedPast = sessionId ? pastSessions.find(p => p.id === sessionId) : undefined;
+  const matchedBooking = sessionId ? calendarBookings.find(b => b.id === sessionId || b.id === `cal-${sessionId}`) : undefined;
   const isExpired = Boolean(
     matchedPast ||
     matchedBooking?.isExpired ||
@@ -51,13 +44,6 @@ export default function ReadyToJoinScreen() {
   );
 
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
-
-  useEffect(() => {
-    if (isExpired) return;
-    const roomId = `mnd-${studentAnonId.replace(/[^0-9]/g, "") || "4021"}-sec`;
-    const counselorUid = "coun_anjali_01";
-    initLobbySession(roomId, counselorUid, "Dr. Anjali Perera", callMediaState).catch(() => {});
-  }, [studentAnonId, isExpired]);
 
   const handleJoinCall = () => {
     if (isExpired) {

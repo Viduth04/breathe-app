@@ -8,9 +8,17 @@
     "scheme": "breatheapp",
     "userInterfaceStyle": "light",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Breathe uses your camera during video consultations.",
+        "NSMicrophoneUsageDescription": "Breathe uses your microphone during video consultations."
+      }
     },
     "android": {
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#FFF9EC",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -36,7 +44,7 @@
         {
           "photosPermission": "Breathe uses your photos to set or update your clinical profile picture.",
           "cameraPermission": "Breathe uses your camera to capture your clinical profile picture.",
-          "microphonePermission": false
+          "microphonePermission": "Breathe uses your microphone during video consultations."
         }
       ],
       [

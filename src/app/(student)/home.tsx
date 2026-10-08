@@ -8,7 +8,6 @@
 
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
-import { InlineBanner } from "@/components/common/popup/InlineBanner";
 import Screen from "@/components/common/Screen";
 import NotificationItem from "@/components/notifications/NotificationItem";
 import { openResource, resourceMeta } from "@/components/resources/ResourceCard";
@@ -284,15 +283,6 @@ export default function Home() {
           </View>
         ) : null}
 
-        {/* Calm banner when a booking is confirmed or declined while the app is open */}
-        {banner && !panelOpen ? (
-          <InlineBanner
-            variant={banner.status === "confirmed" ? "success" : "info"}
-            message={BANNER_TEXT[banner.status]}
-            action={{ label: "View", onPress: openPanel }}
-            onDismiss={notifications.dismissBanner}
-          />
-        ) : null}
       </View>
 
       {/* 2. Mood check-in: the one dominant action on this screen (R1, fixes F1) */}
