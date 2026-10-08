@@ -35,15 +35,12 @@ export default function UrgentHelpLink() {
 export const FLOATING_HELP_CLEARANCE = spacing.md + TOUCH_TARGET + spacing.sm;
 
 // Small round help button floating in the top-right corner of the student
-// area (rendered by the (student) layout, so it's on every student screen)
+// area (rendered by the (student) layout). Not shown on Home, as agreed with the team.
 export function FloatingHelpButton() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
 
-  if (
-    pathname.includes("/session/counselor") ||
-    pathname.includes("/session/book")
-  ) {
+  if (pathname === "/home" || pathname.endsWith("/home")) {
     return null;
   }
 

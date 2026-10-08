@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Modal,
   ScrollView,
@@ -18,10 +18,13 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-let Audio: any = null;
-try {
-  Audio = require("expo-av")?.Audio;
-} catch (_) {}
+import {
+  useAudioRecorder,
+  useAudioRecorderState,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+} from "expo-audio";
 import EmojiPicker from "rn-emoji-keyboard";
 
 import { colors, radius, spacing, typography } from "@/theme";
@@ -95,10 +98,18 @@ export default function ChatUI({
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   
-  const [recording, setRecording] = useState<any>(null);
+  const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
+  const recorderState = useAudioRecorderState(recorder, 100);
   const [isRecording, setIsRecording] = useState(false);
   const [meterings, setMeterings] = useState<number[]>([]);
-  const [recordingDuration, setRecordingDuration] = useState(0);
+  const recordingDuration = isRecording ? recorderState.durationMillis : 0;
+
+  // Feed the live waveform from the recorder's metering level.
+  useEffect(() => {
+    if (!isRecording || !recorderState.isRecording) return;
+    const meter = recorderState.metering !== undefined ? recorderState.metering : (Math.random() * 40 - 60);
+    setMeterings((prev) => [...prev.slice(-20), meter]);
+  }, [isRecording, recorderState.isRecording, recorderState.durationMillis, recorderState.metering]);
 
   const scrollViewRef = useRef<ScrollView>(null);
   const [selectedMessages, setSelectedMessages] = useState<string[]>([]);
@@ -145,52 +156,38 @@ export default function ChatUI({
   };
 
   const startRecording = async () => {
-    if (!Audio?.requestPermissionsAsync) {
-      Alert.alert(
-        "Audio Not Supported",
-        "Voice recording requires a custom development build and is unavailable in standard Expo Go."
-      );
-      return;
-    }
     try {
-      const permission = await Audio.requestPermissionsAsync();
-      if (permission.status === "granted") {
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: true,
-          playsInSilentModeIOS: true,
-        });
-        const { recording: newRecording } = await Audio.Recording.createAsync(
-          Audio.RecordingOptionsPresets.HIGH_QUALITY
-        );
-        
-        newRecording.setProgressUpdateInterval(100);
-        setRecording(newRecording);
-        setIsRecording(true);
-        setMeterings([]);
-        setRecordingDuration(0);
-
-        newRecording.setOnRecordingStatusUpdate((status: any) => {
-          setRecordingDuration(status.durationMillis);
-          if (status.isRecording) {
-            const meter = status.metering !== undefined ? status.metering : (Math.random() * 40 - 60);
-            setMeterings((prev) => [...prev.slice(-20), meter]);
-          }
-        });
+      const permission = await requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Microphone Access Needed", "Allow microphone access in Settings to send voice messages.");
+        return;
       }
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setMeterings([]);
+      setIsRecording(true);
     } catch (e) {
       console.warn("Failed to start recording", e);
     }
   };
 
+  // Switch the audio session back to playback so voice notes use the speaker, not the earpiece.
+  const resetAudioMode = () =>
+    setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
+
   const stopRecordingAndSend = async () => {
-    if (!recording) return;
+    if (!isRecording) return;
     setIsRecording(false);
     
     try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setRecording(null);
+      await recorder.stop();
+      const uri = recorder.uri;
       setMeterings([]);
+      await resetAudioMode();
       
       if (uri) {
         let base64Audio;
@@ -216,13 +213,13 @@ export default function ChatUI({
   };
 
   const cancelRecording = async () => {
-    if (!recording) return;
+    if (!isRecording) return;
     setIsRecording(false);
     try {
-      await recording.stopAndUnloadAsync();
+      await recorder.stop();
     } catch (e) {}
-    setRecording(null);
     setMeterings([]);
+    await resetAudioMode();
   };
 
   const handleAttachVideo = async () => {

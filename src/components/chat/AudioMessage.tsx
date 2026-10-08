@@ -1,18 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { View, Pressable, Text, Platform } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Pressable, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { colors } from '@/theme';
 
-let Audio: any = null;
-try {
-  Audio = require('expo-av')?.Audio;
-} catch (_) {}
-
 const AudioMessage = ({ audioUri, isSent = true }: { audioUri: string, isSent?: boolean }) => {
-  const [sound, setSound] = useState<any>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [position, setPosition] = useState(0);
-  const [duration, setDuration] = useState(0);
+  // The player is created per message and released automatically on unmount / uri change.
+  const player = useAudioPlayer({ uri: audioUri }, { updateInterval: 100 });
+  const status = useAudioPlayerStatus(player);
+
+  const isPlaying = status.playing;
+  const position = (status.currentTime || 0) * 1000;
+  const duration = (status.duration || 0) * 1000;
 
   const formatAudioTime = (ms: number) => {
     if (!ms || isNaN(ms)) return "0:00";
@@ -22,81 +21,26 @@ const AudioMessage = ({ audioUri, isSent = true }: { audioUri: string, isSent?: 
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  // Rewind to the start once playback finishes so the next tap replays it.
   useEffect(() => {
-    let isMounted = true;
-    
-    const prefetchDuration = async () => {
-      try {
-        if (Platform.OS === 'web') {
-          const webAudio = new window.Audio(audioUri);
-          webAudio.addEventListener('loadedmetadata', () => {
-            if (isMounted && webAudio.duration && webAudio.duration !== Infinity) {
-              setDuration(Math.floor(webAudio.duration * 1000));
-            }
-          });
-        }
-        
-        if (!Audio?.Sound) return;
-        const { sound: tempSound, status } = await Audio.Sound.createAsync(
-          { uri: audioUri },
-          { shouldPlay: false }
-        );
-        if (isMounted && status.isLoaded && status.durationMillis) {
-          setDuration(status.durationMillis);
-        }
-        if (isMounted) {
-          setSound(tempSound);
-          tempSound.setOnPlaybackStatusUpdate((stat: any) => {
-            if (stat.isLoaded) {
-              setPosition(stat.positionMillis);
-              if (stat.durationMillis) setDuration(stat.durationMillis);
-              if (stat.didJustFinish) {
-                setIsPlaying(false);
-                tempSound.setPositionAsync(0);
-                setPosition(0);
-              }
-            }
-          });
-        } else {
-          tempSound.unloadAsync();
-        }
-      } catch (e) {
-        console.warn("Audio prefetch error:", e);
-      }
-    };
-    
-    prefetchDuration();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [audioUri]);
-
-  // Handle unload on unmount
-  useEffect(() => {
-    return sound ? () => { sound.unloadAsync(); } : undefined;
-  }, [sound]);
+    if (status.didJustFinish) {
+      player.pause();
+      player.seekTo(0).catch(() => {});
+    }
+  }, [status.didJustFinish, player]);
 
   const handlePlayPause = async () => {
     try {
-      if (sound) {
-        const status = await sound.getStatusAsync();
-        if (status.isLoaded) {
-          if (isPlaying) {
-            await sound.pauseAsync();
-            setIsPlaying(false);
-          } else {
-            if (status.positionMillis === status.durationMillis) {
-              await sound.setPositionAsync(0);
-            }
-            await sound.playAsync();
-            setIsPlaying(true);
-          }
+      if (isPlaying) {
+        player.pause();
+      } else {
+        if (duration > 0 && position >= duration - 50) {
+          await player.seekTo(0);
         }
+        player.play();
       }
     } catch (error) {
       console.error("Error playing audio", error);
-      setIsPlaying(false);
     }
   };
 
