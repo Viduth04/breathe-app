@@ -11,7 +11,7 @@
       "icon": "./assets/expo.icon",
       "infoPlist": {
         "NSCameraUsageDescription": "Breathe uses your camera during video consultations.",
-        "NSMicrophoneUsageDescription": "Breathe uses your microphone during video consultations."
+        "NSMicrophoneUsageDescription": "Breathe uses your microphone to record voice messages and during video consultations."
       }
     },
     "android": {
@@ -55,7 +55,14 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
-      ]
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Breathe uses your microphone to record voice messages and during video consultations."
+        }
+      ],
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
