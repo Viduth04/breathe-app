@@ -1,4 +1,4 @@
-import { colors, radius, spacing, typography } from "@/theme";
+import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useLocalSearchParams } from "expo-router";
@@ -485,6 +485,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "flex-start",
     padding: spacing.sm,
+    // Keeps the counsellor name clear of the floating crisis help button
+    paddingRight: TOUCH_TARGET + spacing.sm,
     marginBottom: spacing.md,
   },
   doctorInfoLeft: {
