@@ -71,6 +71,23 @@ export default function CounsellorScheduleScreen() {
     return copy;
   };
 
+  /**
+   * Parses time strings like "09:00 AM", "11:00 AM – 11:30 AM", "04:00 PM – 4:30 PM"
+   * into minutes from midnight (0..1439) for chronological slot sorting.
+   */
+  const parseTimeToMinutes = (timeStr?: string): number => {
+    if (!timeStr) return 9999;
+    const firstPart = timeStr.split(/[–\-]/)[0].trim();
+    const match = firstPart.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+    if (!match) return 9999;
+    let hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    const meridiem = match[3] ? match[3].toUpperCase() : (hours < 8 ? "PM" : "AM");
+    if (meridiem === "PM" && hours < 12) hours += 12;
+    if (meridiem === "AM" && hours === 12) hours = 0;
+    return hours * 60 + minutes;
+  };
+
   // Selected date key for Day View (e.g. "2026-10-07" or "all")
   const [selectedDateKey, setSelectedDateKey] = useState<string>(
     params.dateKey || todayKey
@@ -266,9 +283,17 @@ export default function CounsellorScheduleScreen() {
       const dk = `${y}-${m}-${dayNum}`;
 
       const daySlots = store.scheduleDaySlots.filter((s) => s.dateKey === dk);
-      const booked = daySlots.filter((s) => s.isBooked).length;
+      const extraConfirmedBookings = store.calendarBookings.filter(
+        (b) =>
+          !b.isOpenSlot &&
+          b.dateKey === dk &&
+          !daySlots.some((s) => s.id === b.id || (s.startTime === b.timeSlot || s.timeRange === b.timeRange))
+      );
+
+      const booked = daySlots.filter((s) => s.isBooked).length + extraConfirmedBookings.length;
       const held = daySlots.filter((s) => !s.isBooked && (store.heldScheduleSlots[s.id] || s.isHeld)).length;
       const open = daySlots.filter((s) => !s.isBooked && !(store.heldScheduleSlots[s.id] || s.isHeld)).length;
+      const total = daySlots.length + extraConfirmedBookings.length;
 
       days.push({
         dateKey: dk,
@@ -277,7 +302,7 @@ export default function CounsellorScheduleScreen() {
         monthShort: d.toLocaleDateString("en-US", { month: "short" }),
         fullDisplay: d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" }),
         isToday: dk === todayKey,
-        totalSlots: daySlots.length,
+        totalSlots: total,
         openSlots: open,
         bookedSlots: booked,
         heldSlots: held,
@@ -382,7 +407,14 @@ export default function CounsellorScheduleScreen() {
       const dk = `${y}-${m}-${d}`;
 
       const daySlots = store.scheduleDaySlots.filter((s) => s.dateKey === dk);
-      const hasBooked = daySlots.some((s) => s.isBooked);
+      const extraConfirmedBookings = store.calendarBookings.filter(
+        (b) =>
+          !b.isOpenSlot &&
+          b.dateKey === dk &&
+          !daySlots.some((s) => s.id === b.id || (s.startTime === b.timeSlot || s.timeRange === b.timeRange))
+      );
+
+      const hasBooked = daySlots.some((s) => s.isBooked) || extraConfirmedBookings.length > 0;
       const hasHeld = daySlots.some((s) => !s.isBooked && (store.heldScheduleSlots[s.id] || s.isHeld));
       const hasOpen = daySlots.some((s) => !s.isBooked && !(store.heldScheduleSlots[s.id] || s.isHeld));
 
@@ -394,7 +426,7 @@ export default function CounsellorScheduleScreen() {
         hasBooked,
         hasOpen,
         hasHeld,
-        totalSlots: daySlots.length,
+        totalSlots: daySlots.length + extraConfirmedBookings.length,
       });
     }
 
@@ -746,7 +778,7 @@ export default function CounsellorScheduleScreen() {
     const colomboOffset = 5.5 * 60 * 60 * 1000;
     const baseDate = new Date(now.getTime() + now.getTimezoneOffset() * 60000 + colomboOffset);
 
-    // Map slot counts by dateKey
+    // Map slot counts by dateKey (including confirmed bookings from calendarBookings)
     const slotCounts: Record<string, { total: number; open: number; booked: number }> = {};
     store.scheduleDaySlots.forEach((s) => {
       const dk = s.dateKey || todayKey;
@@ -756,6 +788,22 @@ export default function CounsellorScheduleScreen() {
         slotCounts[dk].booked += 1;
       } else {
         slotCounts[dk].open += 1;
+      }
+    });
+
+    // Also include any confirmed bookings from calendarBookings that are not in scheduleDaySlots
+    store.calendarBookings.forEach((b) => {
+      if (b.isOpenSlot || !b.dateKey) return;
+      const dk = b.dateKey;
+      const alreadyCounted = store.scheduleDaySlots.some(
+        (s) =>
+          s.id === b.id ||
+          (s.dateKey === b.dateKey && (s.startTime === b.timeSlot || s.timeRange === b.timeRange))
+      );
+      if (!alreadyCounted) {
+        if (!slotCounts[dk]) slotCounts[dk] = { total: 0, open: 0, booked: 0 };
+        slotCounts[dk].total += 1;
+        slotCounts[dk].booked += 1;
       }
     });
 
@@ -815,20 +863,61 @@ export default function CounsellorScheduleScreen() {
     });
 
     return items;
-  }, [store.scheduleDaySlots, todayKey]);
+  }, [store.scheduleDaySlots, store.calendarBookings, todayKey]);
 
-  // Slots filtered for currently selected date
+  // Slots filtered for currently selected date, merging any confirmed bookings from calendarBookings
   const displayedDaySlots = useMemo(() => {
+    let list: ScheduleDaySlot[] = [];
     if (selectedDateKey === "all") {
-      return store.scheduleDaySlots;
+      list = [...store.scheduleDaySlots];
+    } else {
+      list = store.scheduleDaySlots.filter((s) => {
+        if (s.dateKey) {
+          return s.dateKey === selectedDateKey;
+        }
+        return selectedDateKey === todayKey;
+      });
     }
-    return store.scheduleDaySlots.filter((s) => {
-      if (s.dateKey) {
-        return s.dateKey === selectedDateKey;
-      }
-      return selectedDateKey === todayKey;
-    });
-  }, [store.scheduleDaySlots, selectedDateKey, todayKey]);
+
+    // Merge any confirmed bookings from calendarBookings for the selected date
+    const targetKey = selectedDateKey === "all" ? undefined : selectedDateKey;
+    store.calendarBookings
+      .filter((b) => !b.isOpenSlot && b.dateKey && (!targetKey || b.dateKey === targetKey))
+      .forEach((b) => {
+        const alreadyExists = list.some(
+          (s) =>
+            s.id === b.id ||
+            s.id === b.id.replace(/^cal-slot-/, "") ||
+            s.id === b.id.replace(/^cal-/, "") ||
+            (s.dateKey === b.dateKey &&
+              (s.startTime === b.timeSlot || s.timeRange === b.timeRange))
+        );
+        if (!alreadyExists) {
+          list.push({
+            id: b.id.replace(/^cal-slot-/, "").replace(/^cal-/, ""),
+            timeRange: b.timeRange,
+            isBooked: true,
+            studentName: b.displayName || b.studentAnonId || "Student #5104",
+            subtitle: "Confirmed student booking",
+            modalityText: b.modality === "chat" ? "Secure Chat Session" : b.modality === "in-person" ? "In-Person Consultation" : "Video Consultation",
+            modalityType: (b.modality === "chat" ? "chat" : b.modality === "in-person" ? "in-person" : "video") as any,
+            statusBadge: "Confirmed",
+            isAnonymous: true,
+            intakeNote: b.subInfo || "Intake Complete",
+            dateKey: b.dateKey,
+            dateDisplay: b.dateStr || b.dateKey,
+            startTime: b.timeSlot || b.timeRange.split(/[–\-]/)[0]?.trim(),
+            endTime: b.timeRange.split(/[–\-]/)[1]?.trim() || "",
+            sessionTypes: [b.modality],
+          });
+        }
+      });
+
+    // Sort chronologically from morning to afternoon
+    return list.sort(
+      (a, b) => parseTimeToMinutes(a.startTime || a.timeRange) - parseTimeToMinutes(b.startTime || b.timeRange)
+    );
+  }, [store.scheduleDaySlots, store.calendarBookings, selectedDateKey, todayKey]);
 
   // Formatted date and stats metadata
   const currentDateMeta = useMemo(() => {
@@ -998,7 +1087,12 @@ export default function CounsellorScheduleScreen() {
               </View>
               <Pressable
                 style={styles.addSlotsHeaderBtn}
-                onPress={() => router.push("/(counsellor-detail)/add-session")}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(counsellor-detail)/add-session",
+                    params: selectedDateKey !== "all" ? { dateKey: selectedDateKey } : undefined,
+                  })
+                }
                 accessibilityRole="button"
                 accessibilityLabel="Add New Availability Slots"
               >

@@ -666,9 +666,52 @@ export function initFirebaseSync() {
 
           const existingOpen = state.calendarBookings.filter((b) => b.isOpenSlot);
 
+          // Merge confirmed bookings from calendarBookings into scheduleDaySlots so Schedule screen always reflects all bookings
+          const confirmedSlotsFromBookings: ScheduleDaySlot[] = state.calendarBookings
+            .filter((b) => !b.isOpenSlot && b.dateKey && b.timeRange)
+            .map((b) => ({
+              id: b.id.replace(/^cal-slot-/, "").replace(/^cal-/, ""),
+              dateKey: b.dateKey,
+              dateDisplay: b.dateStr || b.dateKey,
+              startTime: b.timeSlot || b.timeRange.split(/[–\-]/)[0]?.trim(),
+              endTime: b.timeRange.split(/[–\-]/)[1]?.trim() || "",
+              sessionTypes: [b.modality],
+              timeRange: b.timeRange,
+              isBooked: true,
+              isHeld: false,
+              studentName: b.displayName || b.studentAnonId || "Student #5104",
+              subtitle: "Confirmed student booking",
+              modalityText: b.modality === "chat" ? "Secure Chat Session" : b.modality === "in-person" ? "In-Person Consultation" : "Video Consultation",
+              modalityType: (b.modality === "chat" ? "chat" : b.modality === "in-person" ? "in-person" : "video") as any,
+              statusBadge: "Confirmed" as const,
+              isAnonymous: true,
+              intakeNote: b.subInfo || "Intake Complete",
+            }));
+
+          const mergedScheduleDaySlots = [...firestoreSlots];
+          confirmedSlotsFromBookings.forEach((slotFromBooking) => {
+            const existingIdx = mergedScheduleDaySlots.findIndex(
+              (s) =>
+                s.id === slotFromBooking.id ||
+                (s.dateKey === slotFromBooking.dateKey &&
+                  (s.startTime === slotFromBooking.startTime || s.timeRange === slotFromBooking.timeRange))
+            );
+            if (existingIdx === -1) {
+              mergedScheduleDaySlots.push(slotFromBooking);
+            } else if (!mergedScheduleDaySlots[existingIdx].isBooked) {
+              mergedScheduleDaySlots[existingIdx] = {
+                ...mergedScheduleDaySlots[existingIdx],
+                isBooked: true,
+                statusBadge: "Confirmed",
+                studentName: slotFromBooking.studentName,
+                subtitle: "Confirmed student booking",
+              };
+            }
+          });
+
           state = {
             ...state,
-            scheduleDaySlots: firestoreSlots,
+            scheduleDaySlots: mergedScheduleDaySlots,
             heldScheduleSlots: newHeldScheduleSlots,
             calendarBookings: [
               ...mergedConfirmedBookings,
@@ -1261,8 +1304,92 @@ export function initFirebaseSync() {
           const baseOpenSlots = state.calendarBookings.filter((b) => b.isOpenSlot);
           const finalOpenSlots = openCalendarSlots.length > 0 ? openCalendarSlots : baseOpenSlots;
 
+          // Convert any confirmed bookings that do not have a matching slot in scheduleDaySlots
+          const confirmedScheduleSlotsFromBookings: ScheduleDaySlot[] = firestoreCalendar
+            .filter((b) => !b.isOpenSlot && b.dateKey && b.timeRange)
+            .map((b) => ({
+              id: b.id.replace(/^cal-slot-/, "").replace(/^cal-/, ""),
+              dateKey: b.dateKey,
+              dateDisplay: b.dateStr || b.dateKey,
+              startTime: b.timeSlot || b.timeRange.split(/[–\-]/)[0]?.trim(),
+              endTime: b.timeRange.split(/[–\-]/)[1]?.trim() || "",
+              sessionTypes: [b.modality],
+              timeRange: b.timeRange,
+              isBooked: true,
+              isHeld: false,
+              studentName: b.displayName || b.studentAnonId || "Student #5104",
+              subtitle: "Confirmed student booking",
+              modalityText: b.modality === "chat" ? "Secure Chat Session" : b.modality === "in-person" ? "In-Person Consultation" : "Video Consultation",
+              modalityType: (b.modality === "chat" ? "chat" : b.modality === "in-person" ? "in-person" : "video") as any,
+              statusBadge: "Confirmed" as const,
+              isAnonymous: true,
+              intakeNote: b.subInfo || "Intake Complete",
+            }));
+
+          const mergedScheduleDaySlots = [...state.scheduleDaySlots];
+          confirmedScheduleSlotsFromBookings.forEach((newSlot) => {
+            const existingIdx = mergedScheduleDaySlots.findIndex(
+              (s) =>
+                s.id === newSlot.id ||
+                (s.dateKey === newSlot.dateKey &&
+                  (s.startTime === newSlot.startTime || s.timeRange === newSlot.timeRange))
+            );
+            if (existingIdx === -1) {
+              mergedScheduleDaySlots.push(newSlot);
+            } else if (!mergedScheduleDaySlots[existingIdx].isBooked) {
+              mergedScheduleDaySlots[existingIdx] = {
+                ...mergedScheduleDaySlots[existingIdx],
+                isBooked: true,
+                statusBadge: "Confirmed",
+                studentName: newSlot.studentName,
+                subtitle: "Confirmed student booking",
+              };
+            }
+          });
+
+          // Background auto-sync to Firestore slots collection: Persist real data in database first
+          if (isFirebaseConfigured() && db && counselorUid) {
+            firestoreCalendar
+              .filter((b) => !b.isOpenSlot && b.dateKey && b.timeRange)
+              .forEach((b) => {
+                const timeSlug = (b.timeSlot || b.timeRange.split(/[–\-]/)[0]?.trim() || "").replace(/[^a-zA-Z0-9]/g, "");
+                const dateSlug = (b.dateKey || "").replace(/-/g, "");
+                const slotDocId = b.id.startsWith("cal-slot-")
+                  ? b.id.replace(/^cal-slot-/, "")
+                  : `slot_${counselorUid}_${dateSlug}_${timeSlug}`;
+
+                const slotRef = doc(db, "slots", slotDocId);
+                setDoc(
+                  slotRef,
+                  {
+                    id: slotDocId,
+                    counsellorId: counselorUid,
+                    dateKey: b.dateKey,
+                    dateDisplay: b.dateStr || b.dateKey,
+                    startTime: b.timeSlot || b.timeRange.split(/[–\-]/)[0]?.trim(),
+                    endTime: b.timeRange.split(/[–\-]/)[1]?.trim() || "",
+                    timeRange: b.timeRange,
+                    isBooked: true,
+                    isHeld: false,
+                    status: "booked",
+                    bookedStudentAnonId: b.studentAnonId || b.displayName || "Student #5104",
+                    studentAnonId: b.studentAnonId || b.displayName || "Student #5104",
+                    sessionType: b.modality || "video",
+                    bookingId: b.id.replace(/^cal-/, ""),
+                    updatedAt: serverTimestamp(),
+                  },
+                  { merge: true }
+                ).catch((e: any) => {
+                  if (!isFirestorePermissionError(e)) {
+                    console.warn("[counsellorStore] Auto-sync confirmed booking to slot error:", e?.message || e);
+                  }
+                });
+              });
+          }
+
           state = {
             ...state,
+            scheduleDaySlots: mergedScheduleDaySlots,
             requests: firestoreRequests,
             sessions: firestoreSessions,
             calendarBookings: [...mergedConfirmedBookings, ...finalOpenSlots],
