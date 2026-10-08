@@ -1,10 +1,10 @@
-// Mood check-in - Ishara (Member 2). FR02, NFR03.
-//
-// Built to finish in under 2 minutes (NFR03): mood is the only required field,
-// factors and the note are optional. One check-in per day; if today's already
-// exists it's shown with "Edit today's check-in" instead of a second entry.
-// Route param "mood" (1-5) preselects a face, e.g. when tapped on Home.
-// Route param "edit" opens today's entry for editing (from the entry detail).
+/**
+ * Lets the student pick a mood, choose optional reasons, add an optional note,
+ * and save the check-in. checkinService creates new check-ins and updates
+ * today's check-in when the student edits it.
+ * Only one check-in is shown for a day; an existing one is shown with an edit option.
+ * The "mood" route parameter can preselect a mood, and "edit" opens today's check-in.
+ */
 
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
@@ -65,6 +65,10 @@ const todayLabel = () =>
     month: "long",
   });
 
+/**
+ * Renders the check-in form or today's saved check-in.
+ * @returns The student check-in screen.
+ */
 export default function CheckInScreen() {
   const { user } = useAuth();
   const params = useLocalSearchParams<{ mood?: string; edit?: string }>();
@@ -233,7 +237,7 @@ export default function CheckInScreen() {
     );
   }
 
-  // Today's entry (just saved, or saved earlier today)
+  // Show the existing entry instead of creating a second check-in for today.
   if (today && !editing) {
     const saved = MOODS[today.mood - 1];
     return (
@@ -321,7 +325,7 @@ export default function CheckInScreen() {
       <Screen>
         {header}
 
-        {/* 1. Mood (required) */}
+        {/* A mood is required so every saved check-in records one mood level. */}
         <Card>
           <Text style={typography.heading}>
             Your mood <Text style={styles.required}>(required)</Text>
@@ -366,7 +370,7 @@ export default function CheckInScreen() {
           </View>
         </Card>
 
-        {/* 2. Factors (optional) */}
+        {/* Reasons add context but stay optional so they never block saving. */}
         <Card>
           <Text style={typography.heading}>What's affecting your mood?</Text>
           <Text style={[typography.caption, styles.cardSubtitle]}>
@@ -408,7 +412,7 @@ export default function CheckInScreen() {
           </View>
         </Card>
 
-        {/* 3. Note (optional) */}
+        {/* The character limit keeps the optional note short and easy to review. */}
         <Card>
           <Text style={typography.heading}>Add a note (optional)</Text>
           <TextInput
