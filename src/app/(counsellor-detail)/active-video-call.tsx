@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   title: {
-    ...typography.h3,
+    ...typography.heading,
     marginBottom: spacing.xs,
     color: colors.text,
   },

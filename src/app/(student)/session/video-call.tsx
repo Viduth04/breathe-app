@@ -194,7 +194,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   title: {
-    ...typography.h3,
+    ...typography.heading,
     marginBottom: spacing.sm,
     color: colors.text,
   },

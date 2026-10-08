@@ -82,16 +82,17 @@ export default function CounsellorLayout() {
 }
 
 function CounsellorCancellationPopup() {
-  const { latestCancellationAlert } = useCounsellorStore();
+  const { alerts } = useCounsellorStore();
+  const latestAlert = alerts?.[0];
   const { showToast } = usePopup();
   const shownAlertId = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!latestCancellationAlert || shownAlertId.current === latestCancellationAlert.id) return;
+    if (!latestAlert || shownAlertId.current === latestAlert.id) return;
 
-    shownAlertId.current = latestCancellationAlert.id;
+    shownAlertId.current = latestAlert.id;
     showToast({
-      message: `${latestCancellationAlert.title}: ${latestCancellationAlert.description}`,
+      message: `${latestAlert.title}: ${latestAlert.description}`,
       variant: "warning",
       duration: 7000,
       action: {
@@ -99,7 +100,7 @@ function CounsellorCancellationPopup() {
         onPress: () => router.push("/(counsellor)/alerts"),
       },
     });
-  }, [latestCancellationAlert, showToast]);
+  }, [latestAlert, showToast]);
 
   return null;
 }

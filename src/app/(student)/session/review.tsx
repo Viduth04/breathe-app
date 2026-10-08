@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: spacing.md,
   },
-  title: { ...typography.h3, color: colors.text, marginBottom: spacing.xs, fontWeight: "700" },
+  title: { ...typography.heading, color: colors.text, marginBottom: spacing.xs, fontWeight: "700" },
   subtitle: { fontSize: 16, color: colors.textSecondary, marginBottom: spacing.xl, textAlign: "center" },
   starsContainer: { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.xl },
   starBtn: { padding: 4 },
