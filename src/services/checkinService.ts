@@ -1,3 +1,5 @@
+// Daily mood check-in service. Supports the daily mood check-in requirement.
+// Uses Firestore's checkins collection and updates anonymous weekly stats in stats.
 // Mood check-in - Ishara (Member 2). FR02, NFR03.
 // Mood tracking - Ishara (Member 2). FR09.
 //
@@ -7,31 +9,36 @@
 import { auth, db } from "@/firebase/config";
 import { recordAnonymousMoodStat } from "@/services/statsService";
 import {
-  CheckIn,
-  CheckInInput,
-  dateFromKey,
-  MoodFactor,
-  MoodLevel,
+    CheckIn,
+    CheckInInput,
+    dateFromKey,
+    MoodFactor,
+    MoodLevel,
 } from "@/types/checkin";
 import { dateKey } from "@/utils/week";
 import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  limit,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  where,
+    collection,
+    deleteDoc,
+    doc,
+    getDoc,
+    getDocs,
+    limit,
+    query,
+    serverTimestamp,
+    setDoc,
+    updateDoc,
+    where,
 } from "firebase/firestore";
 
 // Offline writes never resolve until the server answers, so give up after this
 // and let the student try again (their input stays on screen)
 const SAVE_TIMEOUT_MS = 15000;
 
+/**
+ * Rejects a save if Firestore does not answer in time, so the student can retry.
+ * @param promise The Firestore operation to wait for.
+ * @returns The operation's result, or a rejection if it fails or times out.
+ */
 export function withTimeout<T>(promise: Promise<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
@@ -52,6 +59,12 @@ export function withTimeout<T>(promise: Promise<T>): Promise<T> {
 }
 
 // One doc per student per day, so retries and edits can't create duplicates
+/**
+ * Builds the Firestore document id for one student's check-in on one day.
+ * @param uid The student's user id.
+ * @param day The check-in date key.
+ * @returns The document id, in uid_date format.
+ */
 export const checkinId = (uid: string, day: string) => `${uid}_${day}`;
 
 const clean = (input: CheckInInput): CheckInInput => ({
@@ -70,6 +83,11 @@ export type CheckinChange =
 
 const listeners = new Set<(change: CheckinChange) => void>();
 
+/**
+ * Subscribes to local check-in save and delete events.
+ * @param listener The function called when a check-in changes.
+ * @returns A function that removes this listener.
+ */
 export function subscribeToCheckinChanges(
   listener: (change: CheckinChange) => void,
 ) {
@@ -85,6 +103,11 @@ const notify = (change: CheckinChange) => listeners.forEach((l) => l(change));
 
 // Today's check-in, or null if there isn't one yet. A query (not getDoc)
 // because the rules deny reading a doc that doesn't exist.
+/**
+ * Gets the signed-in student's check-in for today.
+ * @param uid The student's user id.
+ * @returns Today's check-in, or null if none exists.
+ */
 export async function getTodayCheckin(uid: string): Promise<CheckIn | null> {
   const snap = await getDocs(
     query(
@@ -106,6 +129,8 @@ export async function getTodayCheckin(uid: string): Promise<CheckIn | null> {
  *
  * Filters only on userId (which the rules require) and sorts/trims here, so no
  * composite index is needed. That stays cheap: one doc per student per day.
+ * @param options Optional date range and maximum result count.
+ * @returns The student's matching check-ins, newest first.
  */
 export async function listMyCheckins({
   days,
@@ -126,6 +151,11 @@ export async function listMyCheckins({
 
 // One check-in, or null if it doesn't exist. The rules deny reading a missing
 // doc, so for the owner permission-denied means "not found".
+/**
+ * Gets one check-in by document id.
+ * @param id The check-in document id.
+ * @returns The check-in, or null if it does not exist or is not readable.
+ */
 export async function getCheckin(id: string): Promise<CheckIn | null> {
   try {
     const snap = await getDoc(doc(db, "checkins", id));
@@ -140,6 +170,12 @@ export async function getCheckin(id: string): Promise<CheckIn | null> {
 
 // ---------- CREATE ----------
 
+/**
+ * Creates today's check-in and records its mood in anonymous weekly stats.
+ * @param uid The student's user id.
+ * @param input The mood, selected factors, and note to save.
+ * @returns The saved check-in.
+ */
 export async function createCheckin(
   uid: string,
   input: CheckInInput,
@@ -165,6 +201,12 @@ export async function createCheckin(
 // ---------- UPDATE ----------
 
 // Edits today's entry. Not counted again in the weekly stats.
+/**
+ * Updates an existing check-in without counting it again in weekly stats.
+ * @param existing The check-in to update.
+ * @param input The replacement mood, factors, and note.
+ * @returns The updated check-in.
+ */
 export async function updateCheckin(
   existing: CheckIn,
   input: CheckInInput,
@@ -185,6 +227,11 @@ export async function updateCheckin(
 
 // Any entry, any day. Lecturer stats are left alone: they're anonymous weekly
 // totals with nothing linking them back to this check-in.
+/**
+ * Deletes a check-in without changing anonymous weekly totals.
+ * @param id The check-in document id.
+ * @returns A promise that resolves when the delete is saved.
+ */
 export async function deleteCheckin(id: string) {
   await withTimeout(deleteDoc(doc(db, "checkins", id)));
   notify({ type: "deleted", id });
@@ -193,6 +240,12 @@ export async function deleteCheckin(id: string) {
 // ---------- PURE HELPERS (charts and insights) ----------
 
 // "YYYY-MM-DD" n days before the given day key
+/**
+ * Gets the date key a number of days before another date key.
+ * @param key The starting date key in YYYY-MM-DD format.
+ * @param n The number of days to go back.
+ * @returns The earlier date key in YYYY-MM-DD format.
+ */
 export function dayKeyBefore(key: string, n: number) {
   const d = dateFromKey(key);
   d.setDate(d.getDate() - n);
@@ -200,6 +253,11 @@ export function dayKeyBefore(key: string, n: number) {
 }
 
 // Average mood 1-5, or null for an empty list
+/**
+ * Calculates the average mood for a list of check-ins.
+ * @param list The check-ins to include.
+ * @returns The average mood, or null if the list is empty.
+ */
 export const averageMood = (list: CheckIn[]) =>
   list.length ? list.reduce((sum, c) => sum + c.mood, 0) / list.length : null;
 
@@ -207,6 +265,13 @@ export type MoodDay = { dateKey: string; date: Date; mood: MoodLevel | null };
 
 // One slot per day for the last `days` days, oldest first. Days without a
 // check-in are null (a gap in the chart, never zero).
+/**
+ * Creates one mood chart entry per day, from oldest to newest.
+ * @param list The check-ins to place on the chart.
+ * @param days The number of days to include.
+ * @param today The date to treat as today; defaults to the current date.
+ * @returns Daily mood entries, with null for days without a check-in.
+ */
 export function moodByDay(list: CheckIn[], days: number, today = new Date()) {
   const byKey = new Map(list.map((c) => [c.dateKey, c.mood]));
   const todayKey = dateKey(today);
@@ -218,6 +283,12 @@ export function moodByDay(list: CheckIn[], days: number, today = new Date()) {
 
 // Consecutive days with a check-in, ending today. If today has no check-in
 // yet, the streak still counts up to yesterday (the day isn't over).
+/**
+ * Counts consecutive check-in days ending today or yesterday.
+ * @param list The check-ins to use when counting the streak.
+ * @param today The date to treat as today; defaults to the current date.
+ * @returns The current streak length in days.
+ */
 export function currentStreak(list: CheckIn[], today = new Date()) {
   const days = new Set(list.map((c) => c.dateKey));
   let key = dateKey(today);
@@ -238,6 +309,8 @@ const MEANINGFUL_GAP = 0.75;
 /**
  * Plain-language observations, strongest first (at most 3). Empty until there
  * are MIN_ENTRIES_FOR_PATTERNS check-ins. Worded as reflections, not diagnoses.
+ * @param list The check-ins to analyze.
+ * @returns Up to three plain-language observations, strongest first.
  */
 export function detectPatterns(list: CheckIn[]): string[] {
   if (list.length < MIN_ENTRIES_FOR_PATTERNS) return [];

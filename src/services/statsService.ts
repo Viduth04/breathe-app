@@ -1,3 +1,5 @@
+// Anonymous weekly mood statistics for lecturers. Supports the anonymous
+// weekly stats requirement. Uses only Firestore's stats collection.
 // Lecturer insights - Viduth (Member 1). Supports US05, NFR01.
 //
 // Anonymous weekly mood totals in stats/{weekId}. Nothing here identifies a
@@ -22,6 +24,9 @@ import { doc, getDoc, increment, setDoc } from "firebase/firestore";
  * rules only allow students to add exactly one check-in to the current week,
  * so don't call it twice for the same check-in, and don't await it in a way
  * that blocks the student if it fails - the check-in itself is what matters.
+ * @param mood The mood value selected in the check-in.
+ * @param factorLabels The selected reason labels; unknown labels are ignored.
+ * @returns A promise that resolves when the anonymous weekly totals are updated.
  */
 export async function recordAnonymousMoodStat(
   mood: MoodLevel,
@@ -51,6 +56,11 @@ export async function recordAnonymousMoodStat(
 export type WeekEntry = WeekRef & { stats: WeekStats | null }; // null = no doc yet
 
 // The last `count` weeks including this one, oldest first
+/**
+ * Reads the latest weekly totals for lecturer and admin insights.
+ * @param count The number of weeks to include, including this week.
+ * @returns Weekly entries from oldest to newest; missing weeks have null stats.
+ */
 export async function getRecentWeekStats(count = 8): Promise<WeekEntry[]> {
   const weeks = recentWeeks(count);
   const snaps = await Promise.all(weeks.map((w) => getDoc(doc(db, "stats", w.id))));
