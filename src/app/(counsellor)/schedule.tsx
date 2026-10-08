@@ -71,6 +71,23 @@ export default function CounsellorScheduleScreen() {
     return copy;
   };
 
+  /**
+   * Parses time strings like "09:00 AM", "11:00 AM – 11:30 AM", "04:00 PM – 4:30 PM"
+   * into minutes from midnight (0..1439) for chronological slot sorting.
+   */
+  const parseTimeToMinutes = (timeStr?: string): number => {
+    if (!timeStr) return 9999;
+    const firstPart = timeStr.split(/[–\-]/)[0].trim();
+    const match = firstPart.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+    if (!match) return 9999;
+    let hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    const meridiem = match[3] ? match[3].toUpperCase() : (hours < 8 ? "PM" : "AM");
+    if (meridiem === "PM" && hours < 12) hours += 12;
+    if (meridiem === "AM" && hours === 12) hours = 0;
+    return hours * 60 + minutes;
+  };
+
   // Selected date key for Day View (e.g. "2026-10-07" or "all")
   const [selectedDateKey, setSelectedDateKey] = useState<string>(
     params.dateKey || todayKey
@@ -266,9 +283,17 @@ export default function CounsellorScheduleScreen() {
       const dk = `${y}-${m}-${dayNum}`;
 
       const daySlots = store.scheduleDaySlots.filter((s) => s.dateKey === dk);
-      const booked = daySlots.filter((s) => s.isBooked).length;
+      const extraConfirmedBookings = store.calendarBookings.filter(
+        (b) =>
+          !b.isOpenSlot &&
+          b.dateKey === dk &&
+          !daySlots.some((s) => s.id === b.id || (s.startTime === b.timeSlot || s.timeRange === b.timeRange))
+      );
+
+      const booked = daySlots.filter((s) => s.isBooked).length + extraConfirmedBookings.length;
       const held = daySlots.filter((s) => !s.isBooked && (store.heldScheduleSlots[s.id] || s.isHeld)).length;
       const open = daySlots.filter((s) => !s.isBooked && !(store.heldScheduleSlots[s.id] || s.isHeld)).length;
+      const total = daySlots.length + extraConfirmedBookings.length;
 
       days.push({
         dateKey: dk,
@@ -277,7 +302,7 @@ export default function CounsellorScheduleScreen() {
         monthShort: d.toLocaleDateString("en-US", { month: "short" }),
         fullDisplay: d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" }),
         isToday: dk === todayKey,
-        totalSlots: daySlots.length,
+        totalSlots: total,
         openSlots: open,
         bookedSlots: booked,
         heldSlots: held,
@@ -382,7 +407,14 @@ export default function CounsellorScheduleScreen() {
       const dk = `${y}-${m}-${d}`;
 
       const daySlots = store.scheduleDaySlots.filter((s) => s.dateKey === dk);
-      const hasBooked = daySlots.some((s) => s.isBooked);
+      const extraConfirmedBookings = store.calendarBookings.filter(
+        (b) =>
+          !b.isOpenSlot &&
+          b.dateKey === dk &&
+          !daySlots.some((s) => s.id === b.id || (s.startTime === b.timeSlot || s.timeRange === b.timeRange))
+      );
+
+      const hasBooked = daySlots.some((s) => s.isBooked) || extraConfirmedBookings.length > 0;
       const hasHeld = daySlots.some((s) => !s.isBooked && (store.heldScheduleSlots[s.id] || s.isHeld));
       const hasOpen = daySlots.some((s) => !s.isBooked && !(store.heldScheduleSlots[s.id] || s.isHeld));
 
@@ -394,7 +426,7 @@ export default function CounsellorScheduleScreen() {
         hasBooked,
         hasOpen,
         hasHeld,
-        totalSlots: daySlots.length,
+        totalSlots: daySlots.length + extraConfirmedBookings.length,
       });
     }
 
@@ -618,7 +650,7 @@ export default function CounsellorScheduleScreen() {
         <View style={styles.bookedSlotHeaderRow}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <View style={styles.slotTimeBadge}>
-              <Ionicons name="time-outline" size={13} color="#065F46" />
+              <Ionicons name="time" size={13} color="#065F46" />
               <Text style={styles.slotTimeBadgeText}>{slot.timeRange}</Text>
             </View>
             {(slot.dateDisplay || slot.dateKey) ? (
@@ -632,8 +664,8 @@ export default function CounsellorScheduleScreen() {
           </View>
 
           <View style={styles.confirmedBadge}>
-            <View style={styles.confirmedBadgeDot} />
-            <Text style={styles.confirmedBadgeText}>Confirmed</Text>
+            <Ionicons name="shield-checkmark" size={12} color="#FFFFFF" />
+            <Text style={styles.confirmedBadgeText}>CONFIRMED</Text>
           </View>
         </View>
 
@@ -641,25 +673,30 @@ export default function CounsellorScheduleScreen() {
           <View
             style={[
               styles.bookedModalityIconBox,
-              slot.modalityType === "voice" && { backgroundColor: "#FEF3C7" },
-              slot.modalityType === "in-person" && { backgroundColor: "#E0E7FF" },
+              slot.modalityType === "video" && { backgroundColor: "#065F46" },
+              slot.modalityType === "chat" && { backgroundColor: "#0284C7" },
+              slot.modalityType === "voice" && { backgroundColor: "#D97706" },
+              slot.modalityType === "in-person" && { backgroundColor: "#4F46E5" },
             ]}
           >
             {slot.modalityType === "video" && (
-              <Ionicons name="videocam" size={18} color="#065F46" />
+              <Ionicons name="videocam" size={20} color="#FFFFFF" />
+            )}
+            {slot.modalityType === "chat" && (
+              <Ionicons name="chatbubbles" size={20} color="#FFFFFF" />
             )}
             {slot.modalityType === "voice" && (
-              <Ionicons name="call" size={18} color="#B45309" />
+              <Ionicons name="call" size={20} color="#FFFFFF" />
             )}
             {slot.modalityType === "in-person" && (
-              <Ionicons name="person" size={18} color="#4338CA" />
+              <Ionicons name="person" size={20} color="#FFFFFF" />
             )}
           </View>
 
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <View style={{ flex: 1, paddingRight: 6 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
               <Text style={styles.bookedStudentName}>
-                {slot.studentName}
+                {slot.studentName || "Student #5104"}
               </Text>
               {slot.isAnonymous && (
                 <View style={styles.anonPill}>
@@ -668,16 +705,24 @@ export default function CounsellorScheduleScreen() {
                 </View>
               )}
             </View>
-            <Text style={styles.bookedModalityText}>
-              {slot.modalityText}
-            </Text>
+            <View style={styles.bookedModalityRow}>
+              <View style={styles.bookedModalityChip}>
+                <Text style={styles.bookedModalityChipText}>
+                  {slot.modalityType === "video" ? "Video Call" : slot.modalityType === "chat" ? "Secure Chat" : slot.modalityType === "voice" ? "Voice Call" : "In-Person Clinic"}
+                </Text>
+              </View>
+              <Text style={styles.bookedModalitySub}>
+                • Confirmed Booking
+              </Text>
+            </View>
           </View>
 
-          <Ionicons
-            name="chevron-forward"
-            size={18}
-            color={colors.textSecondary}
-          />
+          <View style={styles.bookedActionBtn}>
+            <Text style={styles.bookedActionBtnText}>
+              {slot.modalityType === "video" ? "Enter Room" : slot.modalityType === "chat" ? "Open Chat" : "View"}
+            </Text>
+            <Ionicons name="chevron-forward" size={13} color="#065F46" />
+          </View>
         </View>
 
         {slot.intakeNote && (
@@ -733,7 +778,7 @@ export default function CounsellorScheduleScreen() {
     const colomboOffset = 5.5 * 60 * 60 * 1000;
     const baseDate = new Date(now.getTime() + now.getTimezoneOffset() * 60000 + colomboOffset);
 
-    // Map slot counts by dateKey
+    // Map slot counts by dateKey (including confirmed bookings from calendarBookings)
     const slotCounts: Record<string, { total: number; open: number; booked: number }> = {};
     store.scheduleDaySlots.forEach((s) => {
       const dk = s.dateKey || todayKey;
@@ -743,6 +788,22 @@ export default function CounsellorScheduleScreen() {
         slotCounts[dk].booked += 1;
       } else {
         slotCounts[dk].open += 1;
+      }
+    });
+
+    // Also include any confirmed bookings from calendarBookings that are not in scheduleDaySlots
+    store.calendarBookings.forEach((b) => {
+      if (b.isOpenSlot || !b.dateKey) return;
+      const dk = b.dateKey;
+      const alreadyCounted = store.scheduleDaySlots.some(
+        (s) =>
+          s.id === b.id ||
+          (s.dateKey === b.dateKey && (s.startTime === b.timeSlot || s.timeRange === b.timeRange))
+      );
+      if (!alreadyCounted) {
+        if (!slotCounts[dk]) slotCounts[dk] = { total: 0, open: 0, booked: 0 };
+        slotCounts[dk].total += 1;
+        slotCounts[dk].booked += 1;
       }
     });
 
@@ -802,20 +863,61 @@ export default function CounsellorScheduleScreen() {
     });
 
     return items;
-  }, [store.scheduleDaySlots, todayKey]);
+  }, [store.scheduleDaySlots, store.calendarBookings, todayKey]);
 
-  // Slots filtered for currently selected date
+  // Slots filtered for currently selected date, merging any confirmed bookings from calendarBookings
   const displayedDaySlots = useMemo(() => {
+    let list: ScheduleDaySlot[] = [];
     if (selectedDateKey === "all") {
-      return store.scheduleDaySlots;
+      list = [...store.scheduleDaySlots];
+    } else {
+      list = store.scheduleDaySlots.filter((s) => {
+        if (s.dateKey) {
+          return s.dateKey === selectedDateKey;
+        }
+        return selectedDateKey === todayKey;
+      });
     }
-    return store.scheduleDaySlots.filter((s) => {
-      if (s.dateKey) {
-        return s.dateKey === selectedDateKey;
-      }
-      return selectedDateKey === todayKey;
-    });
-  }, [store.scheduleDaySlots, selectedDateKey, todayKey]);
+
+    // Merge any confirmed bookings from calendarBookings for the selected date
+    const targetKey = selectedDateKey === "all" ? undefined : selectedDateKey;
+    store.calendarBookings
+      .filter((b) => !b.isOpenSlot && b.dateKey && (!targetKey || b.dateKey === targetKey))
+      .forEach((b) => {
+        const alreadyExists = list.some(
+          (s) =>
+            s.id === b.id ||
+            s.id === b.id.replace(/^cal-slot-/, "") ||
+            s.id === b.id.replace(/^cal-/, "") ||
+            (s.dateKey === b.dateKey &&
+              (s.startTime === b.timeSlot || s.timeRange === b.timeRange))
+        );
+        if (!alreadyExists) {
+          list.push({
+            id: b.id.replace(/^cal-slot-/, "").replace(/^cal-/, ""),
+            timeRange: b.timeRange,
+            isBooked: true,
+            studentName: b.displayName || b.studentAnonId || "Student #5104",
+            subtitle: "Confirmed student booking",
+            modalityText: b.modality === "chat" ? "Secure Chat Session" : b.modality === "in-person" ? "In-Person Consultation" : "Video Consultation",
+            modalityType: (b.modality === "chat" ? "chat" : b.modality === "in-person" ? "in-person" : "video") as any,
+            statusBadge: "Confirmed",
+            isAnonymous: true,
+            intakeNote: b.subInfo || "Intake Complete",
+            dateKey: b.dateKey,
+            dateDisplay: b.dateStr || b.dateKey,
+            startTime: b.timeSlot || b.timeRange.split(/[–\-]/)[0]?.trim(),
+            endTime: b.timeRange.split(/[–\-]/)[1]?.trim() || "",
+            sessionTypes: [b.modality],
+          });
+        }
+      });
+
+    // Sort chronologically from morning to afternoon
+    return list.sort(
+      (a, b) => parseTimeToMinutes(a.startTime || a.timeRange) - parseTimeToMinutes(b.startTime || b.timeRange)
+    );
+  }, [store.scheduleDaySlots, store.calendarBookings, selectedDateKey, todayKey]);
 
   // Formatted date and stats metadata
   const currentDateMeta = useMemo(() => {
@@ -985,7 +1087,12 @@ export default function CounsellorScheduleScreen() {
               </View>
               <Pressable
                 style={styles.addSlotsHeaderBtn}
-                onPress={() => router.push("/(counsellor-detail)/add-session")}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(counsellor-detail)/add-session",
+                    params: selectedDateKey !== "all" ? { dateKey: selectedDateKey } : undefined,
+                  })
+                }
                 accessibilityRole="button"
                 accessibilityLabel="Add New Availability Slots"
               >
@@ -2193,13 +2300,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 16,
     padding: spacing.md,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
+    borderWidth: 1.5,
+    borderColor: "#A7F3D0",
+    borderLeftWidth: 5,
+    borderLeftColor: "#059669",
+    shadowColor: "#065F46",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
   bookedSlotHeaderRow: {
     flexDirection: "row",
@@ -2210,22 +2319,22 @@ const styles = StyleSheet.create({
   confirmedBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    backgroundColor: "#ECFDF5",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radius.full,
-  },
-  confirmedBadgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    gap: 4,
     backgroundColor: "#065F46",
+    paddingHorizontal: 9,
+    paddingVertical: 3.5,
+    borderRadius: radius.full,
+    shadowColor: "#065F46",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 1,
   },
   confirmedBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#065F46",
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    color: "#FFFFFF",
   },
   bookedStudentRow: {
     flexDirection: "row",
@@ -2233,23 +2342,30 @@ const styles = StyleSheet.create({
     gap: spacing.sm + 2,
   },
   bookedModalityIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#ECFDF5",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#065F46",
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
   },
   bookedStudentName: {
     fontSize: 15,
     fontWeight: "800",
-    color: "#1E293B",
+    color: "#0F172A",
   },
   anonPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
     backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -2259,10 +2375,43 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#065F46",
   },
-  bookedModalityText: {
-    fontSize: 12,
-    color: "#64748B",
-    marginTop: 2,
+  bookedModalityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 3,
+  },
+  bookedModalityChip: {
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  bookedModalityChipText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#334155",
+  },
+  bookedModalitySub: {
+    fontSize: 11,
+    color: "#059669",
+    fontWeight: "600",
+  },
+  bookedActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    borderRadius: radius.full,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  bookedActionBtnText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: "#065F46",
   },
   intakeNoteBanner: {
     flexDirection: "row",

@@ -9,7 +9,7 @@ import { isStaffRequest, Role, StaffRole, UserProfile } from "@/services/authSer
 import { setCachedCounsellorPhoto } from "@/services/counsellorPhotoService";
 import type { CounsellorInput, CounsellorProfile, PhotoChange } from "@/types/counsellor";
 import type { Resource, ResourceInput } from "@/types/resource";
-import type { WeekStats } from "@/types/stats";
+import type { FactorKey, WeekStats } from "@/types/stats";
 import { recentWeeks } from "@/utils/week";
 import {
   addDoc,
@@ -109,13 +109,38 @@ export async function createCounsellor(input: CounsellorInput, photo?: PhotoChan
   if (photo !== undefined) setCachedCounsellorPhoto(input.uid, photo);
 }
 
+// The only fields a counsellors/{uid} doc may hold (validCounsellorProfile
+// in firestore.rules checks the WHOLE doc with hasOnly)
+const COUNSELLOR_FIELDS = [
+  "uid",
+  "fullName",
+  "title",
+  "specialties",
+  "languages",
+  "experienceYears",
+  "bio",
+  "isAvailable",
+  "updatedAt",
+];
+
 export async function updateCounsellor(
   uid: string,
   changes: Partial<Omit<CounsellorInput, "uid">>,
   photo?: PhotoChange,
 ) {
+  const ref = doc(db, "counsellors", uid);
+  // Older counsellor-side code left extra fields (e.g. defaultDuration,
+  // availableSlots) in some profiles, which makes every save fail the rules.
+  // Remove them in the same update.
+  const snap = await getDoc(ref);
+  const stale = Object.fromEntries(
+    Object.keys(snap.data() ?? {})
+      .filter((key) => !COUNSELLOR_FIELDS.includes(key))
+      .map((key) => [key, deleteField()]),
+  );
   const batch = writeBatch(db);
-  batch.update(doc(db, "counsellors", uid), {
+  batch.update(ref, {
+    ...stale,
     ...changes,
     updatedAt: serverTimestamp(),
   });
@@ -257,6 +282,20 @@ const DEMO_WEEKS: [number, number, number, number, number][] = [
   [1, 3, 8, 10, 5],
 ];
 
+// Sample "What's affecting your mood?" counts for the same weeks. Students
+// can tag several reasons or none, so a week's counts don't add up to its
+// total. Exams climb towards the exam-season weeks (5 and 6), then fall away.
+const DEMO_FACTORS: Partial<Record<FactorKey, number>>[] = [
+  { studies: 9, sleep: 6, exams: 4, friends: 3, money: 3, family: 2, loneliness: 2, work: 2, health: 1, relationships: 1, other: 1 },
+  { studies: 10, exams: 6, sleep: 6, money: 4, friends: 3, loneliness: 3, family: 2, work: 2, health: 2, other: 1 },
+  { studies: 11, exams: 10, sleep: 8, money: 3, loneliness: 3, friends: 2, family: 2, health: 2, work: 1 },
+  { studies: 1, sleep: 1 },
+  { exams: 18, studies: 13, sleep: 12, health: 4, loneliness: 4, money: 3, family: 2, friends: 1, relationships: 1 },
+  { exams: 20, sleep: 13, studies: 12, health: 5, loneliness: 4, money: 3, family: 2, other: 1 },
+  { studies: 10, exams: 9, sleep: 8, money: 4, friends: 4, loneliness: 3, family: 2, work: 2, relationships: 2 },
+  { studies: 8, sleep: 6, friends: 5, money: 5, exams: 3, family: 3, work: 3, loneliness: 2, relationships: 2, health: 1, other: 1 },
+];
+
 // Writes demo stats for the 8 weeks BEFORE the current one, skipping any week
 // that already has a doc (real data is never overwritten). The current week is
 // left alone so real student check-ins keep working. Returns weeks written.
@@ -276,6 +315,7 @@ export async function loadDemoStats() {
       mood3: m3,
       mood4: m4,
       mood5: m5,
+      factors: DEMO_FACTORS[i],
       demo: true,
     };
     batch.set(doc(db, "stats", week.id), data);

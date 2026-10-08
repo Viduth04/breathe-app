@@ -156,7 +156,7 @@ export async function createCheckin(
   );
   // Anonymous weekly total for lecturers; only after the check-in is saved,
   // and never blocks the student if it fails
-  recordAnonymousMoodStat(data.mood).catch(() => {});
+  recordAnonymousMoodStat(data.mood, data.factors).catch(() => {});
   const checkin = { ...data, id };
   notify({ type: "saved", checkin });
   return checkin;

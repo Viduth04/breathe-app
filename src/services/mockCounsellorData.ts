@@ -11,7 +11,7 @@ import {
 export const MOCK_COUNSELLOR_PROFILE: CounsellorProfileInfo = {
   fullName: "Dr. Anjali Perera",
   title: "Lead Clinical Counselor",
-  organization: "MindEase",
+  organization: "SLIIT Wellness Center",
   avatarUrl: "",
   isVerified: true,
   isAvailable: true,

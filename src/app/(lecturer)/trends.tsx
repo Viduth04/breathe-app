@@ -1,11 +1,13 @@
 // Lecturer insights - Viduth (Member 1). Supports US05, NFR01.
 //
 // Last 8 weeks: average mood and participation as two separate charts
-// (one y-axis each), plus a table of the same numbers.
+// (one y-axis each), what students say is affecting them, plus a table of
+// the same numbers.
 
 import { EmptyState, ErrorState, LoadingState } from "@/components/admin/StateViews";
 import Card from "@/components/common/Card";
 import Screen from "@/components/common/Screen";
+import FactorBreakdown from "@/components/lecturer/FactorBreakdown";
 import LecturerHeader from "@/components/lecturer/LecturerHeader";
 import {
   describeWeek,
@@ -121,6 +123,8 @@ export default function Trends() {
                 </Text>
               </Card>
             ) : null}
+
+            <FactorBreakdown weeks={weeks} selected={selected} onSelect={setSelected} />
 
             <Card>
               <Text style={typography.heading} accessibilityRole="header">
