@@ -1,17 +1,9 @@
-// Check-in reminders - Ishara (Member 2). Supports FR05, NFR01.
-//
-// The device side of reminders: weekly LOCAL notifications (expo-notifications),
-// scheduled from the reminders in users/{uid}/reminders. Nothing is sent to a
-// server. The text is deliberately neutral (no mood or health details) because
-// it can show on a lock screen.
-//
-// Where notifications can't work, every function here is a safe no-op and
-// remindersSupported is false (the reminders themselves are still saved):
-//   - web: no scheduled notifications
-//   - Expo Go on Android: since SDK 53 expo-notifications throws as soon as it
-//     is imported there, so it is never imported at the top of any file. It is
-//     only require()d inside functions, and only where it is supported.
-//     iOS Expo Go and installed (dev/APK) builds are unaffected.
+/**
+ * Supports FR05 by scheduling and managing weekly local check-in notifications
+ * from saved reminder settings. The neutral text protects privacy on lock
+ * screens. expo-notifications is loaded lazily because importing it crashes
+ * Android Expo Go; unsupported platforms keep saved reminders but do not notify.
+ */
 
 import type { Reminder } from "@/types/reminder";
 import { parseTime } from "@/types/reminder";
@@ -39,6 +31,7 @@ function getNotifications(): typeof NotificationsModule | null {
   notificationsModule = null;
   if (!remindersSupported) return null;
   try {
+    // Load only when needed: Android Expo Go can crash if this module is imported.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     notificationsModule = require("expo-notifications") as typeof NotificationsModule;
   } catch (e) {
@@ -74,6 +67,10 @@ let initialised = false;
 
 // Show reminders while the app is open too, and create the Android channel
 // (Settings > Notifications shows it as "Check-in reminders")
+/**
+ * Sets up foreground display behavior and the Android reminder channel.
+ * @returns A promise that resolves after notification setup.
+ */
 export async function initReminderNotifications() {
   const Notifications = getNotifications();
   if (!Notifications || initialised) return;
@@ -99,6 +96,10 @@ export async function initReminderNotifications() {
 
 export type ReminderPermission = "granted" | "denied" | "undetermined" | "unsupported";
 
+/**
+ * Reads the current permission state for reminder notifications.
+ * @returns Whether permission is granted, denied, still askable, or unsupported.
+ */
 export async function getReminderPermission(): Promise<ReminderPermission> {
   const Notifications = getNotifications();
   if (!Notifications) return "unsupported";
@@ -110,7 +111,10 @@ export async function getReminderPermission(): Promise<ReminderPermission> {
   return status.canAskAgain ? "undetermined" : "denied";
 }
 
-// Asks the OS (only shows a prompt if it hasn't been answered before)
+/**
+ * Requests operating-system permission to show check-in reminder notifications.
+ * @returns The resulting permission state.
+ */
 export async function requestReminderPermission(): Promise<ReminderPermission> {
   const Notifications = getNotifications();
   if (!Notifications) return "unsupported";
@@ -152,7 +156,11 @@ async function schedule(Notifications: typeof NotificationsModule, reminder: Rem
   }
 }
 
-// After a create, edit or toggle: replace this reminder's notifications
+/**
+ * Replaces the scheduled notifications for one reminder.
+ * @param reminder Saved reminder whose schedule should be refreshed.
+ * @returns A promise that resolves when its notifications are updated.
+ */
 export function rescheduleReminder(reminder: Reminder) {
   const Notifications = getNotifications();
   if (!Notifications) return Promise.resolve();
@@ -162,15 +170,23 @@ export function rescheduleReminder(reminder: Reminder) {
   });
 }
 
-// After a delete
+/**
+ * Cancels scheduled notifications for one reminder.
+ * @param reminderId Fixed ID of the reminder to cancel.
+ * @returns A promise that resolves when matching notifications are cancelled.
+ */
 export function cancelReminder(reminderId: string) {
   const Notifications = getNotifications();
   if (!Notifications) return Promise.resolve();
   return serial(() => cancelMatching(Notifications, `${ID_PREFIX}${reminderId}-`));
 }
 
-// On login (and after permission is granted): this device schedules exactly
-// the signed-in person's reminders, nobody else's
+/**
+ * Replaces this device's reminder schedules with the signed-in student's list.
+ * Called after login and when notification permission is granted.
+ * @param reminders Reminders belonging to the signed-in student.
+ * @returns A promise that resolves when schedules are synced.
+ */
 export function syncReminderNotifications(reminders: Reminder[]) {
   const Notifications = getNotifications();
   if (!Notifications) return Promise.resolve();
@@ -182,7 +198,11 @@ export function syncReminderNotifications(reminders: Reminder[]) {
   });
 }
 
-// On logout and Delete My Data
+/**
+ * Cancels all check-in reminder notifications on this device.
+ * Used on logout and when the student deletes their data.
+ * @returns A promise that resolves when matching notifications are cancelled.
+ */
 export function cancelAllReminderNotifications() {
   const Notifications = getNotifications();
   if (!Notifications) return Promise.resolve();
@@ -194,8 +214,12 @@ export function cancelAllReminderNotifications() {
 // Responses already acted on (the "last response" survives until cleared)
 const handledTaps = new Set<string>();
 
-// Calls onOpen when a check-in reminder is tapped, also when the tap is what
-// launched the app. Returns an unsubscribe function (a no-op if unsupported).
+/**
+ * Runs a callback when the student taps a check-in reminder notification,
+ * including when that tap launches the app.
+ * @param onOpen Action to run after a reminder notification is tapped.
+ * @returns A function that stops listening for notification taps.
+ */
 export function listenForReminderTaps(onOpen: () => void): () => void {
   const Notifications = getNotifications();
   if (!Notifications) return () => {};

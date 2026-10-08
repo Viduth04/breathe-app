@@ -1,12 +1,8 @@
-// Check-in reminders - Ishara (Member 2). Supports FR05.
-//
-// Mounted once in the student layout:
-//   - after login, schedules this person's reminders on this device again
-//     (logout cancels them, and another person may have used the device)
-//   - tapping a reminder notification opens the check-in screen, also when
-//     the tap is what launched the app
-// Never imports expo-notifications itself (it crashes Android Expo Go); where
-// notifications are unsupported both effects do nothing.
+/**
+ * Supports FR05 by syncing the signed-in student's reminders after login and
+ * opening the check-in screen when a reminder notification is tapped.
+ * Notification setup is handled by reminderNotifications.
+ */
 
 import { listReminders } from "@/services/reminderService";
 import {
@@ -18,6 +14,10 @@ import {
 import { router } from "expo-router";
 import { useEffect } from "react";
 
+/**
+ * Keeps local reminder notifications in sync with the current student.
+ * @param uid Signed-in student's ID, or undefined when no student is signed in.
+ */
 export function useReminderNotifications(uid: string | undefined) {
   // Re-sync on login (and when another account signs in on this device)
   useEffect(() => {

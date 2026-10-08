@@ -1,9 +1,8 @@
-// Check-in reminders - Ishara (Member 2). Supports FR05.
-//
-// Add or edit one reminder: a time, and which days (every day, weekdays or
-// your own choice). Saving happens in the parent; this only collects input.
-// The parent keeps this mounted and gives it a new `key` for every open, so
-// the iOS sheet is shown/hidden with `visible` and the fields start fresh.
+/**
+ * Supports FR05 by collecting the time and days for a new or edited check-in
+ * reminder. The parent validates and saves the settings; this form only
+ * collects the student's choices.
+ */
 
 import ChipSelect from "@/components/admin/ChipSelect";
 import FormModal from "@/components/admin/FormModal";
@@ -41,6 +40,16 @@ const modeFor = (days: Weekday[]): DayMode =>
 // ChipSelect works with strings, so days travel as "0".."6"
 const DAY_OPTIONS = DAY_ORDER.map(String);
 
+/**
+ * Shows the form used to set up or edit one check-in reminder.
+ * @param visible Whether the form is shown.
+ * @param existing Reminder being edited, or null when adding one.
+ * @param saving Whether a save is in progress.
+ * @param saveError Error message from the save attempt, if any.
+ * @param onSave Called with the selected time, days, and enabled state.
+ * @param onClose Called when the student closes the form.
+ * @returns The reminder form modal.
+ */
 export default function ReminderForm({
   visible,
   existing,
