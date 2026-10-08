@@ -1,10 +1,10 @@
-// Home dashboard - Ishara (Member 2). FR02, FR06.
-// Layout scaffold by Viduth (Member 1).
-//
-// Each card loads on its own and fails on its own, so one error never blanks
-// the whole Home. Everything refreshes when the student comes back to Home.
-// Notification bell and panel: restores Minhaj's (Member 3) notifications,
-// reusing his card design (components/notifications/NotificationItem).
+/**
+ * Shows the student's Home dashboard: a daily check-in, this week's moods,
+ * upcoming session, support links, and published resources.
+ * Check-ins come from checkinService, bookings and counsellor details from
+ * homeService, and resources from resourceService. The screen also shows
+ * reminder settings and live session updates.
+ */
 
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
@@ -91,7 +91,7 @@ function useCardData<T>(loader: () => Promise<T>) {
 
 const moodLabel = (level: MoodLevel) => MOODS[level - 1].label;
 
-// Mon-Sun of the current week (future days are simply empty)
+// Build seven Mon-Sun mood slots from this week's check-ins; days without one stay empty.
 function thisWeek(list: CheckIn[]) {
   const sunday = weekStartDate();
   sunday.setDate(sunday.getDate() + 6);
@@ -103,6 +103,10 @@ const sessionDate = (d: Date) =>
 const sessionTime = (d: Date) =>
   d.toLocaleTimeString('en-LK', { timeZone: 'Asia/Colombo', hour: "numeric", minute: "2-digit" });
 
+/**
+ * Renders the student's Home screen and loads each dashboard card independently.
+ * @returns The Home screen with check-in, mood, booking, notification, and resource content.
+ */
 export default function Home() {
   const { user, profile } = useAuth();
   const firstName =
@@ -234,6 +238,7 @@ export default function Home() {
           </Pressable>
         </View>
 
+        {/* Shows the reminder link and the ten newest session updates. */}
         {/* Notifications panel, inline under the header */}
         {panelOpen ? (
           <View style={styles.panel}>
@@ -344,6 +349,7 @@ export default function Home() {
             </>
           )}
         </CardBody>
+        {/* Offer setup only when the student has no reminders to manage. */}
         {reminders.data === 0 && !reminders.error ? (
           <Pressable
             onPress={goToReminders}
