@@ -25,7 +25,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.viduth04.breatheapp"
     },
     "web": {
       "output": "static",
@@ -59,6 +60,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "019e4ad9-abbe-4a7f-8cc0-fe1eed1537c1"
+      }
     }
   }
 }
