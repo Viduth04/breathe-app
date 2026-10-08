@@ -58,7 +58,7 @@ export default function CancelBookingScreen() {
       setModalStep("success");
     } catch(e) {
       console.error(e);
-      alert("Failed to cancel session");
+      alert(e instanceof Error ? `Failed to cancel session: ${e.message}` : "Failed to cancel session. Please try again.");
     } finally {
       setCancelLoading(false);
     }
@@ -230,7 +230,7 @@ export default function CancelBookingScreen() {
                   <Text style={styles.modalKeepText}>Keep My Appointment</Text>
                 </Pressable>
 
-                <Text style={styles.modalFooterText}>POLICY §4.2 • REF ID: {session?.id ? `#${session.id.substring(0, 8).toUpperCase()}-CNL` : '#UNKNOWN'}</Text>
+                
               </>
             ) : (
               <>
@@ -251,10 +251,7 @@ export default function CancelBookingScreen() {
                         <Text style={styles.modalDetailValueDark}>{session?.sessionType === 'video' ? 'Video Call' : session?.sessionType === 'chat' ? 'Chat Session' : 'Phone Call'}</Text>
                     </View>
                   </View>
-                  <View style={styles.modalDetailRow}>
-                    <Text style={styles.modalDetailLabelUpperCase}>REFERENCE ID</Text>
-                    <Text style={styles.modalDetailValueDark}>{session?.id ? `#${session.id.substring(0, 8).toUpperCase()}` : '#UNKNOWN'}</Text>
-                  </View>
+                  
                   <View style={styles.modalDetailRow}>
                     <Text style={styles.modalDetailLabel}>Status</Text>
                     <View style={styles.modalStatusPill}>
@@ -273,18 +270,6 @@ export default function CancelBookingScreen() {
                   }}
                 >
                   <Text style={styles.modalPrimaryText}>Back to My Sessions</Text>
-                </Pressable>
-
-                <Pressable 
-                  style={styles.modalSecondaryBtn} 
-                  onPress={() => {
-                    setModalVisible(false);
-                    setModalStep("confirm");
-                    router.push("/(student)/session/book");
-                  }}
-                >
-                  <Ionicons name="calendar-outline" size={16} color={colors.primary} />
-                  <Text style={styles.modalSecondaryText}>Book New Appointment</Text>
                 </Pressable>
 
                 <View style={styles.modalFooterRow}>

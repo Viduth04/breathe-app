@@ -7,7 +7,12 @@ import React, { useEffect, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
-import { getUpcomingBooking } from "@/services/homeService";
+import {
+  timeAgo,
+  updateMessage,
+  updateTitle,
+  useBookingUpdates,
+} from "@/hooks/useBookingUpdates";
 import { getTodayCheckin } from "@/services/checkinService";
 import { listPublishedResources } from "@/services/resourceService";
 
@@ -22,6 +27,7 @@ type Notification = {
 
 export default function NotificationsScreen() {
   const { user } = useAuth();
+  const bookingUpdates = useBookingUpdates(user?.uid);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -32,35 +38,13 @@ export default function NotificationsScreen() {
         return;
       }
       try {
-        const [upcoming, todayCheckin, resources] = await Promise.all([
-          getUpcomingBooking(user.uid),
+        const [todayCheckin, resources] = await Promise.all([
           getTodayCheckin(user.uid),
           listPublishedResources(),
         ]);
 
         const notifs: Notification[] = [];
         let idCount = 1;
-
-        if (upcoming) {
-          const diffMs = upcoming.startAt.getTime() - Date.now();
-          const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
-          const diffMins = Math.floor(diffMs / (1000 * 60));
-
-          let timeStr = "";
-          if (diffHrs >= 24) timeStr = `in ${Math.floor(diffHrs / 24)} days`;
-          else if (diffHrs > 0) timeStr = `in ${diffHrs} hours`;
-          else if (diffMins > 0) timeStr = `in ${diffMins} minutes`;
-          else timeStr = "starting now";
-
-          notifs.push({
-            id: `n${idCount++}`,
-            title: "Upcoming Session Reminder",
-            body: `Your ${upcoming.sessionType} consultation with ${upcoming.counsellorName} starts ${timeStr}.`,
-            time: "Just now",
-            type: "session",
-            read: false,
-          });
-        }
 
         if (!todayCheckin) {
           notifs.push({
@@ -94,6 +78,40 @@ export default function NotificationsScreen() {
 
     loadData();
   }, [user]);
+
+  useEffect(() => {
+    if (!bookingUpdates.loading) bookingUpdates.markSeen();
+  }, [bookingUpdates.loading, bookingUpdates.markSeen]);
+
+  const upcomingBooking = bookingUpdates.upcomingBooking;
+  const daysUntilUpcoming = upcomingBooking
+    ? Math.floor((upcomingBooking.startAt.getTime() - Date.now()) / 86_400_000)
+    : 0;
+  const upcomingNotification: Notification | null = upcomingBooking
+    ? {
+        id: `upcoming-${upcomingBooking.id}`,
+        title: "Upcoming Session Reminder",
+        body: `Your ${upcomingBooking.sessionType} consultation with ${upcomingBooking.counsellorName} starts ${
+          daysUntilUpcoming > 0 ? `in ${daysUntilUpcoming} days` : "soon"
+        }.`,
+        time: "Just now",
+        type: "session",
+        read: true,
+      }
+    : null;
+
+  const allNotifications = [
+    ...bookingUpdates.updates.map((update): Notification => ({
+      id: `booking-${update.id}`,
+      title: updateTitle(update),
+      body: updateMessage(update),
+      time: timeAgo(update.updatedAt),
+      type: "session",
+      read: !bookingUpdates.isUnread(update),
+    })),
+    ...(upcomingNotification ? [upcomingNotification] : []),
+    ...notifications,
+  ];
 
   const renderItem = ({ item }: { item: Notification }) => {
     let iconName: keyof typeof Ionicons.glyphMap = "notifications";
@@ -132,16 +150,23 @@ export default function NotificationsScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {loading ? (
+      {loading || (Boolean(user) && bookingUpdates.loading) ? (
         <ActivityIndicator style={{ marginTop: 40 }} color={colors.primary} />
       ) : (
-        <FlatList
-          data={notifications}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          ListEmptyComponent={<Text style={styles.emptyText}>You have no new notifications.</Text>}
-        />
+        <>
+          {bookingUpdates.error ? (
+            <Text style={styles.errorText}>
+              Session updates could not be loaded. Please try again later.
+            </Text>
+          ) : null}
+          <FlatList
+            data={allNotifications}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            contentContainerStyle={styles.listContent}
+            ListEmptyComponent={<Text style={styles.emptyText}>You have no new notifications.</Text>}
+          />
+        </>
       )}
     </SafeAreaView>
   );
@@ -186,5 +211,11 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: 40,
     fontSize: 15,
+  },
+  errorText: {
+    color: colors.textSecondary,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    textAlign: "center",
   },
 });

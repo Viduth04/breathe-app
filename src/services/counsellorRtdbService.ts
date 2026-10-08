@@ -273,6 +273,8 @@ export async function joinCallSignaling(
     const updates: Record<string, any> = {};
 
     if (role === "counselor") {
+      updates.status = "active";
+      updates.startedAt = serverTimestamp();
       updates.counselorJoined = true;
       updates.counselorMedia = mediaState;
     } else {

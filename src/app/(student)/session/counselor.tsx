@@ -1,23 +1,65 @@
 import { FLOATING_HELP_CLEARANCE } from "@/components/crisis/UrgentHelpLink";
+import { useAuth } from "@/context/AuthContext";
 import { colors, radius, spacing, typography } from "@/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import CounsellorAvatar from "@/components/common/CounsellorAvatar";
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
-import { doc, getDoc, collection, getDocs, query, where } from "firebase/firestore";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { doc, getDoc, collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import { ActivityIndicator } from "react-native";
 import { router } from "expo-router";
 import { ScrollView, StyleSheet, Text, View, Pressable, Modal, FlatList } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Card from "@/components/common/Card";
+import { ACTIVE_STATUSES, type BookingStatus, type SessionType } from "@/types/booking";
+
+type PublishedSlot = {
+  id: string;
+  dateKey: string;
+  dateDisplay: string;
+  startTime: string;
+  endTime: string;
+  startAt: Date;
+  endAt: Date;
+  sessionTypes: SessionType[];
+  isBooked: boolean;
+  unavailableReason?: "booked" | "daily-limit";
+  bookingId?: string;
+};
+
+type StudentBookingStatus = {
+  status: BookingStatus;
+  dateKey: string;
+  sessionType: SessionType;
+  startAt: number;
+  endAt: number;
+};
+
+const CLOCK_TIME_PATTERN = /^\d{1,2}:\d{2}\s*(?:AM|PM)$/i;
 
 export default function CounselorProfileScreen() {
+  const { uid, bookingId } = useLocalSearchParams<{ uid: string; bookingId?: string }>();
+  const { profile } = useAuth();
   const [showCalendar, setShowCalendar] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date().getDate().toString());
-  const [selectedTime, setSelectedTime] = useState<string | null>(null);
+  const [selectedDateKey, setSelectedDateKey] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  });
+  const selectedDateKeyRef = useRef(selectedDateKey);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
+  const [availableSlots, setAvailableSlots] = useState<PublishedSlot[]>([]);
+  const [studentBookingStatuses, setStudentBookingStatuses] = useState<
+    Record<string, StudentBookingStatus>
+  >({});
+  const [slotsLoading, setSlotsLoading] = useState(Boolean(uid));
+  const [slotsError, setSlotsError] = useState<string | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<PublishedSlot | null>(null);
 
   const getMockData = (cId: string) => {
     const charCode = cId.charCodeAt(0) || 0;
@@ -27,60 +69,277 @@ export default function CounselorProfileScreen() {
       avatar: `https://i.pravatar.cc/150?u=${cId}`,
     };
   };
+  const mockData = uid ? getMockData(uid as string) : null;
+  const [counsellor, setCounsellor] = useState<any>(null);
+  const [loading, setLoading] = useState(Boolean(uid));
+  const [reviews, setReviews] = useState<any[]>([]);
 
-
-
-  // Helper for calendar days
-  const renderDay = (day: string, state: "empty" | "available" | "selected" | "unavailable") => {
-    let boxStyle: any = styles.dayBox;
-    let textStyle: any = styles.dayText;
-
-    let actualState = state;
-    if (state === "available" && day === selectedDate) {
-      actualState = "selected";
-    } else if (state === "selected" && day !== selectedDate) {
-      actualState = "available";
+  useEffect(() => {
+    if (!uid) {
+      return;
     }
 
-    if (actualState === "available") {
-      boxStyle = [styles.dayBox, styles.dayAvailable];
-    } else if (actualState === "selected") {
-      boxStyle = [styles.dayBox, styles.daySelected];
-      textStyle = [styles.dayText, styles.dayTextSelected];
-    } else if (actualState === "unavailable") {
-      boxStyle = [styles.dayBox, styles.dayUnavailable];
-      textStyle = [styles.dayText, styles.dayTextUnavailable];
-    } else if (actualState === "empty") {
-      textStyle = [styles.dayText, styles.dayTextEmpty];
+    let active = true;
+
+    getDoc(doc(db, "counsellors", uid))
+      .then((snap) => {
+        if (active && snap.exists()) {
+          setCounsellor({ id: snap.id, ...snap.data() });
+        }
+      })
+      .catch((error) => {
+        console.error("[counselor-profile] Failed to load counselor:", error);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    const slotsQuery = query(collection(db, "slots"), where("counsellorId", "==", uid));
+    const unsubscribeSlots = onSnapshot(
+      slotsQuery,
+      (snapshot) => {
+        const now = Date.now();
+        const slots = snapshot.docs
+          .map((slotDoc): PublishedSlot | null => {
+            const data = slotDoc.data();
+            
+            if (!data.dateKey || !data.startTime) return null;
+            
+            const [year, month, day] = data.dateKey.split("-").map(Number);
+            
+            const parseTime = (timeStr: string) => {
+              if (!timeStr) return { h: 0, m: 0 };
+              const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+              if (!match) return { h: 0, m: 0 };
+              let h = parseInt(match[1]);
+              const m = parseInt(match[2]);
+              if (match[3].toUpperCase() === "PM" && h < 12) h += 12;
+              if (match[3].toUpperCase() === "AM" && h === 12) h = 0;
+              return { h, m };
+            };
+            
+            const sTime = parseTime(data.startTime);
+            const eTime = parseTime(data.endTime);
+            
+            const startAt = new Date(year, month - 1, day, sTime.h, sTime.m);
+            const endAt = new Date(year, month - 1, day, eTime.h || sTime.h + 1, eTime.m || sTime.m);
+
+            // Don't show slots that have already passed
+            if (startAt.getTime() < now) return null;
+
+            return {
+              id: slotDoc.id,
+              dateKey: data.dateKey,
+              dateDisplay: data.dateDisplay || data.dateKey,
+              startTime: data.startTime,
+              endTime: data.endTime || "",
+              startAt,
+              endAt,
+              sessionTypes: data.sessionTypes || ["video"],
+              isBooked: data.isBooked === true || data.status === "held" || data.status === "closed",
+              unavailableReason: data.isBooked ? "booked" : undefined,
+              bookingId: data.bookingId,
+            };
+          })
+          .filter((s): s is PublishedSlot => s !== null);
+
+        if (active) {
+          setAvailableSlots(slots);
+          setSlotsError(null);
+          setSlotsLoading(false);
+        }
+      },
+      (error) => {
+        console.error("[counselor-profile] Slots subscription failed:", error);
+        if (active) {
+          setSlotsError("Failed to load availability.");
+          setSlotsLoading(false);
+        }
+      }
+    );
+
+    const reviewsQuery = query(collection(db, "reviews"), where("counsellorId", "==", uid));
+    const unsubscribeReviews = onSnapshot(
+      reviewsQuery,
+      (snapshot) => {
+        if (active) {
+          const revs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+          revs.sort((a: any, b: any) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+          setReviews(revs);
+        }
+      },
+      (error) => {
+        console.error("[counselor-profile] Reviews subscription failed:", error);
+      }
+    );
+
+    return () => {
+      active = false;
+      unsubscribeSlots();
+      unsubscribeReviews();
+    };
+  }, [uid]);
+
+  useEffect(() => {
+    if (!profile?.uid) {
+      setStudentBookingStatuses({});
+      return;
     }
+
+    const studentBookingsQuery = query(
+      collection(db, "bookings"),
+      where("studentId", "==", profile.uid)
+    );
+    return onSnapshot(
+      studentBookingsQuery,
+      (snapshot) => {
+        const statuses: Record<string, StudentBookingStatus> = {};
+        for (const bookingDoc of snapshot.docs) {
+          const booking = bookingDoc.data();
+          const startAt =
+            booking.startAt && typeof booking.startAt.toMillis === "function"
+              ? booking.startAt.toMillis()
+              : NaN;
+          const endAt =
+            booking.endAt && typeof booking.endAt.toMillis === "function"
+              ? booking.endAt.toMillis()
+              : NaN;
+          const dateKey = typeof booking.dateKey === "string" ? booking.dateKey : "";
+          const sessionType = booking.sessionType;
+          if (
+            Number.isFinite(startAt) &&
+            Number.isFinite(endAt) &&
+            ["in-person", "video", "phone", "chat"].includes(sessionType)
+          ) {
+            statuses[bookingDoc.id] = { status: booking.status, dateKey, sessionType, startAt, endAt };
+          }
+        }
+        setStudentBookingStatuses(statuses);
+      },
+      (error) => {
+        console.error("[counselor-profile] Failed to check the student's bookings:", error);
+      }
+    );
+  }, [profile?.uid]);
+
+  const calendarSlots = useMemo(() => {
+    const unavailableDateKeys = new Set(
+      Object.entries(studentBookingStatuses)
+        .filter(([, booking]) => booking.status !== "cancelled" && booking.status !== "declined")
+        .map(([bookingId, booking]) => {
+          const linkedSlot = availableSlots.find((slot) => slot.bookingId === bookingId);
+          if (linkedSlot) return linkedSlot.dateKey;
+          if (booking.dateKey) return booking.dateKey;
+          const date = new Date(booking.startAt);
+          return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+        })
+        .filter(Boolean),
+    );
+
+    return availableSlots.map((slot) => {
+      const ownBooking = slot.bookingId
+        ? studentBookingStatuses[slot.bookingId]
+        : undefined;
+      const isOwnedSlotActive = Boolean(
+        ownBooking &&
+          ACTIVE_STATUSES.includes(ownBooking.status) &&
+          ownBooking.endAt > Date.now(),
+      );
+      const dailyLimitApplies = !bookingId && unavailableDateKeys.has(slot.dateKey);
+
+      return {
+        ...slot,
+        isBooked: dailyLimitApplies || (ownBooking ? isOwnedSlotActive : slot.isBooked),
+        ...(dailyLimitApplies && !isOwnedSlotActive
+          ? { unavailableReason: "daily-limit" as const }
+          : {}),
+      };
+    });
+  }, [availableSlots, bookingId, studentBookingStatuses]);
+
+  useEffect(() => {
+    const selectedDateHasSlots = calendarSlots.some(
+      (slot) => slot.dateKey === selectedDateKeyRef.current
+    );
+    if (calendarSlots.length > 0 && !selectedDateHasSlots) {
+      const firstSlot = calendarSlots[0];
+      selectedDateKeyRef.current = firstSlot.dateKey;
+      setSelectedDateKey(firstSlot.dateKey);
+      setCalendarMonth(
+        new Date(firstSlot.startAt.getFullYear(), firstSlot.startAt.getMonth(), 1)
+      );
+    }
+    setSelectedSlot((current) =>
+      current && calendarSlots.some((slot) => slot.id === current.id && !slot.isBooked)
+        ? calendarSlots.find((slot) => slot.id === current.id) || null
+        : null
+    );
+  }, [calendarSlots]);
+
+  const calendarDays = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const leadingDays = (new Date(year, month, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const days: Array<Date | null> = Array.from({ length: leadingDays }, () => null);
+    for (let day = 1; day <= daysInMonth; day++) {
+      days.push(new Date(year, month, day));
+    }
+    while (days.length % 7 !== 0) days.push(null);
+    return days;
+  }, [calendarMonth]);
+
+  const currentDate = new Date();
+  const isCurrentOrPastMonth =
+    calendarMonth.getFullYear() < currentDate.getFullYear() ||
+    (calendarMonth.getFullYear() === currentDate.getFullYear() &&
+      calendarMonth.getMonth() <= currentDate.getMonth());
+
+  const selectedDateSlots = calendarSlots.filter((slot) => slot.dateKey === selectedDateKey);
+
+  const renderDay = (date: Date | null, index: number) => {
+    if (!date) {
+      return (
+        <View key={`empty-${index}`} style={styles.dayWrapper}>
+          <View style={styles.dayBox} />
+        </View>
+      );
+    }
+
+    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const dateSlots = calendarSlots.filter((slot) => slot.dateKey === dateKey);
+    const isAvailable = dateSlots.some((slot) => !slot.isBooked);
+    const hasVisibleSlots = dateSlots.length > 0;
+    const isSelected = selectedDateKey === dateKey;
+    const boxStyle = [
+      styles.dayBox,
+      isAvailable ? styles.dayAvailable : styles.dayUnavailable,
+      isSelected && styles.daySelected,
+    ];
+    const textStyle = [
+      styles.dayText,
+      !isAvailable && styles.dayTextUnavailable,
+      isSelected && styles.dayTextSelected,
+    ];
 
     return (
-      <View key={day + actualState} style={styles.dayWrapper}>
-        <Pressable style={boxStyle} onPress={() => { if (actualState === 'available' || actualState === 'selected') setSelectedDate(day); }}>
-          <Text style={textStyle}>{day}</Text>
+      <View key={dateKey} style={styles.dayWrapper}>
+        <Pressable
+          style={boxStyle}
+          disabled={!hasVisibleSlots}
+          onPress={() => {
+            selectedDateKeyRef.current = dateKey;
+            setSelectedDateKey(dateKey);
+            setSelectedSlot(null);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`${date.toLocaleDateString("en-LK", { weekday: "long", month: "long", day: "numeric" })}${isAvailable ? ", available" : hasVisibleSlots ? ", fully booked" : ", unavailable"}`}
+        >
+          <Text style={textStyle}>{date.getDate()}</Text>
         </Pressable>
       </View>
     );
   };
-
-  const { uid } = useLocalSearchParams<{ uid: string }>();
-  const mockData = uid ? getMockData(uid as string) : null;
-  const [counsellor, setCounsellor] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [reviews, setReviews] = useState<any[]>([]);
-
-  useEffect(() => {
-    if (uid) {
-      getDoc(doc(db, "counsellors", uid)).then((snap) => {
-        if (snap.exists()) {
-          setCounsellor({ id: snap.id, ...snap.data() });
-        }
-        setLoading(false);
-      });
-    } else {
-      setLoading(false);
-    }
-  }, [uid]);
 
   if (loading) {
     return <SafeAreaView style={styles.container}><ActivityIndicator style={{marginTop: 100}} />
@@ -190,83 +449,122 @@ export default function CounselorProfileScreen() {
               <View style={{ marginTop: 16 }}>
                 {/* Calendar Header */}
                 <View style={styles.calendarHeader}>
-                  
-                    <View>
-                      <Text style={styles.monthTitle}>
-                        {new Intl.DateTimeFormat('en-LK', { month: 'long', year: 'numeric', timeZone: 'Asia/Colombo' }).format(new Date())}
-                      </Text>
-                      <Text style={styles.monthSubtitle}>Select your consultation day</Text>
-                    </View>
-
+                  <View>
+                    <Text style={styles.monthTitle}>
+                      {new Intl.DateTimeFormat("en-LK", { month: "long", year: "numeric" }).format(calendarMonth)}
+                    </Text>
+                    <Text style={styles.monthSubtitle}>Select an available consultation day</Text>
+                  </View>
                   <View style={styles.monthNav}>
-                      <Pressable style={[styles.navBtn, { opacity: 0.3 }]} disabled={true}>
-                        <Ionicons name="chevron-back" size={16} color={colors.text} />
-                      </Pressable>
-                      <Pressable style={styles.navBtn}>
-                        <Ionicons name="chevron-forward" size={16} color={colors.text} />
-                      </Pressable>
-                    </View>
+                    <Pressable
+                      style={[styles.navBtn, isCurrentOrPastMonth && { opacity: 0.35 }]}
+                      disabled={isCurrentOrPastMonth}
+                      onPress={() =>
+                        setCalendarMonth((month) => {
+                          const current = new Date();
+                          const previousMonth = new Date(month.getFullYear(), month.getMonth() - 1, 1);
+                          if (
+                            previousMonth.getFullYear() < current.getFullYear() ||
+                            (previousMonth.getFullYear() === current.getFullYear() &&
+                              previousMonth.getMonth() < current.getMonth())
+                          ) {
+                            return month;
+                          }
+                          return previousMonth;
+                        })
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel="Previous month"
+                    >
+                      <Ionicons name="chevron-back" size={16} color={colors.text} />
+                    </Pressable>
+                    <Pressable
+                      style={styles.navBtn}
+                      onPress={() =>
+                        setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel="Next month"
+                    >
+                      <Ionicons name="chevron-forward" size={16} color={colors.text} />
+                    </Pressable>
+                  </View>
                 </View>
 
                 {/* Days of week */}
                 <View style={styles.weekDaysRow}>
-                  {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
-                    <Text key={i} style={styles.weekDayText}>{d}</Text>
+                  {["M", "T", "W", "T", "F", "S", "S"].map((day, i) => (
+                    <Text key={`${day}-${i}`} style={styles.weekDayText}>{day}</Text>
                   ))}
                 </View>
 
-                {/* Calendar Grid */}
-                  <View style={styles.calendarGrid}>
-                    {/* Dynamic Row 1-4 */}
-                    {[27,28,29,30,1,2,3, 4,5,6,7,8,9,10, 11,12,13,14,15,16,17, 18,19,20,21,22,23,24].map((dayNum, i) => {
-                       const d = String(dayNum).padStart(2, '0');
-                       const isEmpty = i < 4; // 27,28,29,30
-                       let status = "unavailable";
-                       if (isEmpty) status = "empty";
-                       else if (counsellor?.availableDate === String(dayNum) && counsellor?.availableSlots?.length > 0) {
-                           status = "available";
-                       }
-                       // fallback if not set in DB
-                       else if (!counsellor?.availableDate && dayNum === new Date().getDate() && counsellor?.availableSlots?.length > 0) {
-                           status = "available";
-                       }
-                       return renderDay(d, status as any);
-                    })}
-                  </View>
-
-                
+                <View style={styles.calendarGrid}>
+                  {calendarDays.map((day, index) => renderDay(day, index))}
+                </View>
               </View>
             )}
 
             <View style={[styles.slotsGrid, { marginTop: showCalendar ? 0 : 0 }]}>
-              
-                <View style={[styles.slotBox, styles.slotBoxActive, { width: '100%', marginBottom: 4 }]}>
-                  <Ionicons name="calendar-outline" size={16} color="#FFF" />
-                  <Text style={[styles.slotText, styles.slotTextActive]}>
-                    {(() => {
-                        const now = new Date();
-                        const targetDate = new Date(now.getFullYear(), now.getMonth(), parseInt(selectedDate));
-                        return new Intl.DateTimeFormat('en-LK', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Colombo' }).format(targetDate);
-                    })()}
-                  </Text>
-                </View>
+              <View style={[styles.slotBox, styles.slotBoxActive, { width: "100%", marginBottom: 4 }]}>
+                <Ionicons name="calendar-outline" size={16} color="#FFF" />
+                <Text style={[styles.slotText, styles.slotTextActive]}>
+                  {(() => {
+                    const [year, month, day] = selectedDateKey.split("-").map(Number);
+                    return new Intl.DateTimeFormat("en-LK", {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "long",
+                    }).format(new Date(year, month - 1, day));
+                  })()}
+                </Text>
+              </View>
 
-              
-              {(counsellor?.availableSlots && counsellor.availableSlots.length > 0) ? (
-                counsellor.availableSlots.map((time: string, idx: number) => (
-                  <Pressable 
-                    key={idx} 
-                    style={[styles.slotBox, selectedTime === time && styles.slotBoxActive]}
-                    onPress={() => setSelectedTime(time)}
+              {slotsLoading ? (
+                <ActivityIndicator style={{ paddingVertical: 24 }} color={colors.primary} />
+              ) : slotsError ? (
+                <Text style={{ color: colors.textSecondary, textAlign: "center", paddingVertical: 24 }}>
+                  {slotsError}
+                </Text>
+              ) : selectedDateSlots.length > 0 ? (
+                selectedDateSlots.map((slot) => (
+                  <Pressable
+                    key={slot.id}
+                    style={[
+                      styles.slotBox,
+                      slot.isBooked && styles.slotBoxUnavailable,
+                      selectedSlot?.id === slot.id && styles.slotBoxActive,
+                    ]}
+                    disabled={slot.isBooked}
+                    onPress={() => setSelectedSlot(slot)}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: slot.isBooked }}
+                    accessibilityLabel={`${slot.startTime} slot${slot.isBooked ? ", already booked" : ""}`}
                   >
-                    <Ionicons name="time-outline" size={16} color={selectedTime === time ? "#FFF" : colors.primary} />
-                    <Text style={[styles.slotText, selectedTime === time && styles.slotTextActive]}>{time}</Text>
+                    <Ionicons
+                      name="time-outline"
+                      size={16}
+                      color={slot.isBooked ? colors.textSecondary : selectedSlot?.id === slot.id ? "#FFF" : colors.primary}
+                    />
+                    <Text
+                      style={[
+                        styles.slotText,
+                        slot.isBooked && styles.slotTextUnavailable,
+                        selectedSlot?.id === slot.id && styles.slotTextActive,
+                      ]}
+                    >
+                      {slot.startTime}{slot.endTime ? ` – ${slot.endTime}` : ""}{slot.isBooked ? (slot.unavailableReason === "daily-limit" ? " • Daily limit" : " • Booked") : ""}
+                    </Text>
                   </Pressable>
                 ))
               ) : (
-                <View style={{ width: '100%', alignItems: 'center', paddingVertical: 24 }}><Text style={{ color: colors.textSecondary, fontSize: 14 }}>No slots available for this day.</Text></View>
+                <View style={{ width: "100%", alignItems: "center", paddingVertical: 24 }}>
+                  <Text style={{ color: colors.textSecondary, fontSize: 14 }}>
+                    {availableSlots.length
+                      ? "No slots available for this day. Select a highlighted date."
+                      : "No slots available for this counselor yet."}
+                  </Text>
+                </View>
               )}
-
             </View>
           </Card>
 
@@ -317,17 +615,37 @@ export default function CounselorProfileScreen() {
 
       {/* Bottom Fixed Bar */}
       <View style={styles.bottomBar}>
-        <Pressable style={styles.chatFirstBtn} onPress={() => router.push({ pathname: "/(student)/session/chat", params: { uid: counsellor?.id || counsellor?.uid } })}>
-          <Ionicons name="chatbubble-outline" size={20} color={colors.primary} />
-          <Text style={styles.chatFirstText}>Chat First</Text>
-        </Pressable>
+        
         <Pressable 
-            style={[styles.bookSessionBtn, !selectedTime && { opacity: 0.5 }]} 
-            disabled={!selectedTime}
-            onPress={() => router.push({ pathname: "/(student)/session/book", params: { uid: counsellor?.id, time: selectedTime } })}
+            style={[styles.bookSessionBtn, !selectedSlot && { opacity: 0.5 }]}
+            disabled={!selectedSlot}
+            onPress={() => selectedSlot && router.push({
+              pathname: "/(student)/session/book",
+              params: {
+                uid: counsellor?.id,
+                ...(bookingId ? { bookingId } : {}),
+                slotId: selectedSlot.id,
+                dateKey: selectedSlot.dateKey,
+                time: selectedSlot.startTime,
+                startAt: selectedSlot.startAt.toISOString(),
+                endAt: selectedSlot.endAt.toISOString(),
+                sessionType:
+                  bookingId &&
+                  selectedSlot.sessionTypes.includes(
+                    studentBookingStatuses[bookingId]?.sessionType,
+                  )
+                    ? studentBookingStatuses[bookingId].sessionType
+                    : selectedSlot.sessionTypes[0] || "video",
+                sessionTypes: selectedSlot.sessionTypes.join(","),
+              },
+            })}
           >
-            <Ionicons name="calendar-outline" size={20} color="#FFF" />
-            <Text style={styles.bookSessionText}>Book Session</Text>
+            <Ionicons name="calendar-outline" size={20} color="#FFF" style={styles.bookSessionIcon} />
+            <View style={styles.bookSessionContent}>
+              <Text style={styles.bookSessionText}>
+                {bookingId ? "New Time" : "Book Session"}
+              </Text>
+            </View>
           </Pressable>
       </View>
     
@@ -586,6 +904,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
+  slotBoxUnavailable: {
+    backgroundColor: "#ECECEC",
+    borderColor: "#E0E0E0",
+    opacity: 0.5,
+  },
   slotText: {
     fontSize: 14,
     fontWeight: "600",
@@ -593,6 +916,9 @@ const styles = StyleSheet.create({
   },
   slotTextActive: {
     color: "#FFF",
+  },
+  slotTextUnavailable: {
+    color: "#7B7B7B",
   },
   totalReviewsBadge: {
     backgroundColor: "#E5F8E4",
@@ -658,15 +984,26 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    position: "relative",
     backgroundColor: colors.primary,
     paddingVertical: 14,
+    paddingHorizontal: 12,
     borderRadius: radius.md,
-    gap: 8,
+  },
+  bookSessionIcon: {
+    position: "absolute",
+    left: 8,
+  },
+  bookSessionContent: {
+    flex: 1,
+    alignItems: "center",
   },
   bookSessionText: {
     fontWeight: "600",
     fontSize: 16,
+    lineHeight: 19,
     color: "#FFF",
+    textAlign: "center",
   },
   calendarHeader: {
     flexDirection: "row",

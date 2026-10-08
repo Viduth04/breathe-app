@@ -40,8 +40,6 @@ export function useBookingUpdates(uid: string | undefined) {
   const [names, setNames] = useState<Record<string, string>>({});
   const [lastSeenAt, setLastSeenAt] = useState<number | null>(null); // null = not read yet
   const [banner, setBanner] = useState<BookingBanner | null>(null);
-  // Bookings this device changed itself (a student's own cancel isn't news)
-  const [ownIds, setOwnIds] = useState<Set<string>>(new Set());
   const requestedNames = useRef(new Set<string>());
 
   // Last time the panel was opened on this device, for this student
@@ -62,7 +60,6 @@ export function useBookingUpdates(uid: string | undefined) {
     setBookings(null);
     setError(false);
     setBanner(null);
-    setOwnIds(new Set());
     if (!uid) return;
 
     let previous: Map<string, BookingStatus> | null = null; // null = first snapshot
@@ -71,7 +68,6 @@ export function useBookingUpdates(uid: string | undefined) {
       (list, local) => {
         setError(false);
         setBookings(list);
-        if (local.size) setOwnIds((ids) => new Set([...ids, ...local]));
 
         if (previous) {
           const changed = list
@@ -124,10 +120,27 @@ export function useBookingUpdates(uid: string | undefined) {
     [bookings, names],
   );
 
+  const upcomingBooking = useMemo(() => {
+    const upcoming = (bookings ?? [])
+      .filter((booking) =>
+        (booking.status === "pending" || booking.status === "confirmed") &&
+        booking.startAt.toDate().getTime() > Date.now(),
+      )
+      .sort((a, b) => a.startAt.toMillis() - b.startAt.toMillis())[0];
+
+    return upcoming
+      ? {
+          id: upcoming.id,
+          counsellorName: names[upcoming.counsellorId] ?? "your counsellor",
+          startAt: upcoming.startAt.toDate(),
+          sessionType: upcoming.sessionType,
+        }
+      : null;
+  }, [bookings, names]);
+
   const isUnread = useCallback(
-    (u: BookingUpdate) =>
-      lastSeenAt !== null && u.updatedAt.getTime() > lastSeenAt && !ownIds.has(u.id),
-    [lastSeenAt, ownIds],
+    (u: BookingUpdate) => lastSeenAt !== null && u.updatedAt.getTime() > lastSeenAt,
+    [lastSeenAt],
   );
   const unread = updates.filter(isUnread).length;
 
@@ -143,6 +156,7 @@ export function useBookingUpdates(uid: string | undefined) {
 
   return {
     updates,
+    upcomingBooking,
     loading: bookings === null && !error,
     error,
     unread,

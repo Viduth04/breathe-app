@@ -201,6 +201,7 @@ export const INITIAL_CALENDAR_BOOKINGS: CalendarBooking[] = [
 ];
 
 export type ScheduleDaySlot = {
+  bookingId?: string;
   id: string;
   timeRange: string;
   isBooked: boolean;

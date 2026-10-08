@@ -1,3 +1,4 @@
+import { PopupProvider, usePopup } from "@/components/common/popup";
 import LoadingScreen from "@/components/navigation/LoadingScreen";
 import { tabIcon, tabScreenOptions } from "@/components/navigation/tabs";
 import { useAuth } from "@/context/AuthContext";
@@ -6,8 +7,10 @@ import {
   useCounsellorBadges,
 } from "@/context/CounsellorBadgeContext";
 import { colors } from "@/theme";
-import { Redirect } from "expo-router";
+import { Redirect, router } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
+import { useCounsellorStore } from "@/services/counsellorStore";
+import { useEffect, useRef } from "react";
 
 function CounsellorTabsNavigator() {
   const { alertsUnread, messagesUnread } = useCounsellorBadges();
@@ -60,8 +63,6 @@ function CounsellorTabsNavigator() {
   );
 }
 
-import { PopupProvider } from "@/components/common/popup";
-
 // Counsellors only: logged-out users go to Welcome, other roles go back to index
 export default function CounsellorLayout() {
   const { user, profile } = useAuth();
@@ -74,7 +75,32 @@ export default function CounsellorLayout() {
     <PopupProvider>
       <CounsellorBadgeProvider>
         <CounsellorTabsNavigator />
+        <CounsellorCancellationPopup />
       </CounsellorBadgeProvider>
     </PopupProvider>
   );
+}
+
+function CounsellorCancellationPopup() {
+  const { alerts } = useCounsellorStore();
+  const latestAlert = alerts?.[0];
+  const { showToast } = usePopup();
+  const shownAlertId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!latestAlert || shownAlertId.current === latestAlert.id) return;
+
+    shownAlertId.current = latestAlert.id;
+    showToast({
+      message: `${latestAlert.title}: ${latestAlert.description}`,
+      variant: "warning",
+      duration: 7000,
+      action: {
+        label: "View",
+        onPress: () => router.push("/(counsellor)/alerts"),
+      },
+    });
+  }, [latestAlert, showToast]);
+
+  return null;
 }

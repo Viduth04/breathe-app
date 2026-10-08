@@ -328,8 +328,8 @@ export default function CounsellorDashboard() {
 
         {/* Today's Sessions Section */}
         <SectionHeader
-          title="Today's Sessions"
-          subtitle={new Date().toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Colombo" })}
+          title="Upcoming Sessions"
+            subtitle="All scheduled consultations"
           badgeText={`${sessions.length} scheduled`}
         />
 
@@ -342,7 +342,7 @@ export default function CounsellorDashboard() {
               accessibilityElementsHidden
               importantForAccessibility="no"
             />
-            <Text style={styles.emptyText}>No sessions scheduled for today</Text>
+            <Text style={styles.emptyText}>No upcoming sessions scheduled</Text>
           </View>
         ) : (
           sessions.map((session) => (

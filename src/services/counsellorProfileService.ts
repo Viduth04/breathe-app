@@ -257,6 +257,11 @@ export async function uploadCounsellorAvatar(
 
   const finalAvatarUrl = dataUrl;
 
+  await setDoc(
+    doc(db, FIRESTORE_COLLECTIONS.COUNSELLOR_PHOTOS, counsellorId),
+    { photo: finalAvatarUrl, updatedAt: serverTimestamp() },
+  );
+
   // 3. Persist to Firestore counselorPreferences collection (full owner access allowed by rules)
   try {
     const prefDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELOR_PREFERENCES, counsellorId);
@@ -387,12 +392,7 @@ export async function deleteCounsellorAvatar(counsellorId: string): Promise<void
   }
 
   // 6. Clear counsellorPhotos document and cache
-  try {
-    const photoDocRef = doc(db, FIRESTORE_COLLECTIONS.COUNSELLOR_PHOTOS, counsellorId);
-    await deleteDoc(photoDocRef);
-  } catch (e) {
-    // Ignore if not present
-  }
+  await deleteDoc(doc(db, FIRESTORE_COLLECTIONS.COUNSELLOR_PHOTOS, counsellorId));
   try {
     setCachedCounsellorPhoto(counsellorId, null);
   } catch (e) {
@@ -407,6 +407,14 @@ export async function persistCounsellorProfile(
   counsellorId: string,
   input: CounsellorProfileUpdateInput
 ): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error("You must be signed in to save your counsellor profile.");
+  }
+  if (currentUser.uid !== counsellorId) {
+    throw new Error("You can only save your own counsellor profile.");
+  }
+
   const errors = validateProfileInput(input);
   if (errors) {
     const firstMsg =
@@ -420,9 +428,9 @@ export async function persistCounsellorProfile(
   }
 
   // Update Firebase Auth displayName
-  if (auth.currentUser && auth.currentUser.uid === counsellorId) {
+  if (currentUser.uid === counsellorId) {
     try {
-      await updateProfile(auth.currentUser, {
+      await updateProfile(currentUser, {
         displayName: input.fullName.trim(),
       });
     } catch (authErr) {
@@ -462,7 +470,7 @@ export async function persistCounsellorProfile(
     }
 
     // 2. Sync to users collection
-    if (auth.currentUser && auth.currentUser.uid === counsellorId) {
+    if (currentUser.uid === counsellorId) {
       try {
         const userDocRef = doc(db, "users", counsellorId);
         await setDoc(
@@ -491,17 +499,8 @@ export async function persistCounsellorProfile(
     } catch (_) {}
   }
 
-  // Persist to Cloud Firestore if an authenticated user session is active
-  if (auth.currentUser) {
-    try {
-      await setDoc(counsellorDocRef, firestorePayload, { merge: true });
-    } catch (fsErr: any) {
-      console.warn(
-        "[counsellorProfileService] Firestore save notice (offline or role-restricted in preview):",
-        fsErr?.message || fsErr
-      );
-    }
-  }
+  // Replace the profile so legacy fields can't violate the rules' exact schema.
+  await setDoc(counsellorDocRef, firestorePayload);
 
   // Update counselorPreferences for organization/organization settings
   if (input.organization !== undefined) {

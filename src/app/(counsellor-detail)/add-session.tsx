@@ -543,7 +543,25 @@ export default function AddSessionScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-      {/* ─── Top Header ─── */}
+      {/* --- 3. Slot Duration (Essential) --- */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionLabel}>SLOT DURATION</Text>
+        </View>
+        <View style={styles.durationRow}>
+          {(["30m", "45m", "60m"] as DurationOption[]).map((d) => (
+            <Pressable
+              key={d}
+              style={[styles.durationChip, duration === d && styles.durationChipActive]}
+              onPress={() => setDuration(d)}
+            >
+              <Text style={[styles.durationChipText, duration === d && styles.durationChipTextActive]}>
+                {d === "45m" ? "45m (Standard)" : d}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* ─── Top Header ─── */}
       <View style={styles.header}>
         <Pressable
           onPress={() => router.back()}
@@ -797,24 +815,6 @@ export default function AddSessionScreen() {
             <Ionicons name="add" size={16} color="#FFFFFF" />
             <Text style={styles.addCustomTimeBtnText}>Add</Text>
           </Pressable>
-        </View>
-
-        {/* ─── 3. Slot Duration (Essential) ─── */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionLabel}>SLOT DURATION</Text>
-        </View>
-        <View style={styles.durationRow}>
-          {(["30m", "45m", "60m"] as DurationOption[]).map((d) => (
-            <Pressable
-              key={d}
-              style={[styles.durationChip, duration === d && styles.durationChipActive]}
-              onPress={() => setDuration(d)}
-            >
-              <Text style={[styles.durationChipText, duration === d && styles.durationChipTextActive]}>
-                {d === "45m" ? "45m (Standard)" : d}
-              </Text>
-            </Pressable>
-          ))}
         </View>
 
         {/* ─── 4. Consultation Modality (Essential) ─── */}

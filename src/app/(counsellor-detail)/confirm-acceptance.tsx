@@ -200,11 +200,11 @@ export default function ConfirmAcceptanceModal() {
             <View style={styles.actionsContainer}>
               <Pressable
                 onPress={handleConfirm}
-                disabled={isSubmitting || targetReq?.isExpired || isSlotAlreadyBooked}
+                disabled={isSubmitting || !targetReq || targetReq.isExpired || isSlotAlreadyBooked}
                 style={[
                   styles.confirmButton,
                   isSubmitting && { opacity: 0.6 },
-                  (targetReq?.isExpired || isSlotAlreadyBooked) && { backgroundColor: "#94A3B8", opacity: 0.8 },
+                  (!targetReq || targetReq.isExpired || isSlotAlreadyBooked) && { backgroundColor: "#94A3B8", opacity: 0.8 },
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel={
@@ -217,18 +217,16 @@ export default function ConfirmAcceptanceModal() {
               >
                 <Ionicons
                   name={
-                    targetReq?.isExpired
-                      ? "ban-outline"
+                    !targetReq || targetReq.isExpired ? "ban-outline"
                       : isSlotAlreadyBooked
                       ? "lock-closed-outline"
                       : "checkmark-circle-outline"
                   }
                   size={20}
-                  color={targetReq?.isExpired || isSlotAlreadyBooked ? "#FFFFFF" : "#A7F3D0"}
+                  color={!targetReq || targetReq.isExpired || isSlotAlreadyBooked ? "#FFFFFF" : "#A7F3D0"}
                 />
                 <Text style={styles.confirmButtonText}>
-                  {targetReq?.isExpired
-                    ? "Slot Expired (Cannot Confirm)"
+                  {!targetReq ? "Request Unavailable" : targetReq.isExpired ? "Slot Expired (Cannot Confirm)"
                     : isSlotAlreadyBooked
                     ? "Slot Already Booked (Reschedule Required)"
                     : "Confirm & Accept"}

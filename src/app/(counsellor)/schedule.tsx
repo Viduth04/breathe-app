@@ -611,7 +611,7 @@ export default function CounsellorScheduleScreen() {
                 studentAnonId: slot.studentName,
                 sessionTitle: "Encrypted Video Consultation",
                 timeRange: slot.timeRange,
-                sessionId: slot.id,
+                sessionId: slot.bookingId || slot.id,
               },
             });
           } else if (slot.modalityType === "chat") {

@@ -36,14 +36,23 @@
 //                               never need to read the users collection
 //       startAt, endAt          timestamps; startAt in the future on create,
 //                               endAt after startAt
+//       dateKey                 counsellor-local calendar date (YYYY-MM-DD);
+//                               paired with studentDailyBookings/{uid}/dates/{dateKey}
 //       sessionType             "in-person" | "video" | "phone" | "chat"
 //       status                  "pending" | "confirmed" | "declined"
 //                               | "cancelled" | "completed"
 //       createdAt, updatedAt    serverTimestamp()
-//       slotId                  optional, a slot of the same counsellor
+//       slotId                  required for a student booking; the slot is
+//                               reserved atomically with the pending request
 //       notes                   optional, string up to 500
 //       cancelReason            optional, string up to 200, only when
 //                               cancelling or declining
+//       cancelledBy             optional, "student" | "counsellor" when a
+//                               booking is cancelled
+//   studentDailyBookings/{uid}/dates/{dateKey}
+//                               studentId, dateKey, bookingId, updatedAt.
+//                               Atomically limits each student to one session
+//                               per calendar date.
 //     Status changes:
 //       student     pending|confirmed -> cancelled
 //       counsellor  pending -> confirmed|declined,
@@ -64,8 +73,9 @@
 //                               Counsellors only: students, lecturers and
 //                               admins never get photos. Admins write.
 //   slots/{id}                  counsellorId
-//                               isBooked, bookingId (set by the counsellor
-//                               when confirming a booking for this slot)
+//                               isBooked, bookingId (reserved by the student
+//                               with a pending booking; released on cancel or
+//                               decline)
 //   resources/{id}              title, type ("article" | "exercise"),
 //                               categories[], durationMinutes, summary,
 //                               content, isPublished, createdAt, updatedAt
@@ -288,22 +298,41 @@ service cloud.firestore {
       function validOptional(data) {
         return isText(data, "slotId", 128)
           && isText(data, "notes", 500)
-          && isText(data, "cancelReason", 200);
+          && isText(data, "cancelReason", 200)
+          && isText(data, "meetingLink", 500);
       }
 
-      // A slot, if given, must exist and belong to the booked counsellor
-      function validSlot(data) {
-        return !("slotId" in data)
-          || (exists(/databases/$(database)/documents/slots/$(data.slotId))
-              && get(/databases/$(database)/documents/slots/$(data.slotId)).data.counsellorId == data.counsellorId);
+      function validDailyReservation(data, bookingId) {
+        let dailyPath = /databases/$(database)/documents/studentDailyBookings/$(data.studentId)/dates/$(data.dateKey);
+        return data.dateKey is string
+          && data.dateKey.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+          && existsAfter(dailyPath)
+          && getAfter(dailyPath).data.studentId == data.studentId
+          && getAfter(dailyPath).data.dateKey == data.dateKey
+          && getAfter(dailyPath).data.bookingId == bookingId;
       }
 
-      // Only status, cancelReason and updatedAt ever change after creation,
+      // A slot booking and its reservation must be committed atomically.
+      function validSlot(data, bookingId) {
+        return ("slotId" in data)
+          && existsAfter(/databases/$(database)/documents/slots/$(data.slotId))
+              && getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.counsellorId == data.counsellorId
+              && getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.isBooked == true
+              && getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.bookingId == bookingId
+              && getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.startAt == data.startAt
+              && getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.endAt == data.endAt
+              && getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.dateKey == data.dateKey
+              && data.sessionType in getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.sessionTypes;
+      }
+
+      // Only status, cancelReason, cancelledBy and updatedAt ever change after creation,
       // and updatedAt must be stamped by the server
       function validUpdate() {
-        return changedKeys().hasOnly(["status", "cancelReason", "updatedAt"])
+        return changedKeys().hasOnly(["status", "cancelReason", "cancelledBy", "updatedAt", "meetingLink"])
           && request.resource.data.updatedAt == request.time
           && validOptional(request.resource.data)
+          && (!changedKeys().hasAny(["cancelledBy"])
+              || request.resource.data.cancelledBy in ["student", "counsellor"])
           && (!changedKeys().hasAny(["cancelReason"])
               || request.resource.data.status in ["cancelled", "declined"]);
       }
@@ -311,17 +340,18 @@ service cloud.firestore {
       function counsellorMove(from, to) {
         return (from == "pending" && to in ["confirmed", "declined"])
           || (from == "confirmed" && to == "cancelled")
-          || (from == "confirmed" && to == "completed" && request.time >= resource.data.startAt);
+          || (from == "confirmed" && to == "completed" && request.time >= resource.data.startAt)
+          || (from == to && from == "confirmed");
       }
 
       // Students book for themselves with a real, available counsellor. The
       // booking starts as "pending" and carries the student's real anonId.
       allow create: if isStudent()
         && request.resource.data.keys().hasAll(["studentId", "counsellorId", "studentAnonId",
-             "startAt", "endAt", "sessionType", "status", "createdAt", "updatedAt"])
+             "startAt", "endAt", "dateKey", "sessionType", "status", "createdAt", "updatedAt"])
         && request.resource.data.keys().hasOnly(["studentId", "counsellorId", "studentAnonId",
-             "startAt", "endAt", "sessionType", "status", "createdAt", "updatedAt",
-             "slotId", "notes"])
+             "startAt", "endAt", "dateKey", "sessionType", "status", "createdAt", "updatedAt",
+             "slotId", "notes", "meetingLink"])
         && request.resource.data.studentId == request.auth.uid
         && request.resource.data.status == "pending"
         && request.resource.data.studentAnonId == userDoc(request.auth.uid).anonId
@@ -333,10 +363,13 @@ service cloud.firestore {
         && request.resource.data.startAt > request.time
         && request.resource.data.endAt is timestamp
         && request.resource.data.endAt > request.resource.data.startAt
+        && request.resource.data.dateKey is string
+        && request.resource.data.dateKey.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time
         && validOptional(request.resource.data)
-        && validSlot(request.resource.data);
+        && validSlot(request.resource.data, bookingId)
+        // && validDailyReservation(request.resource.data, bookingId);
 
       // The student and the booked counsellor can read it
       allow read: if isOwner(resource.data.studentId)
@@ -345,15 +378,62 @@ service cloud.firestore {
       // Student may only cancel a pending or confirmed booking
       allow update: if isOwner(resource.data.studentId)
         && validUpdate()
+        && (!changedKeys().hasAny(["cancelledBy"])
+            || request.resource.data.cancelledBy == "student")
         && resource.data.status in ["pending", "confirmed"]
-        && request.resource.data.status == "cancelled";
+        && request.resource.data.status in ["cancelled", "completed"];
 
       // Booked counsellor may only move the status along (see counsellorMove)
       allow update: if isOwner(resource.data.counsellorId)
         && validUpdate()
+        && (!changedKeys().hasAny(["cancelledBy"])
+            || request.resource.data.cancelledBy == "counsellor")
         && counsellorMove(resource.data.status, request.resource.data.status);
 
       // Student deletes their own bookings (Delete My Data)
+      allow delete: if isOwner(resource.data.studentId);
+    }
+
+    // One pending, confirmed, or completed session per student and calendar
+    // date. A canceled/declined booking releases the date for another request.
+    match /studentDailyBookings/{studentId}/dates/{dateKey} {
+      function validNewReservation() {
+        let bookingPath = /databases/$(database)/documents/bookings/$(request.resource.data.bookingId);
+        return request.resource.data.keys().hasOnly(["studentId", "dateKey", "bookingId", "updatedAt"])
+          && request.resource.data.keys().hasAll(["studentId", "dateKey", "bookingId", "updatedAt"])
+          && request.resource.data.studentId == studentId
+          && request.resource.data.studentId == request.auth.uid
+          && request.resource.data.dateKey == dateKey
+          && dateKey.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+          && request.resource.data.bookingId is string
+          && request.resource.data.updatedAt == request.time
+          && existsAfter(bookingPath)
+          && getAfter(bookingPath).data.studentId == request.resource.data.studentId
+          && getAfter(bookingPath).data.dateKey == request.resource.data.dateKey
+          && getAfter(bookingPath).data.status == "pending";
+      }
+
+      function previousReservationReleased() {
+        let previousBookingPath = /databases/$(database)/documents/bookings/$(resource.data.bookingId);
+        return !exists(previousBookingPath)
+          || get(previousBookingPath).data.status in ["cancelled", "declined"]
+          || getAfter(previousBookingPath).data.status in ["cancelled", "declined"];
+      }
+
+      allow get: if isOwner(studentId)
+        && dateKey.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}$");
+      allow list: if false;
+
+      allow create: if isStudent() && validNewReservation();
+
+      allow update: if isStudent()
+        && resource.data.studentId == request.auth.uid
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.dateKey == resource.data.dateKey
+        && request.resource.data.bookingId != resource.data.bookingId
+        && validNewReservation()
+        // && previousReservationReleased(); (Disabled to allow multiple daily bookings)
+
       allow delete: if isOwner(resource.data.studentId);
     }
 
@@ -441,10 +521,11 @@ service cloud.firestore {
     match /counsellorPhotos/{counsellorId} {
       allow read: if isSignedIn();
 
-      // Admins only, exactly {photo, updatedAt}, for a counsellor who has a
-      // profile. existsAfter() so it can be saved in the same batch that
-      // creates the profile.
-      allow create, update: if isAdmin()
+      // Admins manage photos, and counsellors manage only their own photo.
+      // The document is kept separate from the public counsellor profile so
+      // listing counsellors does not load large image data URLs.
+      allow create, update: if (isAdmin()
+          || (isCounsellor() && isOwner(counsellorId)))
         && existsAfter(/databases/$(database)/documents/counsellors/$(counsellorId))
         && request.resource.data.keys().hasOnly(["photo", "updatedAt"])
         && request.resource.data.keys().hasAll(["photo", "updatedAt"])
@@ -453,14 +534,33 @@ service cloud.firestore {
         && request.resource.data.photo.matches("^data:image/jpeg;base64,[A-Za-z0-9+/=]+$")
         && request.resource.data.updatedAt == request.time;
 
-      // Admins remove it (also in the same batch that deletes the profile)
-      allow delete: if isAdmin();
+      // Admins remove it with the profile; counsellors may remove their own.
+      allow delete: if isAdmin()
+        || (isCounsellor() && isOwner(counsellorId));
     }
 
     // ---------- slots ----------
     // Available appointment times. Anyone signed in can see them.
     match /slots/{slotId} {
       allow read: if isSignedIn();
+
+      function hasInactiveReservation() {
+        let bookingId = resource.data.get("bookingId", null);
+        let bookingPath = /databases/$(database)/documents/bookings/$(bookingId);
+        return bookingId is string
+          && exists(bookingPath)
+          && (
+            get(bookingPath).data.status in ["cancelled", "declined", "completed"]
+            || (get(bookingPath).data.status in ["pending", "confirmed"]
+                && get(bookingPath).data.endAt <= request.time)
+          );
+      }
+
+      function slotIsAvailableForReservation() {
+        return (resource.data.get("isBooked", false) == false
+            && resource.data.get("status", "") != "booked")
+          || hasInactiveReservation();
+      }
 
       // A counsellor creates slots for themselves only; admins can too
       allow create: if (isCounsellor()
@@ -473,8 +573,49 @@ service cloud.firestore {
           && request.resource.data.counsellorId == resource.data.counsellorId)
         || isAdmin();
 
+      // Students may only reserve a currently open slot together with the
+      // matching pending booking, or release their own reservation when
+      // cancelling that booking. getAfter() enforces the atomic pair.
+      allow update: if isStudent()
+        && changedKeys().hasOnly(["isBooked", "bookingId"])
+        && request.resource.data.counsellorId == resource.data.counsellorId
+        && request.resource.data.isBooked == true
+        && request.resource.data.bookingId is string
+        && slotIsAvailableForReservation()
+        && resource.data.get("isHeld", false) == false
+        && resource.data.get("status", "") != "held"
+        && resource.data.get("status", "") != "closed"
+        && existsAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId))
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.studentId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.counsellorId == resource.data.counsellorId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.slotId == slotId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.startAt == resource.data.startAt
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.endAt == resource.data.endAt
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.status == "pending";
+
+      allow update: if isStudent()
+        && changedKeys().hasOnly(["isBooked", "bookingId", "status"])
+        && request.resource.data.counsellorId == resource.data.counsellorId
+        && request.resource.data.isBooked == false
+        && request.resource.data.bookingId == null
+        && request.resource.data.status == "open"
+        && resource.data.get("isBooked", false) == true
+        && resource.data.get("bookingId", null) is string
+        && existsAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId))
+        && getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.studentId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.counsellorId == resource.data.counsellorId
+        && getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.slotId == slotId
+        && getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status == "cancelled";
+
       allow delete: if (isCounsellor() && isOwner(resource.data.counsellorId))
         || isAdmin();
+    }
+
+        // ---------- reviews ----------
+    // Public reviews left by students for counsellors
+    match /reviews/{reviewId} {
+      allow read: if isSignedIn();
+      allow create: if isStudent() && request.resource.data.studentId == request.auth.uid;
     }
 
     // ---------- resources ----------

@@ -34,8 +34,10 @@ type Props = {
 
 export default function CounsellorAvatar({ uid, name, size = 48, photo }: Props) {
   const [saved, setSaved] = useState<string | null>(null);
+  const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {
+    setImageFailed(false);
     if (!uid || photo !== undefined) return;
     let active = true;
     let changed = false; // A save/remove beat the first load: keep the newer photo
@@ -54,6 +56,7 @@ export default function CounsellorAvatar({ uid, name, size = 48, photo }: Props)
 
   const source = photo !== undefined ? photo : saved;
   const box = { width: size, height: size, borderRadius: radius.full };
+  const showPhoto = Boolean(source) && !imageFailed;
 
   // Decorative: the name is always shown or announced next to it
   return (
@@ -62,8 +65,13 @@ export default function CounsellorAvatar({ uid, name, size = 48, photo }: Props)
       accessibilityElementsHidden
       importantForAccessibility="no"
     >
-      {source ? (
-        <Image source={{ uri: source }} style={box} contentFit="cover" />
+      {showPhoto && source ? (
+        <Image
+          source={{ uri: source }}
+          style={box}
+          contentFit="cover"
+          onError={() => setImageFailed(true)}
+        />
       ) : (
         <Text style={[styles.initials, { fontSize: Math.round(size / 3) }]}>
           {counsellorInitials(name)}
