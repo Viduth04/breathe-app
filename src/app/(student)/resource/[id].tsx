@@ -1,8 +1,8 @@
-// Self-help resources - Ishara (Member 2). FR06.
-//
-// One published resource. Articles read as paragraphs; exercises show their
-// numbered steps and can be done as a guided, step-by-step walkthrough.
-// Hidden from the tab bar; opened from the Exercises tab and Home.
+/**
+ * Shows one admin-created, published resource from resourceService.
+ * Articles are displayed for reading, while exercises can be followed
+ * step by step in guided mode.
+ */
 
 import ResourcePreview from "@/components/admin/ResourcePreview";
 import MoodHeader from "@/components/checkin/MoodHeader";
@@ -21,6 +21,11 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 
 type Mode = "read" | "guided" | "done";
 
+/**
+ * Loads and displays the published resource identified by the route.
+ * Draft or removed resources are shown as unavailable.
+ * @returns The resource detail screen, guided exercise, or completion screen.
+ */
 export default function ResourceDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [resource, setResource] = useState<Resource | null>(null);
@@ -34,6 +39,7 @@ export default function ResourceDetail() {
     setError(undefined);
     setMode("read");
     try {
+      // Only published resources can be opened by students.
       setResource(await getPublishedResource(id));
     } catch (e) {
       console.warn("Loading resource failed", e);
