@@ -1,8 +1,7 @@
-// Check-in reminders - Ishara (Member 2). Supports FR05.
-//
-// Hour and minute steppers with a few quick picks. Built from plain
-// Pressables so it works the same on iOS, Android and web, and screen readers
-// can swipe up/down on each part (accessibilityRole "adjustable").
+/**
+ * Supports FR05 by letting the student choose when a check-in reminder runs.
+ * Offers hour and minute steppers plus common time presets.
+ */
 
 import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
 import { formatTime, parseTime, toTime } from "@/types/reminder";
@@ -21,6 +20,12 @@ const native = Platform.OS !== "web";
 
 const wrap = (value: number, size: number) => ((value % size) + size) % size;
 
+/**
+ * Displays a time control and sends changed times to its parent.
+ * @param value Current time in HH:mm format.
+ * @param onChange Called with the selected time in HH:mm format.
+ * @returns The reminder time picker.
+ */
 export default function TimePicker({
   value,
   onChange,
@@ -30,6 +35,7 @@ export default function TimePicker({
 }) {
   const { hour, minute } = parseTime(value);
   const setHour = (h: number) => onChange(toTime(wrap(h, 24), minute));
+  // Five-minute steps make the time quicker to set with fewer taps.
   // Snap to the 5-minute grid, then step
   const setMinute = (step: number) => {
     const snapped = Math.round(minute / MINUTE_STEP) * MINUTE_STEP;

@@ -1,8 +1,8 @@
-// Mood tracking - Ishara (Member 2). FR09.
-//
-// One check-in in full, compared with the 3 days before it. Only today's entry
-// can be edited (older days stay as they were recorded); any entry can be
-// deleted. Hidden from the tab bar; opened from Mood history.
+/**
+ * Shows one check-in with its mood, reasons, note, and a comparison with the
+ * previous three days. The entry and comparison check-ins come from
+ * checkinService; the student can edit today's entry or delete any entry.
+ */
 
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
@@ -28,10 +28,20 @@ import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
 type Day = { dateKey: string; entry: CheckIn | null };
 
+/**
+ * Formats a date key as a short weekday name for the comparison.
+ * @param key Date in YYYY-MM-DD format.
+ * @returns The localised short weekday name.
+ */
 const weekday = (key: string) =>
   dateFromKey(key).toLocaleDateString(undefined, { weekday: "short" });
 
-// Plain-language comparison with the 3 days before
+/**
+ * Compares this mood with the average mood on earlier days with check-ins.
+ * @param entry The check-in to compare.
+ * @param before The three preceding days, including days without check-ins.
+ * @returns A short comparison message.
+ */
 function compareText(entry: CheckIn, before: Day[]) {
   const prev = before.flatMap((d) => (d.entry ? [d.entry] : []));
   if (!prev.length) return "No check-ins in the 3 days before this one.";
@@ -43,6 +53,10 @@ function compareText(entry: CheckIn, before: Day[]) {
   return `About the same as ${days} just before (average ${avg.toFixed(1)}).`;
 }
 
+/**
+ * Loads and renders the check-in selected by the route's ID.
+ * @returns The mood entry detail screen.
+ */
 export default function MoodEntry() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [entry, setEntry] = useState<CheckIn | null>(null);
@@ -58,6 +72,7 @@ export default function MoodEntry() {
     setLoadError(undefined);
     setDeleteError(undefined);
     try {
+      // The route's [id] parameter selects the matching check-in.
       const found = await getCheckin(id);
       setEntry(found);
       if (found) {
@@ -159,6 +174,7 @@ export default function MoodEntry() {
     );
   }
 
+  // Mood levels start at 1, so subtract one to index the mood label and face.
   const mood = MOODS[entry.mood - 1];
   const isToday = entry.dateKey === dateKey(new Date());
   const days: Day[] = [...before, { dateKey: entry.dateKey, entry }];
@@ -169,6 +185,7 @@ export default function MoodEntry() {
 
       {/* Entry */}
       <Card>
+        {/* longDate formats the stored date key as a local full date. */}
         <Text style={typography.caption}>{longDate(entry.dateKey)}</Text>
         <View
           style={[styles.mood, { borderLeftColor: moodColors[entry.mood - 1] }]}

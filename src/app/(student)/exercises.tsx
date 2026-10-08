@@ -1,8 +1,8 @@
-// Self-help resources - Ishara (Member 2). FR06.
-//
-// Published articles and exercises (the rules only let students read
-// isPublished == true). Search, type and category filters, and a
-// "Recommended for you" section driven by today's check-in factors.
+/**
+ * Shows the student searchable, filterable articles and exercises, with
+ * recommendations based on today's check-in. Resources come from
+ * resourceService and are limited to published items created by an admin.
+ */
 
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
@@ -91,6 +91,7 @@ export default function Exercises() {
     setError(undefined);
     try {
       const [list, today] = await Promise.all([
+        // The service filters isPublished == true because Firestore rules require it for list queries.
         listPublishedResources(),
         // Recommendations are a bonus: never fail the list because of them
         user ? getTodayCheckin(user.uid).catch(() => null) : Promise.resolve(null),
@@ -191,6 +192,7 @@ export default function Exercises() {
         {filtered.length ? (
           filtered.map((r) => <ResourceCard key={r.id} resource={r} />)
         ) : (
+          // Draft resources are not included, so an empty list means no published resources are available.
           <Card style={styles.empty}>
             <Ionicons
               name="search-outline"

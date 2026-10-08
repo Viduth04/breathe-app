@@ -1,8 +1,9 @@
-// Check-in reminders - Ishara (Member 2). Supports FR05, NFR01.
-//
-// Create, read, update and delete the signed-in student's reminders in
-// users/{uid}/reminders (owner only, see firestore.rules), and keep this
-// device's scheduled notifications in step after every change.
+/**
+ * Supports FR05 by storing and managing a student's check-in reminder settings
+ * in users/{uid}/reminders and updating this device's scheduled notifications.
+ * Fixed IDs r1-r5 enforce the five-reminder limit because Firestore rules
+ * cannot count documents.
+ */
 
 import { db } from "@/firebase/config";
 import { withTimeout } from "@/services/checkinService";
@@ -31,7 +32,11 @@ import {
 
 const remindersOf = (uid: string) => collection(db, "users", uid, "reminders");
 
-// Same checks as validReminder() in firestore.rules
+/**
+ * Checks the reminder fields against the requirements used by Firestore rules.
+ * @param input Time, selected days, and enabled state to validate.
+ * @returns A student-facing validation message, or undefined when valid.
+ */
 export function reminderInputError(input: ReminderInput): string | undefined {
   if (!TIME_PATTERN.test(input.time)) return "Choose a time for your reminder.";
   if (!input.days.length) return "Choose at least one day.";
@@ -45,7 +50,11 @@ const clean = (input: ReminderInput): ReminderInput => ({
   enabled: input.enabled,
 });
 
-// Earliest time first
+/**
+ * Loads the student's reminders in time order.
+ * @param uid ID of the student whose reminders to read.
+ * @returns The student's reminders, earliest time first.
+ */
 export async function listReminders(uid: string): Promise<Reminder[]> {
   const snap = await getDocs(remindersOf(uid));
   return snap.docs
@@ -56,6 +65,14 @@ export async function listReminders(uid: string): Promise<Reminder[]> {
 // Thrown when all MAX_REMINDERS slots are used
 export const REMINDER_LIMIT_ERROR = "reminders/limit";
 
+/**
+ * Creates a reminder in the first available fixed slot and schedules it locally.
+ * @param uid ID of the student who owns the reminder.
+ * @param input Reminder time, days, and enabled state.
+ * @param existing Reminders already loaded for this student.
+ * @returns The saved reminder.
+ * @throws An error with REMINDER_LIMIT_ERROR when all five slots are used.
+ */
 export async function createReminder(
   uid: string,
   input: ReminderInput,
@@ -80,7 +97,13 @@ export async function createReminder(
   return reminder;
 }
 
-// Edit time/days, or switch on/off (createdAt is left alone, as the rules require)
+/**
+ * Updates a reminder's time, days, or enabled state and refreshes its schedule.
+ * @param uid ID of the student who owns the reminder.
+ * @param existing Current reminder being changed.
+ * @param input New time, days, and enabled state.
+ * @returns The updated reminder.
+ */
 export async function updateReminder(
   uid: string,
   existing: Reminder,
@@ -100,6 +123,12 @@ export async function updateReminder(
   return reminder;
 }
 
+/**
+ * Deletes a student's reminder and cancels its scheduled notifications.
+ * @param uid ID of the student who owns the reminder.
+ * @param id Fixed reminder slot ID to delete.
+ * @returns A promise that resolves when the deletion and cancellation finish.
+ */
 export async function deleteReminder(uid: string, id: ReminderId) {
   await withTimeout(deleteDoc(doc(remindersOf(uid), id)));
   await cancelReminder(id).catch((e) => console.warn("Cancelling reminder failed", e));

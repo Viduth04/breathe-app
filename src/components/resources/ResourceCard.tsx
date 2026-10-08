@@ -1,4 +1,7 @@
-// Self-help resources - Ishara (Member 2). FR06.
+/**
+ * Displays one resource summary for the student.
+ * The caller supplies an admin-created, published resource from resourceService.
+ */
 
 import Card from "@/components/common/Card";
 import { colors, radius, spacing, TOUCH_TARGET, typography } from "@/theme";
@@ -7,13 +10,27 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+/**
+ * Builds the short type and duration label shown on a resource card.
+ * @param r Resource type and estimated duration.
+ * @returns A label such as "5 min exercise" or "5 min read".
+ */
 export const resourceMeta = (r: Pick<Resource, "type" | "durationMinutes">) =>
   `${r.durationMinutes} min ${r.type === "exercise" ? "exercise" : "read"}`;
 
+/**
+ * Opens the detail screen for a resource.
+ * @param id ID of the published resource.
+ * @returns The result of navigating to that resource's detail route.
+ */
 export const openResource = (id: string) =>
   router.navigate({ pathname: "/(student)/resource/[id]", params: { id } });
 
-// Tappable resource: icon by type, title, summary, duration and categories
+/**
+ * Renders a tappable card with a resource's title, summary, duration, and categories.
+ * @param resource Admin-created, published resource to show.
+ * @returns The resource card.
+ */
 export default function ResourceCard({ resource }: { resource: Resource }) {
   const isExercise = resource.type === "exercise";
   const meta = resourceMeta(resource);

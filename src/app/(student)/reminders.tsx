@@ -1,10 +1,8 @@
-// Check-in reminders - Ishara (Member 2). Supports FR05, NFR01.
-//
-// Gentle check-in reminders at times the student picks: add, list, edit,
-// switch on/off and delete (users/{uid}/reminders, owner only). Each one is a
-// weekly local notification on this device with neutral text. Guests can use
-// it too. On web and in Expo Go on Android the reminders are saved but no
-// notifications are shown.
+/**
+ * Supports FR05 by letting students set up, view, edit, enable, and delete
+ * check-in reminders. Reminder settings are stored for the signed-in user,
+ * and supported devices schedule local notifications with neutral text.
+ */
 
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
@@ -57,6 +55,11 @@ import {
 // while closing so the title doesn't flip during the slide-out
 type FormState = { open: boolean; existing: Reminder | null; key: number };
 
+/**
+ * Turns a save error into a message the student can understand.
+ * @param e Error returned by reminder storage.
+ * @returns A reminder-limit message or the standard authentication error message.
+ */
 const errorMessage = (e: unknown) =>
   (e as { code?: string })?.code === REMINDER_LIMIT_ERROR
     ? `You can have up to ${MAX_REMINDERS} reminders. Edit or delete one to add another.`
@@ -66,6 +69,10 @@ const announce = (message: string) => {
   if (Platform.OS !== "web") AccessibilityInfo.announceForAccessibility(message);
 };
 
+/**
+ * Renders the FR05 reminder setup and management screen.
+ * @returns The student's reminders screen.
+ */
 export default function Reminders() {
   const { user } = useAuth();
   const uid = user?.uid;

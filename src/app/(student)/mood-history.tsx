@@ -1,8 +1,8 @@
-// Mood tracking - Ishara (Member 2). FR09.
-//
-// The student's own mood over a week, a month or all time: a chart with the
-// same numbers as text, the average, gentle patterns, and every entry.
-// Hidden from the tab bar; opened from Home and the check-in success card.
+/**
+ * Shows the student's check-in history as a mood chart, average, patterns,
+ * and a list of entries for the selected time range.
+ * The check-ins and mood summaries come from checkinService.
+ */
 
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
@@ -50,7 +50,11 @@ const RANGES: { key: Range; label: string; days?: number }[] = [
 
 const PAGE_SIZE = 20;
 
-// Days from the oldest entry to today (at least a week) for "All time"
+/**
+ * Calculates the day range needed to include every check-in and at least a week.
+ * @param list The student's check-ins, newest first.
+ * @returns Number of days from the oldest check-in through today, or seven if empty.
+ */
 function allTimeDays(list: CheckIn[]) {
   if (!list.length) return 7;
   const oldest = dateFromKey(list[list.length - 1].dateKey);
@@ -58,6 +62,10 @@ function allTimeDays(list: CheckIn[]) {
   return Math.max(7, Math.round((today.getTime() - oldest.getTime()) / 86400000) + 1);
 }
 
+/**
+ * Renders the student's mood history, range filters, summaries, and entries.
+ * @returns The mood history screen.
+ */
 export default function MoodHistory() {
   const [all, setAll] = useState<CheckIn[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,6 +143,7 @@ export default function MoodHistory() {
     );
   }
 
+  // Show a prompt to start checking in instead of an empty chart and entry list.
   if (!all.length) {
     return (
       <Screen>
@@ -302,6 +311,7 @@ export default function MoodHistory() {
       <Text style={[typography.heading, styles.sectionTitle]} accessibilityRole="header">
         Entries
       </Text>
+      {/* listMyCheckins returns newest first, so the entries stay in newest-first order. */}
       {inRange.length ? (
         inRange.slice(0, shown).map((entry) => <EntryRow key={entry.id} entry={entry} />)
       ) : (
@@ -320,7 +330,13 @@ export default function MoodHistory() {
   );
 }
 
+/**
+ * Renders one check-in with its mood, date, reasons, and first note line.
+ * @param entry The check-in to display.
+ * @returns A pressable row that opens the check-in detail screen.
+ */
 function EntryRow({ entry }: { entry: CheckIn }) {
+  // Mood levels start at 1, so subtract one to index the matching face and label.
   const mood = MOODS[entry.mood - 1];
   const firstLine = entry.note?.split("\n")[0].trim();
   const factors = entry.factors ?? [];
@@ -347,6 +363,7 @@ function EntryRow({ entry }: { entry: CheckIn }) {
         <View style={styles.entryText}>
           <View style={styles.entryTop}>
             <Text style={styles.entryMood}>{mood.label}</Text>
+            {/* shortDay formats the stored date key as a local short date. */}
             <Text style={typography.caption}>{shortDay(entry.dateKey)}</Text>
           </View>
           {factors.length ? (

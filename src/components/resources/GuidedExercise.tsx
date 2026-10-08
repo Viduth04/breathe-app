@@ -1,8 +1,8 @@
-// Self-help resources - Ishara (Member 2). FR06.
-//
-// Walks through an exercise one step at a time with Back / Next and an
-// optional countdown per step. The timer never moves on by itself: the
-// student taps Next when they're ready.
+/**
+ * Guides the student through steps parsed from a published exercise loaded
+ * from resourceService. Only resources created by an admin and published
+ * for students can provide these steps. The timer never advances a step.
+ */
 
 import Button from "@/components/common/Button";
 import Card from "@/components/common/Card";
@@ -11,13 +11,28 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-// Suggested time per step: the exercise's duration split across its steps,
-// rounded to 5 seconds, between 15 seconds and 5 minutes
+/**
+ * Splits the exercise duration into a suggested countdown for each step.
+ * The result is rounded to five seconds and kept between 15 seconds and five minutes.
+ * @param durationMinutes Total estimated exercise time in minutes.
+ * @param steps Number of exercise steps.
+ * @returns Suggested countdown length for one step, in seconds.
+ */
 export const secondsPerStep = (durationMinutes: number, steps: number) =>
   Math.min(300, Math.max(15, Math.round((durationMinutes * 60) / Math.max(steps, 1) / 5) * 5));
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
+/**
+ * Shows one exercise step at a time with an optional timer.
+ * Pausing stops the countdown; leaving or changing steps stops it, and restart
+ * begins the current step's countdown again.
+ * @param steps Ordered instructions from the exercise.
+ * @param durationMinutes Estimated total exercise duration.
+ * @param onFinish Called when the student finishes the last step.
+ * @param onExit Called when the student exits before finishing.
+ * @returns The guided exercise card.
+ */
 export default function GuidedExercise({
   steps,
   durationMinutes,
@@ -59,6 +74,7 @@ export default function GuidedExercise({
 
   const isLast = index === steps.length - 1;
   const toggleTimer = () => {
+    // Restart from the full step time after the countdown reaches zero.
     if (remaining === 0) {
       setRemaining(stepSeconds);
       setTimeUp(false);
