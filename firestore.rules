@@ -384,7 +384,11 @@ service cloud.firestore {
         && request.resource.data.status in ["cancelled", "completed"];
 
       // Booked counsellor may only move the status along (see counsellorMove)
-      allow update: if isOwner(resource.data.counsellorId);
+      allow update: if isOwner(resource.data.counsellorId)
+        && validUpdate()
+        && (!changedKeys().hasAny(["cancelledBy"])
+            || request.resource.data.cancelledBy == "counsellor")
+        && counsellorMove(resource.data.status, request.resource.data.status);
 
       // Student deletes their own bookings (Delete My Data)
       allow delete: if isOwner(resource.data.studentId);
@@ -442,7 +446,13 @@ service cloud.firestore {
       // between exactly these two people. getAfter() so it works in the same
       // batch that confirms the booking (bookingService.updateBookingStatus);
       // outside a batch it's the same as get().
-      allow create, update: if isCounsellor();
+      allow create: if isCounsellor()
+        && linkId == request.auth.uid + "_" + request.resource.data.studentId
+        && request.resource.data.counsellorId == request.auth.uid
+        && request.resource.data.keys().hasOnly(["counsellorId", "studentId", "bookingId", "createdAt"])
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.counsellorId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.studentId == request.resource.data.studentId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.status == "confirmed";
 
       // The two people in the link can see it
       allow read: if isOwner(resource.data.counsellorId)
