@@ -543,25 +543,7 @@ export default function AddSessionScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-      {/* --- 3. Slot Duration (Essential) --- */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionLabel}>SLOT DURATION</Text>
-        </View>
-        <View style={styles.durationRow}>
-          {(["30m", "45m", "60m"] as DurationOption[]).map((d) => (
-            <Pressable
-              key={d}
-              style={[styles.durationChip, duration === d && styles.durationChipActive]}
-              onPress={() => setDuration(d)}
-            >
-              <Text style={[styles.durationChipText, duration === d && styles.durationChipTextActive]}>
-                {d === "45m" ? "45m (Standard)" : d}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* ─── Top Header ─── */}
+      {/* ─── Top Header ─── */}
       <View style={styles.header}>
         <Pressable
           onPress={() => router.back()}
@@ -573,7 +555,7 @@ export default function AddSessionScreen() {
           <Ionicons name="chevron-back" size={24} color="#1B2B24" />
         </Pressable>
 
-        <Text style={styles.headerTitle} accessibilityRole="header">
+        <Text style={styles.headerTitle} accessibilityRole="header" numberOfLines={1}>
           Add Availability Slots
         </Text>
 
@@ -643,7 +625,25 @@ export default function AddSessionScreen() {
           </View>
         </View>
 
-        {/* ─── 1. Date Selection (Essential) ─── */}
+        {/* ─── 1. Slot Duration ─── */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionLabel}>SLOT DURATION</Text>
+        </View>
+        <View style={styles.durationRow}>
+          {(["30m", "45m", "60m"] as DurationOption[]).map((d) => (
+            <Pressable
+              key={d}
+              style={[styles.durationChip, duration === d && styles.durationChipActive]}
+              onPress={() => setDuration(d)}
+            >
+              <Text style={[styles.durationChipText, duration === d && styles.durationChipTextActive]}>
+                {d === "45m" ? "45m (Standard)" : d}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* ─── 2. Date Selection ─── */}
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionLabel}>SELECT DATE(S)</Text>
           <Pressable onPress={selectAllWeekdays} hitSlop={6}>
@@ -916,13 +916,17 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   headerTitle: {
+    flex: 1,
+    textAlign: "center",
     fontSize: 18,
     fontWeight: "700",
     color: "#1B2B24",
   },
   headerRight: {
+    width: TOUCH_TARGET,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "flex-end",
   },
   counselorAvatar: {
     width: 36,
