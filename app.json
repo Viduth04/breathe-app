@@ -8,16 +8,25 @@
     "scheme": "breatheapp",
     "userInterfaceStyle": "light",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Breathe uses your camera during video consultations.",
+        "NSMicrophoneUsageDescription": "Breathe uses your microphone to record voice messages and during video consultations."
+      }
     },
     "android": {
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#FFF9EC",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.viduth04.breatheapp"
     },
     "web": {
       "output": "static",
@@ -26,17 +35,44 @@
     "plugins": [
       "expo-router",
       [
+        "expo-notifications",
+        {
+          "color": "#076047"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Breathe uses your photos to set or update your clinical profile picture.",
+          "cameraPermission": "Breathe uses your camera to capture your clinical profile picture.",
+          "microphonePermission": "Breathe uses your microphone during video consultations."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#FFF9EC",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
-      ]
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Breathe uses your microphone to record voice messages and during video consultations."
+        }
+      ],
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "019e4ad9-abbe-4a7f-8cc0-fe1eed1537c1"
+      }
     }
   }
 }

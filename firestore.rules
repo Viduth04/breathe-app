@@ -1,0 +1,859 @@
+// Breathe - Firestore security rules (COMPLETE file, no test-mode catch-all)
+// Admin panel - Viduth (Member 1). Supports FR01, NFR01.
+//
+// HOW TO PUBLISH
+//   Firebase console > Firestore Database > Rules tab > replace EVERYTHING
+//   with this file > Publish. Delete the old test-mode rule
+//   `match /{document=**} { allow read, write ... }` - rules are OR'd, so
+//   while it exists every rule below is ignored.
+//   Anything not matched below is denied by default.
+//
+// FIELD NAMES THE WHOLE TEAM MUST USE (the rules depend on them)
+//   users/{uid}                 doc id = Firebase Auth uid
+//       role                    "student" | "counsellor" | "lecturer" | "admin"
+//       uid, anonId, isGuest, fullName, email,
+//       anonymousMode, shareMoodWithCounsellor
+//       requestedRole           optional, "counsellor" | "lecturer": a staff
+//                               sign-up waiting for an admin. Role stays
+//                               "student" until approved.
+//       approvalStatus          optional, "pending" | "rejected"; only
+//                               present together with requestedRole.
+//                               Approving = admin sets role to requestedRole
+//                               and deletes both fields in one update.
+//   users/{uid}/reminders/{id}  check-in reminders (FR05), owner only.
+//                               doc id "r1".."r5" (max 5 per person)
+//                               EXACTLY these fields
+//                               (type: src/types/reminder.ts):
+//       time                    "HH:mm", 24-hour, e.g. "08:30"
+//       days                    list of 0-6 (0 = Sunday), at least one
+//       enabled                 bool
+//       createdAt, updatedAt    serverTimestamp(); createdAt never changes
+//   checkins/{id}               userId          (student's uid)
+//   bookings/{id}               EXACTLY these fields (type: src/types/booking.ts,
+//                               write only via src/services/bookingService.ts)
+//       studentId, counsellorId
+//       studentAnonId           copy of the student's anonId, so counsellors
+//                               never need to read the users collection
+//       startAt, endAt          timestamps; startAt in the future on create,
+//                               endAt after startAt
+//       dateKey                 counsellor-local calendar date (YYYY-MM-DD);
+//                               paired with studentDailyBookings/{uid}/dates/{dateKey}
+//       sessionType             "in-person" | "video" | "phone" | "chat"
+//       status                  "pending" | "confirmed" | "declined"
+//                               | "cancelled" | "completed"
+//       createdAt, updatedAt    serverTimestamp()
+//       slotId                  required for a student booking; the slot is
+//                               reserved atomically with the pending request
+//       notes                   optional, string up to 500
+//       cancelReason            optional, string up to 200, only when
+//                               cancelling or declining
+//       cancelledBy             optional, "student" | "counsellor" when a
+//                               booking is cancelled
+//   studentDailyBookings/{uid}/dates/{dateKey}
+//                               studentId, dateKey, bookingId, updatedAt.
+//                               Atomically limits each student to one session
+//                               per calendar date.
+//     Status changes:
+//       student     pending|confirmed -> cancelled
+//       counsellor  pending -> confirmed|declined,
+//                   confirmed -> cancelled, confirmed -> completed (after startAt)
+//   counsellors/{counsellorId}  doc id = the counsellor's uid
+//                               uid (same as doc id), fullName, title,
+//                               specialties[], languages[], experienceYears,
+//                               bio, isAvailable, updatedAt
+//                               EXACTLY these fields, checked by
+//                               validCounsellorProfile() below
+//                               (type: src/types/counsellor.ts)
+//   counsellorPhotos/{counsellorId}
+//                               doc id = a counsellor's uid that HAS a
+//                               counsellors/{uid} profile
+//                               photo     ("data:image/jpeg;base64,...",
+//                                          under 200000 chars),
+//                               updatedAt (serverTimestamp())
+//                               Counsellors only: students, lecturers and
+//                               admins never get photos. Admins write.
+//   slots/{id}                  counsellorId
+//                               isBooked, bookingId (reserved by the student
+//                               with a pending booking; released on cancel or
+//                               decline)
+//   resources/{id}              title, type ("article" | "exercise"),
+//                               categories[], durationMinutes, summary,
+//                               content, isPublished, createdAt, updatedAt
+//                               (type: src/types/resource.ts)
+//                               Drafts are admin-only: every non-admin query
+//                               MUST include where("isPublished", "==", true)
+//                               or Firestore rejects the whole query.
+//   careLinks/{counsellorId}_{studentId}
+//                               counsellorId, studentId, bookingId
+//                               (doc id MUST be "<counsellorUid>_<studentUid>")
+//   chats/{chatId}              participants    ([studentUid, counsellorUid])
+//   chats/{chatId}/messages/{id} senderId
+//   stats/{weekId}              doc id = ISO week, e.g. "2026-W40"
+//                               weekStart ("YYYY-MM-DD", that week's Monday),
+//                               total, mood1..mood5, factors (map of reason
+//                               key -> count), demo (admin sample data)
+//                               NO uid, anonId or per-person timestamps.
+//                               (type: src/types/stats.ts; students write it
+//                               only via recordAnonymousMoodStat())
+//   clinicalNotes/{noteId}      counselorId, patientId, content, signedStatus,
+//                               counselorName, modality, status, createdAt
+//                               (Confidential SOAP notes; author counsellor & admin only)
+//   counselorPreferences/{counselorId}
+//                               doc id = counselor uid; triage thresholds, quiet hours
+////
+// NOT IN FIRESTORE
+//   The reminder NOTIFICATIONS themselves (FR05) are scheduled on the device
+//   (expo-notifications) from users/{uid}/reminders; the counsellor Alerts
+//   tab reads pending bookings. There is no notifications collection, so
+//   any write to one is denied.
+//
+// QUERIES MUST MATCH THE RULES
+//   Rules are not filters: a query is rejected if it COULD return a doc
+//   you can't read. Always filter by the owner field, e.g.
+//   where("userId", "==", uid), where("counsellorId", "==", uid),
+//   where("participants", "array-contains", uid),
+//   where("studentId", "==", uid) on careLinks.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Helpers ----------
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // True when the signed-in user is the given uid
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // The signed-in user's profile and role (costs one document read)
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function role() {
+      return userDoc(request.auth.uid).role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && role() == "admin";
+    }
+
+    function isCounsellor() {
+      return isSignedIn() && role() == "counsellor";
+    }
+
+    // A real student: staff sign-ups waiting for (or refused) approval also
+    // have role "student", but must not act as one
+    function isStudent() {
+      return isSignedIn()
+        && role() == "student"
+        && !("approvalStatus" in userDoc(request.auth.uid));
+    }
+
+    function isLecturer() {
+      return isSignedIn() && role() == "lecturer";
+    }
+
+    // Fields an update touches
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // ---------- users ----------
+    // Profiles hold real names and emails, so only the owner and admins read
+    // them. Counsellors do NOT read users at all: the student's anonId is
+    // copied onto each booking (studentAnonId) and checked below, which is
+    // safer than giving counsellors access to the whole profile - Firestore
+    // can't hide individual fields from a read.
+    match /users/{uid} {
+      // Owner reads their own profile; admins can read and list everyone
+      allow read: if isOwner(uid) || isAdmin();
+
+      // Staff sign-up: may only ASK for counsellor or lecturer, as "pending",
+      // never as a guest. Without a request neither field may be present.
+      function validStaffRequest(d) {
+        return (!("requestedRole" in d) && !("approvalStatus" in d))
+          || (d.requestedRole in ["counsellor", "lecturer"]
+              && d.approvalStatus == "pending"
+              && d.isGuest == false);
+      }
+
+      // Sign-up and "Continue Anonymously" create your own profile, always as
+      // a student. Roles are never chosen at sign-up; staff can only request one.
+      allow create: if isOwner(uid)
+        && request.resource.data.role == "student"
+        && request.resource.data.uid == uid
+        && validStaffRequest(request.resource.data);
+
+      // Owner edits their own profile (e.g. privacy settings) but can never
+      // change their role, identity fields or staff request
+      allow update: if isOwner(uid)
+        && !changedKeys().hasAny(["role", "uid", "anonId", "isGuest",
+             "requestedRole", "approvalStatus"]);
+
+      // Admin approves a pending staff request: role becomes the requested
+      // role and both request fields are removed, all in one update
+      allow update: if isAdmin()
+        && !isOwner(uid)
+        && resource.data.role == "student"
+        && resource.data.get("approvalStatus", null) == "pending"
+        && resource.data.requestedRole in ["counsellor", "lecturer"]
+        && changedKeys().hasOnly(["role", "requestedRole", "approvalStatus"])
+        && request.resource.data.role == resource.data.requestedRole
+        && !("requestedRole" in request.resource.data)
+        && !("approvalStatus" in request.resource.data);
+
+      // Admin rejects a pending staff request (role stays "student")
+      allow update: if isAdmin()
+        && !isOwner(uid)
+        && resource.data.get("approvalStatus", null) == "pending"
+        && changedKeys().hasOnly(["approvalStatus"])
+        && request.resource.data.approvalStatus == "rejected";
+
+      // Admins change the role field only: never their own, never to or from
+      // admin (that's console-only), and guests can only be students
+      allow update: if isAdmin()
+        && !isOwner(uid)
+        && changedKeys().hasOnly(["role"])
+        && resource.data.role != "admin"
+        && request.resource.data.role in ["student", "counsellor", "lecturer"]
+        && (resource.data.isGuest != true || request.resource.data.role == "student");
+
+      // Delete My Data removes your own profile only
+      allow delete: if isOwner(uid);
+    }
+
+    // ---------- users/{uid}/reminders ----------
+    // Check-in reminder times (FR05). Owner only - nobody else, admins
+    // included, can read or write them. Doc ids are fixed slots "r1".."r5",
+    // which caps each person at 5 reminders (rules can't count documents).
+    match /users/{uid}/reminders/{reminderId} {
+      function validReminder(d) {
+        return d.keys().hasAll(["time", "days", "enabled", "createdAt", "updatedAt"])
+          && d.keys().hasOnly(["time", "days", "enabled", "createdAt", "updatedAt"])
+          && d.time is string
+          && d.time.matches("^([01][0-9]|2[0-3]):[0-5][0-9]$")
+          && d.days is list
+          && d.days.size() >= 1 && d.days.size() <= 7
+          && d.days.hasOnly([0, 1, 2, 3, 4, 5, 6])
+          && d.enabled is bool
+          && d.updatedAt == request.time;
+      }
+
+      allow read: if isOwner(uid);
+
+      allow create: if isOwner(uid)
+        && reminderId.matches("^r[1-5]$")
+        && validReminder(request.resource.data)
+        && request.resource.data.createdAt == request.time;
+
+      allow update: if isOwner(uid)
+        && validReminder(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
+
+      // Also used by Delete My Data
+      allow delete: if isOwner(uid);
+    }
+
+    // ---------- checkins ----------
+    // Mood check-ins are the most sensitive data. Admins and lecturers get
+    // no access (NFR01).
+    match /checkins/{checkinId} {
+      // Owner creates check-ins for themselves only
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+
+      // Owner reads their own. A counsellor reads a student's check-ins only
+      // if BOTH: they are linked to that student (careLinks, created after a
+      // confirmed booking) AND the student has "Share mood data with
+      // counsellor" turned on. Turning sharing off or deleting the link
+      // removes access immediately.
+      // Counsellor queries must filter where("userId", "==", studentUid).
+      allow read: if isOwner(resource.data.userId)
+        || (isCounsellor()
+            && exists(/databases/$(database)/documents/careLinks/$(request.auth.uid + "_" + resource.data.userId))
+            && userDoc(resource.data.userId).shareMoodWithCounsellor == true);
+
+      // Owner edits their own check-in but can't hand it to someone else
+      allow update: if isOwner(resource.data.userId)
+        && request.resource.data.userId == resource.data.userId;
+
+      // Owner deletes (also used by Delete My Data)
+      allow delete: if isOwner(resource.data.userId);
+    }
+
+    // ---------- bookings ----------
+    // Only the student and the booked counsellor see a booking. No admin
+    // access (NFR01). Field list and status changes: see the top of this file.
+    match /bookings/{bookingId} {
+      function isText(data, field, max) {
+        return !(field in data)
+          || (data[field] is string && data[field].size() > 0 && data[field].size() <= max);
+      }
+
+      function validOptional(data) {
+        return isText(data, "slotId", 128)
+          && isText(data, "notes", 500)
+          && isText(data, "cancelReason", 200)
+          && isText(data, "meetingLink", 500);
+      }
+
+      function validDailyReservation(data, bookingId) {
+        let dailyPath = /databases/$(database)/documents/studentDailyBookings/$(data.studentId)/dates/$(data.dateKey);
+        return data.dateKey is string
+          && data.dateKey.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+          && existsAfter(dailyPath)
+          && getAfter(dailyPath).data.studentId == data.studentId
+          && getAfter(dailyPath).data.dateKey == data.dateKey
+          && getAfter(dailyPath).data.bookingId == bookingId;
+      }
+
+      // A slot booking and its reservation must be committed atomically.
+      function validSlot(data, bookingId) {
+        return ("slotId" in data)
+          && existsAfter(/databases/$(database)/documents/slots/$(data.slotId))
+              && getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.counsellorId == data.counsellorId
+              && getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.isBooked == true
+              && getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.bookingId == bookingId
+              && getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.startAt == data.startAt
+              && getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.endAt == data.endAt
+              && getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.dateKey == data.dateKey
+              && data.sessionType in getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data.sessionTypes;
+      }
+
+      // Only status, cancelReason, cancelledBy and updatedAt ever change after creation,
+      // and updatedAt must be stamped by the server
+      function validUpdate() {
+        return changedKeys().hasOnly(["status", "cancelReason", "cancelledBy", "updatedAt", "meetingLink"])
+          && request.resource.data.updatedAt == request.time
+          && validOptional(request.resource.data)
+          && (!changedKeys().hasAny(["cancelledBy"])
+              || request.resource.data.cancelledBy in ["student", "counsellor"])
+          && (!changedKeys().hasAny(["cancelReason"])
+              || request.resource.data.status in ["cancelled", "declined"]);
+      }
+
+      function counsellorMove(from, to) {
+        return (from == "pending" && to in ["confirmed", "declined"])
+          || (from == "confirmed" && to == "cancelled")
+          || (from == "confirmed" && to == "completed" && request.time >= resource.data.startAt)
+          || (from == to && from == "confirmed");
+      }
+
+      // Students book for themselves with a real, available counsellor. The
+      // booking starts as "pending" and carries the student's real anonId.
+      allow create: if isStudent()
+        && request.resource.data.keys().hasAll(["studentId", "counsellorId", "studentAnonId",
+             "startAt", "endAt", "dateKey", "sessionType", "status", "createdAt", "updatedAt"])
+        && request.resource.data.keys().hasOnly(["studentId", "counsellorId", "studentAnonId",
+             "startAt", "endAt", "dateKey", "sessionType", "status", "createdAt", "updatedAt",
+             "slotId", "notes", "meetingLink"])
+        && request.resource.data.studentId == request.auth.uid
+        && request.resource.data.status == "pending"
+        && request.resource.data.studentAnonId == userDoc(request.auth.uid).anonId
+        && request.resource.data.counsellorId is string
+        && exists(/databases/$(database)/documents/counsellors/$(request.resource.data.counsellorId))
+        && get(/databases/$(database)/documents/counsellors/$(request.resource.data.counsellorId)).data.isAvailable == true
+        && request.resource.data.sessionType in ["in-person", "video", "phone", "chat"]
+        && request.resource.data.startAt is timestamp
+        && request.resource.data.startAt > request.time
+        && request.resource.data.endAt is timestamp
+        && request.resource.data.endAt > request.resource.data.startAt
+        && request.resource.data.dateKey is string
+        && request.resource.data.dateKey.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && validOptional(request.resource.data)
+        && validSlot(request.resource.data, bookingId)
+        // && validDailyReservation(request.resource.data, bookingId);
+
+      // The student and the booked counsellor can read it
+      allow read: if isOwner(resource.data.studentId)
+        || isOwner(resource.data.counsellorId);
+
+      // Student may only cancel a pending or confirmed booking
+      allow update: if isOwner(resource.data.studentId)
+        && validUpdate()
+        && (!changedKeys().hasAny(["cancelledBy"])
+            || request.resource.data.cancelledBy == "student")
+        && resource.data.status in ["pending", "confirmed"]
+        && request.resource.data.status in ["cancelled", "completed"];
+
+      // Booked counsellor may only move the status along (see counsellorMove)
+      allow update: if isOwner(resource.data.counsellorId)
+        && validUpdate()
+        && (!changedKeys().hasAny(["cancelledBy"])
+            || request.resource.data.cancelledBy == "counsellor")
+        && counsellorMove(resource.data.status, request.resource.data.status);
+
+      // Student deletes their own bookings (Delete My Data)
+      allow delete: if isOwner(resource.data.studentId);
+    }
+
+    // One pending, confirmed, or completed session per student and calendar
+    // date. A canceled/declined booking releases the date for another request.
+    match /studentDailyBookings/{studentId}/dates/{dateKey} {
+      function validNewReservation() {
+        let bookingPath = /databases/$(database)/documents/bookings/$(request.resource.data.bookingId);
+        return request.resource.data.keys().hasOnly(["studentId", "dateKey", "bookingId", "updatedAt"])
+          && request.resource.data.keys().hasAll(["studentId", "dateKey", "bookingId", "updatedAt"])
+          && request.resource.data.studentId == studentId
+          && request.resource.data.studentId == request.auth.uid
+          && request.resource.data.dateKey == dateKey
+          && dateKey.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+          && request.resource.data.bookingId is string
+          && request.resource.data.updatedAt == request.time
+          && existsAfter(bookingPath)
+          && getAfter(bookingPath).data.studentId == request.resource.data.studentId
+          && getAfter(bookingPath).data.dateKey == request.resource.data.dateKey
+          && getAfter(bookingPath).data.status == "pending";
+      }
+
+      function previousReservationReleased() {
+        let previousBookingPath = /databases/$(database)/documents/bookings/$(resource.data.bookingId);
+        return !exists(previousBookingPath)
+          || get(previousBookingPath).data.status in ["cancelled", "declined"]
+          || getAfter(previousBookingPath).data.status in ["cancelled", "declined"];
+      }
+
+      allow get: if isOwner(studentId)
+        && dateKey.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}$");
+      allow list: if false;
+
+      allow create: if isStudent() && validNewReservation();
+
+      allow update: if isStudent()
+        && resource.data.studentId == request.auth.uid
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.dateKey == resource.data.dateKey
+        && request.resource.data.bookingId != resource.data.bookingId
+        && validNewReservation()
+        // && previousReservationReleased(); (Disabled to allow multiple daily bookings)
+
+      allow delete: if isOwner(resource.data.studentId);
+    }
+
+    // ---------- careLinks ----------
+    // "This counsellor is caring for this student." Needed (together with
+    // the student's sharing toggle) before a counsellor can see check-ins.
+    // Doc id: "<counsellorUid>_<studentUid>" so rules can look it up directly.
+    match /careLinks/{linkId} {
+      // Only the booked counsellor creates it, for a CONFIRMED booking
+      // between exactly these two people. getAfter() so it works in the same
+      // batch that confirms the booking (bookingService.updateBookingStatus);
+      // outside a batch it's the same as get().
+      allow create: if isCounsellor()
+        && linkId == request.auth.uid + "_" + request.resource.data.studentId
+        && request.resource.data.counsellorId == request.auth.uid
+        && request.resource.data.keys().hasOnly(["counsellorId", "studentId", "bookingId", "createdAt"])
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.counsellorId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.studentId == request.resource.data.studentId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.status == "confirmed";
+
+      // The two people in the link can see it
+      allow read: if isOwner(resource.data.counsellorId)
+        || isOwner(resource.data.studentId);
+
+      // Links are never edited; the student can remove one at any time
+      // (also used by Delete My Data)
+      allow delete: if isOwner(resource.data.studentId);
+    }
+
+    // ---------- counsellors ----------
+    // Public counsellor profiles (name, bio, photo) that students browse.
+    // Doc id is the counsellor's uid.
+    match /counsellors/{counsellorId} {
+      allow read: if isSignedIn();
+
+      // The whole profile as it will be saved. Same checks (and numbers) as
+      // src/utils/validateCounsellor.ts and the limits in
+      // src/types/counsellor.ts - change them together.
+      function validCounsellorProfile(d) {
+        return d.keys().hasAll(["uid", "fullName", "title", "specialties", "languages",
+            "experienceYears", "bio", "isAvailable", "updatedAt"])
+          && d.keys().hasOnly(["uid", "fullName", "title", "specialties", "languages",
+            "experienceYears", "bio", "isAvailable", "updatedAt"])
+          && d.fullName is string
+          && d.fullName.trim().size() >= 2 && d.fullName.trim().size() <= 80
+          && d.title is string
+          && d.title.trim().size() >= 1 && d.title.trim().size() <= 100
+          && d.specialties is list
+          && d.specialties.size() >= 1 && d.specialties.size() <= 6
+          && d.specialties.hasOnly(["Anxiety", "Stress", "Depression",
+            "Academic Pressure", "Sleep", "Relationships"])
+          && d.languages is list
+          && d.languages.size() >= 1 && d.languages.size() <= 3
+          && d.languages.hasOnly(["English", "Sinhala", "Tamil"])
+          && d.experienceYears is int
+          && d.experienceYears >= 0 && d.experienceYears <= 60
+          && d.bio is string
+          && d.bio.trim().size() >= 1 && d.bio.trim().size() <= 300
+          && d.isAvailable is bool
+          && d.updatedAt == request.time;
+      }
+
+      // A counsellor edits only their own profile; admins can create or edit any.
+      // Bookings and chats treat "a counsellors doc exists" as "this is a
+      // counsellor", so the profile must belong to a user whose role really is
+      // counsellor, and its uid field must match the doc id.
+      allow create, update: if ((isOwner(counsellorId) && isCounsellor()) || isAdmin())
+        && request.resource.data.uid == counsellorId
+        && userDoc(counsellorId).role == "counsellor"
+        && validCounsellorProfile(request.resource.data);
+
+      // Admins can always switch a profile OFF (nothing else), even after the
+      // person stops being a counsellor. The Users tab does this in the same
+      // batch as a role change so students can't book them any more.
+      allow update: if isAdmin()
+        && changedKeys().hasOnly(["isAvailable", "updatedAt"])
+        && request.resource.data.isAvailable == false;
+
+      allow delete: if (isOwner(counsellorId) && isCounsellor()) || isAdmin();
+    }
+
+    // ---------- counsellorPhotos ----------
+    // Profile photos for counsellors ONLY (kept apart so the counsellors list
+    // stays light). Spark plan, so no Storage: a small JPEG data URL.
+    match /counsellorPhotos/{counsellorId} {
+      allow read: if isSignedIn();
+
+      // Admins manage photos, and counsellors manage only their own photo.
+      // The document is kept separate from the public counsellor profile so
+      // listing counsellors does not load large image data URLs.
+      allow create, update: if (isAdmin()
+          || (isCounsellor() && isOwner(counsellorId)))
+        && existsAfter(/databases/$(database)/documents/counsellors/$(counsellorId))
+        && request.resource.data.keys().hasOnly(["photo", "updatedAt"])
+        && request.resource.data.keys().hasAll(["photo", "updatedAt"])
+        && request.resource.data.photo is string
+        && request.resource.data.photo.size() < 200000
+        && request.resource.data.photo.matches("^data:image/jpeg;base64,[A-Za-z0-9+/=]+$")
+        && request.resource.data.updatedAt == request.time;
+
+      // Admins remove it with the profile; counsellors may remove their own.
+      allow delete: if isAdmin()
+        || (isCounsellor() && isOwner(counsellorId));
+    }
+
+    // ---------- slots ----------
+    // Available appointment times. Anyone signed in can see them.
+    match /slots/{slotId} {
+      allow read: if isSignedIn();
+
+      function hasInactiveReservation() {
+        let bookingId = resource.data.get("bookingId", null);
+        let bookingPath = /databases/$(database)/documents/bookings/$(bookingId);
+        return bookingId is string
+          && exists(bookingPath)
+          && (
+            get(bookingPath).data.status in ["cancelled", "declined", "completed"]
+            || (get(bookingPath).data.status in ["pending", "confirmed"]
+                && get(bookingPath).data.endAt <= request.time)
+          );
+      }
+
+      function slotIsAvailableForReservation() {
+        return (resource.data.get("isBooked", false) == false
+            && resource.data.get("status", "") != "booked")
+          || hasInactiveReservation();
+      }
+
+      // A counsellor creates slots for themselves only; admins can too
+      allow create: if (isCounsellor()
+          && request.resource.data.counsellorId == request.auth.uid)
+        || isAdmin();
+
+      // The owning counsellor edits their own slots (and can't give them away)
+      allow update: if (isCounsellor()
+          && isOwner(resource.data.counsellorId)
+          && request.resource.data.counsellorId == resource.data.counsellorId)
+        || isAdmin();
+
+      // Students may only reserve a currently open slot together with the
+      // matching pending booking, or release their own reservation when
+      // cancelling that booking. getAfter() enforces the atomic pair.
+      allow update: if isStudent()
+        && changedKeys().hasOnly(["isBooked", "bookingId"])
+        && request.resource.data.counsellorId == resource.data.counsellorId
+        && request.resource.data.isBooked == true
+        && request.resource.data.bookingId is string
+        && slotIsAvailableForReservation()
+        && resource.data.get("isHeld", false) == false
+        && resource.data.get("status", "") != "held"
+        && resource.data.get("status", "") != "closed"
+        && existsAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId))
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.studentId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.counsellorId == resource.data.counsellorId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.slotId == slotId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.startAt == resource.data.startAt
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.endAt == resource.data.endAt
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.status == "pending";
+
+      allow update: if isStudent()
+        && changedKeys().hasOnly(["isBooked", "bookingId", "status"])
+        && request.resource.data.counsellorId == resource.data.counsellorId
+        && request.resource.data.isBooked == false
+        && request.resource.data.bookingId == null
+        && request.resource.data.status == "open"
+        && resource.data.get("isBooked", false) == true
+        && resource.data.get("bookingId", null) is string
+        && existsAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId))
+        && getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.studentId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.counsellorId == resource.data.counsellorId
+        && getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.slotId == slotId
+        && getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status == "cancelled";
+
+      allow delete: if (isCounsellor() && isOwner(resource.data.counsellorId))
+        || isAdmin();
+    }
+
+        // ---------- reviews ----------
+    // Public reviews left by students for counsellors
+    match /reviews/{reviewId} {
+      allow read: if isSignedIn();
+      allow create: if isStudent() && request.resource.data.studentId == request.auth.uid;
+    }
+
+    // ---------- resources ----------
+    // Self-help articles and exercises. Only admins write.
+    match /resources/{resourceId} {
+      // Admins see everything; everyone else only sees published resources
+      // (queries must filter where("isPublished", "==", true))
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.isPublished == true);
+      allow write: if isAdmin();
+    }
+
+    // ---------- chats ----------
+    // A chat has exactly two participants: a student and a counsellor.
+    // Nobody else - including admins - can read it (NFR01).
+    match /chats/{chatId} {
+      // Participants only. List queries must use
+      // where("participants", "array-contains", uid).
+      allow read: if isSignedIn()
+        && request.auth.uid in resource.data.participants;
+
+      // You can only start a chat you're in, with exactly two people,
+      // and at least one of them must be a counsellor
+      allow create: if isSignedIn()
+        && request.resource.data.participants.size() == 2
+        && request.auth.uid in request.resource.data.participants
+        && (exists(/databases/$(database)/documents/counsellors/$(request.resource.data.participants[0]))
+            || exists(/databases/$(database)/documents/counsellors/$(request.resource.data.participants[1])));
+
+      // Participants can update chat info (e.g. last message) but not who is in it
+      allow update: if isSignedIn()
+        && request.auth.uid in resource.data.participants
+        && request.resource.data.participants == resource.data.participants;
+
+      // The student in the chat can delete it (Delete My Data).
+      // Delete the messages first: their rule looks up this chat.
+      allow delete: if isStudent()
+        && request.auth.uid in resource.data.participants;
+
+      // ---------- chats/{chatId}/messages ----------
+      match /messages/{messageId} {
+        // Only the chat's two participants can read messages
+        allow read: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+
+        // Participants send messages as themselves only
+        allow create: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+          && request.resource.data.senderId == request.auth.uid;
+
+        // Participants can mark messages as deleted for themselves
+        allow update: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+          && (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletedFor'])
+            || (request.auth.uid == resource.data.senderId 
+                && request.resource.data.isDeleted == true 
+                && (request.time.toMillis() - resource.data.createdAt.toMillis() <= 86400000))
+          );
+
+        // The sender can delete their own message (Delete for everyone).
+        // The student in the chat can also delete messages (Delete My Data).
+        allow delete: if (isSignedIn() && request.auth.uid == resource.data.senderId)
+          || (isStudent() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants);
+      }
+    }
+
+    // ---------- stats ----------
+    // Anonymous weekly mood totals for lecturers (US05). A doc only ever holds
+    // counts - never who checked in. Lecturers and admins read; students can
+    // only add exactly one check-in to the CURRENT week; admins can only add
+    // or remove clearly marked demo weeks, never touch real ones.
+    match /stats/{weekId} {
+      // "YYYY-MM-DD" -> timestamp at 00:00 UTC
+      function dateOf(ws) {
+        return timestamp.date(int(ws.split("-")[0]), int(ws.split("-")[1]), int(ws.split("-")[2]));
+      }
+
+      // weekStart is a Monday and the doc id is its ISO week ("2026-W40").
+      // For a Monday, ISO week = (dayOfYear + 9) / 7. Week "53" can also be
+      // week 1 of the next year, so both are accepted there.
+      function idMatches(ws) {
+        let start = dateOf(ws);
+        let week = (start.dayOfYear() + 9) / 7;
+        let idYear = int(weekId.split("-W")[0]);
+        let idWeek = int(weekId.split("-W")[1]);
+        return weekId.matches("^[0-9]{4}-W[0-9]{2}$")
+          && start.dayOfWeek() == 1
+          && ((idYear == start.year() && idWeek == week)
+              || (week == 53 && idYear == start.year() + 1 && idWeek == 1));
+      }
+
+      // The week is happening now (one day of slack each side covers time
+      // zones, since weekStart is the Monday in the phone's local time)
+      function isCurrentWeek(ws) {
+        return request.time >= dateOf(ws) - duration.value(1, "d")
+          && request.time < dateOf(ws) + duration.value(8, "d");
+      }
+
+      function validWeekStart(ws) {
+        return ws is string
+          && ws.matches("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+          && idMatches(ws);
+      }
+
+      // Exactly one mood field went up by exactly 1 (update)
+      function oneMoodUp(before, after, changed) {
+        return (changed.hasAll(["mood1"]) && after.mood1 == before.get("mood1", 0) + 1)
+          || (changed.hasAll(["mood2"]) && after.mood2 == before.get("mood2", 0) + 1)
+          || (changed.hasAll(["mood3"]) && after.mood3 == before.get("mood3", 0) + 1)
+          || (changed.hasAll(["mood4"]) && after.mood4 == before.get("mood4", 0) + 1)
+          || (changed.hasAll(["mood5"]) && after.mood5 == before.get("mood5", 0) + 1);
+      }
+
+      // Exactly one mood field, set to 1 (first check-in of the week)
+      function oneMoodIsOne(d) {
+        return (d.keys().hasAll(["mood1"]) && d.mood1 == 1)
+          || (d.keys().hasAll(["mood2"]) && d.mood2 == 1)
+          || (d.keys().hasAll(["mood3"]) && d.mood3 == 1)
+          || (d.keys().hasAll(["mood4"]) && d.mood4 == 1)
+          || (d.keys().hasAll(["mood5"]) && d.mood5 == 1);
+      }
+
+      function isCount(v) {
+        return v is int && v >= 0;
+      }
+
+      // "What's affecting your mood?" reasons: known keys only (FACTOR_KEYS
+      // in src/types/stats.ts), each going up by 0 or 1 from before to after
+      function factorKeys() {
+        return ["studies", "exams", "sleep", "health", "family", "friends",
+                "relationships", "money", "work", "loneliness", "other"];
+      }
+      function factorStep(before, after, k) {
+        return after.get(k, 0) == before.get(k, 0)
+          || after.get(k, 0) == before.get(k, 0) + 1;
+      }
+      function factorsUpByOne(before, after) {
+        return after is map
+          && after.keys().hasOnly(factorKeys())
+          && factorStep(before, after, "studies") && factorStep(before, after, "exams")
+          && factorStep(before, after, "sleep") && factorStep(before, after, "health")
+          && factorStep(before, after, "family") && factorStep(before, after, "friends")
+          && factorStep(before, after, "relationships") && factorStep(before, after, "money")
+          && factorStep(before, after, "work") && factorStep(before, after, "loneliness")
+          && factorStep(before, after, "other");
+      }
+      // Admin demo data: known keys only, every value a count
+      function factorCounts(m) {
+        return m is map
+          && m.keys().hasOnly(factorKeys())
+          && isCount(m.get("studies", 0)) && isCount(m.get("exams", 0))
+          && isCount(m.get("sleep", 0)) && isCount(m.get("health", 0))
+          && isCount(m.get("family", 0)) && isCount(m.get("friends", 0))
+          && isCount(m.get("relationships", 0)) && isCount(m.get("money", 0))
+          && isCount(m.get("work", 0)) && isCount(m.get("loneliness", 0))
+          && isCount(m.get("other", 0));
+      }
+
+      // Lecturers and admins only
+      allow read: if isLecturer() || isAdmin();
+
+      // Student, first check-in of the week: {weekStart, total: 1, moodN: 1}
+      // plus optional factors {key: 1, ...}
+      allow create: if isStudent()
+        && validWeekStart(request.resource.data.weekStart)
+        && isCurrentWeek(request.resource.data.weekStart)
+        && (request.resource.data.keys().size() == 3
+            || (request.resource.data.keys().size() == 4
+                && request.resource.data.keys().hasAll(["factors"])
+                && factorsUpByOne({}, request.resource.data.factors)))
+        && request.resource.data.keys().hasAll(["weekStart", "total"])
+        && request.resource.data.total == 1
+        && oneMoodIsOne(request.resource.data);
+
+      // Student, later check-ins: total +1 and exactly one mood +1, and
+      // optionally each factor +0/+1, nothing else; only on the current,
+      // real (non-demo) week
+      allow update: if isStudent()
+        && resource.data.get("demo", false) == false
+        && isCurrentWeek(resource.data.weekStart)
+        && (changedKeys().size() == 2
+            || (changedKeys().size() == 3
+                && changedKeys().hasAll(["factors"])
+                && factorsUpByOne(resource.data.get("factors", {}),
+                                  request.resource.data.factors)))
+        && changedKeys().hasAll(["total"])
+        && request.resource.data.total == resource.data.total + 1
+        && oneMoodUp(resource.data, request.resource.data, changedKeys());
+
+      // Admin demo data: new docs only, marked demo, all counts present and
+      // adding up. Real weeks can't be overwritten because this is create-only.
+      allow create: if isAdmin()
+        && request.resource.data.demo == true
+        && validWeekStart(request.resource.data.weekStart)
+        && request.resource.data.keys().hasOnly(
+             ["weekStart", "total", "mood1", "mood2", "mood3", "mood4", "mood5", "demo", "factors"])
+        && factorCounts(request.resource.data.get("factors", {}))
+        && isCount(request.resource.data.mood1)
+        && isCount(request.resource.data.mood2)
+        && isCount(request.resource.data.mood3)
+        && isCount(request.resource.data.mood4)
+        && isCount(request.resource.data.mood5)
+        && request.resource.data.total == request.resource.data.mood1
+             + request.resource.data.mood2 + request.resource.data.mood3
+             + request.resource.data.mood4 + request.resource.data.mood5;
+
+      // Admins can remove demo weeks only; real stats are never deleted
+      allow delete: if isAdmin() && resource.data.get("demo", false) == true;
+    }
+
+    // ---------- clinicalNotes ----------
+    // Confidential progress and SOAP notes written by attending counsellors.
+    // Read and written exclusively by the authoring counsellor or system admin (NFR01).
+    match /clinicalNotes/{noteId} {
+      allow read: if (isCounsellor() && resource.data.counselorId == request.auth.uid)
+        || isAdmin();
+
+      allow create: if isCounsellor()
+        && request.resource.data.counselorId == request.auth.uid;
+
+      allow update: if isCounsellor()
+        && isOwner(resource.data.counselorId)
+        && request.resource.data.counselorId == resource.data.counselorId;
+
+      allow delete: if (isCounsellor() && isOwner(resource.data.counselorId))
+        || isAdmin();
+    }
+
+    // ---------- counselorPreferences ----------
+    // Counsellor quiet hours, notification thresholds, and clinical triage rules.
+    // Scoped strictly to the counsellor whose uid matches the document id.
+    match /counselorPreferences/{counselorId} {
+      allow read: if isOwner(counselorId) || isAdmin();
+
+      allow create, update: if (isOwner(counselorId) && isCounsellor()) || isAdmin();
+
+      allow delete: if isOwner(counselorId) || isAdmin();
+    }
+  }
+}
