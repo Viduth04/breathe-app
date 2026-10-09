@@ -585,6 +585,7 @@ export function initFirebaseSync() {
               statusBadge: d.isBooked ? "Confirmed" : "Open",
               isAnonymous: true,
               intakeNote,
+              bookingId: d.bookingId,
             };
           });
 
@@ -1654,7 +1655,7 @@ export const counsellorStore = {
 
     // Strict validation: Prevent booking a slot that has already been booked
     const slotAlreadyBooked = Boolean(
-      (targetReq?.slotId && state.scheduleDaySlots.some((s) => s.id === targetReq.slotId && s.isBooked)) ||
+      (targetReq?.slotId && state.scheduleDaySlots.some((s) => s.id === targetReq.slotId && s.isBooked && s.bookingId !== targetReq.id)) ||
       state.sessions.some(
         (s) =>
           s.id !== targetReq?.id &&
