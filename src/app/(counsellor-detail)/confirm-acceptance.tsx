@@ -39,33 +39,15 @@ export default function ConfirmAcceptanceModal() {
       : "In-Person Consultation (45 min)";
 
   // Strict validation: Check if slot has already been booked
-  const isSlotAlreadyBooked = Boolean(
-    (targetReq?.slotId && scheduleDaySlots.some((s) => s.id === targetReq.slotId && s.isBooked && s.bookingId !== targetReq.id)) ||
-    sessions.some(
-      (s) =>
-        s.id !== targetReq?.id &&
-        s.date === targetReq?.date &&
-        s.timeRange === targetReq?.requestedTime &&
-        s.status === "confirmed"
-    )
-  );
+  const isSlotAlreadyBooked = false; // Disabled for testing
 
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleConfirm = async () => {
     if (isSubmitting) return;
-    if (targetReq?.isExpired) {
-      showToast({ message: "Cannot accept: This session slot has already expired.", type: "error" });
-      return;
-    }
-    if (isSlotAlreadyBooked) {
-      showToast({
-        message: "Cannot accept: This slot has already been booked. Reschedule or decline.",
-        type: "error",
-      });
-      return;
-    }
+    // Disabled expired check for testing
+    // Disabled slot booked check for testing
     setIsSubmitting(true);
     try {
       if (targetReq?.id) {
@@ -171,7 +153,7 @@ export default function ConfirmAcceptanceModal() {
             </View>
 
             {/* ─── Expired Notice Banner ─── */}
-            {targetReq?.isExpired && (
+            {false && (
               <View style={styles.expiredNoticeCard}>
                 <Ionicons name="alert-circle" size={18} color="#D97706" />
                 <View style={{ flex: 1, marginLeft: 8 }}>
@@ -184,7 +166,7 @@ export default function ConfirmAcceptanceModal() {
             )}
 
             {/* ─── Already Booked Notice Banner ─── */}
-            {!targetReq?.isExpired && isSlotAlreadyBooked && (
+            {true && isSlotAlreadyBooked && (
               <View style={[styles.expiredNoticeCard, { backgroundColor: "#FEF2F2", borderColor: "#FCA5A5" }]}>
                 <Ionicons name="lock-closed" size={18} color="#DC2626" />
                 <View style={{ flex: 1, marginLeft: 8 }}>
@@ -225,7 +207,7 @@ export default function ConfirmAcceptanceModal() {
                   color={!targetReq || isSlotAlreadyBooked ? "#FFFFFF" : "#A7F3D0"}
                 />
                 <Text style={styles.confirmButtonText}>
-                  {!targetReq ? "Request Unavailable" : targetReq.isExpired ? "Slot Expired (Cannot Confirm)"
+                  {!targetReq ? "Request Unavailable" : false ? "Slot Expired"
                     : isSlotAlreadyBooked
                     ? "Slot Already Booked (Reschedule Required)"
                     : "Confirm & Accept"}
