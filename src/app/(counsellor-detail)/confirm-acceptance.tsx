@@ -40,7 +40,7 @@ export default function ConfirmAcceptanceModal() {
 
   // Strict validation: Check if slot has already been booked
   const isSlotAlreadyBooked = Boolean(
-    (targetReq?.slotId && scheduleDaySlots.some((s) => s.id === targetReq.slotId && s.isBooked)) ||
+    (targetReq?.slotId && scheduleDaySlots.some((s) => s.id === targetReq.slotId && s.isBooked && s.bookingId !== targetReq.id)) ||
     sessions.some(
       (s) =>
         s.id !== targetReq?.id &&
