@@ -27,9 +27,43 @@ University students often struggle quietly with stress, exam pressure and low mo
 > If you or someone else is in danger, call **1990** (Suwa Seriya ambulance) or **119** (Police emergency) now.
 > For mental health support, call the **National Mental Health Helpline: 1926** (free, 24/7).
 
+## 📱 Download & Try
+
+**[⬇️ Download the Breathe Android APK](https://mysliit-my.sharepoint.com/:f:/g/personal/it23845800_my_sliit_lk/IgCRUCoVYWqJQarwitS-dCd9AVart7CxOxNyuIMwDZbUIw8?e=eXuIYC)**
+
+| | |
+|---|---|
+| **Build** | EAS Build, `preview` profile |
+| **Expo SDK** | 57 |
+| **Commit** | [`ea40953`](https://github.com/Viduth04/breathe-app/commit/ea40953) |
+| **Tested on** | Android phone (APK) · iPhone (Expo Go) |
+
+### Install on Android
+
+1. Download the APK from the link above.
+2. Open the downloaded file.
+3. If Android asks, allow **Install unknown apps** for your browser or file manager.
+4. Tap **Install**, then open Breathe.
+
+### Try it as a student
+
+Register a new account, or tap **Continue Anonymously** on the welcome screen.
+
+> [!NOTE]
+> Demo accounts for the **admin**, **counsellor** and **lecturer** roles are listed in the final report (**Appendix D**).
+
+### Run from Source
+
+1. `npm install`
+2. Create a `.env` file with the Firebase config. Copy [`.env.example`](.env.example), which lists the variable names, and fill in the values.
+3. `npx expo start`
+
+See [Getting started](#-getting-started) for the full steps.
+
 ## 📑 Table of contents
 
 - [About](#-about)
+- [Download & Try](#-download--try)
 - [Screenshots](#-screenshots)
 - [Features](#-features)
 - [Privacy & Safety by design](#-privacy--safety-by-design)
@@ -275,7 +309,7 @@ Scan the QR code with **Expo Go** (Android) or the Camera app (iOS). Other scrip
 
 ## 📦 Download the APK
 
-**[⬇️ Download Breathe for Android](#)** · TODO: add the EAS build link
+**[⬇️ Download Breathe for Android](https://mysliit-my.sharepoint.com/:f:/g/personal/it23845800_my_sliit_lk/IgCRUCoVYWqJQarwitS-dCd9AVart7CxOxNyuIMwDZbUIw8?e=eXuIYC)**
 
 The APK was built with EAS Build:
 
@@ -285,7 +319,7 @@ eas login
 eas build -p android --profile preview
 ```
 
-> **TODO:** `eas.json` is not in the repo yet. Commit it, and confirm the profile name used (`preview` produces an installable `.apk`).
+The build profiles are in [`eas.json`](eas.json); the `preview` profile produces an installable `.apk`.
 
 ## 🧪 Test accounts
 
